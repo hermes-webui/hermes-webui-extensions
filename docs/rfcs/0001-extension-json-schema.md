@@ -50,9 +50,16 @@ the table.
   },
 
   // --- what core surface this entry needs (capability names, not version pins) ---
-  "capabilities": ["manifest-bundle", "sidecar"],   // e.g. manifest-bundle | sidecar | proxy
+  // capabilities are CORE-OWNED: the canonical list lives in the core repo, since
+  // it defines the actual surface. Only list a capability core has SHIPPED.
+  // `manifest-bundle` and `loopback-sidecar` (direct browser→loopback, shipped today)
+  // are valid now; do NOT list `sidecar-proxy` until core ships the same-origin proxy.
+  "capabilities": ["manifest-bundle", "loopback-sidecar"],
 
-  // --- optional local helper process (descriptive until the core sidecar/proxy contract ships) ---
+  // --- optional local helper process. The `sidecar` block is descriptive metadata. ---
+  // Today an extension reaches this directly (browser → loopback, allowed by the
+  // core CSP connect-src). A same-origin proxy to it is FUTURE work (capability
+  // `sidecar-proxy`), not assumable by entries yet.
   "sidecar": {
     "type": "loopback",
     "origin": "http://127.0.0.1:17787",
@@ -64,11 +71,18 @@ the table.
 
   // --- gallery + trust ---
   "screenshots": ["screenshots/pet.png"],
-  "permissions": {                      // honest disclosure; drives review + the gallery's "this extension can…" note
-    "network": false,
-    "filesystem": false,
-    "native_host": true,               // true here because of the sidecar
-    "sidecar": true
+  // Honest disclosure; drives review + the gallery's "this extension can…" note.
+  // Finer-grained than a coarse 4-bool set BECAUSE extension JS runs in the WebUI
+  // origin and can call authenticated WebUI APIs — that authority must be surfaced
+  // explicitly, not hidden inside a generic "network" bool. (per @santastabber)
+  "permissions": {
+    "webui_authenticated_api": true,   // calls authenticated same-origin WebUI APIs (the in-origin authority)
+    "webui_dom": ["composer", "sidebar"],  // which UI surfaces it reads/mutates (coarse named surfaces)
+    "network_external": false,         // any non-same-origin / non-loopback fetch
+    "loopback_sidecar": true,          // talks to a declared localhost sidecar
+    "filesystem": false,               // reads/writes local files (via a sidecar/native host)
+    "native_host": true,               // starts or drives a native/desktop process
+    "storage": ["localStorage"]        // browser storage it uses
   },
 
   // --- compatibility ---
@@ -87,14 +101,38 @@ the table.
 }
 ```
 
+## Manifest derivation must preserve core hardening (per @santastabber)
+
+When the Action derives the runtime `manifest.json` from `assets`, the output
+**must satisfy every rule the core loader already enforces** — same-origin asset
+paths only (`/extensions/` or `/static/`), no traversal/encoded dot-segments, the
+URL-count and manifest-size caps, bare paths resolving under `/extensions/`. The
+derivation never relaxes those; if an entry's `assets` can't produce a
+core-valid manifest, the entry fails validation. The generated manifest is held
+to the *same* bar as a hand-written one.
+
+## Install metadata / lifecycle the schema must support (per @santastabber)
+
+The install flow (#4/#9) needs more than a download URL. Track in the entry +
+delivery design:
+
+- **artifact integrity** — `sha256` verified before extract (Action-added field).
+- **zip-slip-safe extraction** — paths confined to the extension dir; reject
+  `..`/absolute members (the loader's `_is_safe_relative_path` shape).
+- **installed file tracking** — record the file set an install placed, so…
+- **rollback + clean uninstall** — install is reversible; uninstall removes
+  exactly what was placed and nothing else.
+
 ## Validation (what CI / safety gates check — #6, #8)
 
 - required fields present; `id` is lowercase-hyphen, unique, matches the directory
-- `assets` paths are same-origin / repo-local (no external URLs, no traversal)
-- declared `capabilities` exist in the current core extension contract
-- `permissions` block present and honest (cross-checked against a static scan of
-  the assets — e.g. an extension declaring `network: false` but containing `fetch`
-  to an external origin is flagged)
+- `assets` paths are same-origin / repo-local (no external URLs, no traversal) AND
+  the *derived* manifest passes the core loader's hardening rules
+- declared `capabilities` are in the **core-owned** capability list and SHIPPED
+  (e.g. reject `sidecar-proxy` until core ships it)
+- `permissions` block present and honest — cross-checked against a static scan of
+  the assets (e.g. `network_external:false` + an external `fetch` → flagged;
+  `webui_authenticated_api:false` + calls to authed endpoints → flagged)
 - no secrets / binaries committed; manifest within size bounds
 
 ## Open questions (please weigh in)
@@ -102,11 +140,11 @@ the table.
 1. **One file or two?** Author-writes-`extension.json` + Action-derives-`manifest.json`
    (recommended), or authors hand-write both? Trade-off: single source of truth +
    minimal loader contract vs. fewer moving parts / no generation step.
-2. **`capabilities` vocabulary.** What's the initial set of capability names, and
-   who owns the canonical list (core repo, since it defines the surface)?
-3. **`permissions` granularity.** Is the coarse `{network, filesystem, native_host,
-   sidecar}` shape enough for the gallery's trust display, or do we want finer
-   buckets?
+2. **`capabilities` vocabulary + ownership.** Confirmed core-owned; what's the
+   initial shipped set? Proposed today: `manifest-bundle`, `loopback-sidecar`.
+   Future: `sidecar-proxy` (gated on core), later in-process routes.
+3. **`permissions` granularity.** The block above is a first cut at finer buckets
+   (surfacing in-origin authed-API access explicitly). Right set / right names?
 4. **Versioning / updates.** How does the gallery offer "update available" — compare
    `version`, or the `sha256`? Where do older versions go?
 5. **Screenshots** — committed in-repo (simple, bloats the repo over time) or
