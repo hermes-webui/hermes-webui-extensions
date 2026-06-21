@@ -66,27 +66,43 @@ the table.
     "health_path": "/health"
   },
 
-  // --- install behavior ---
-  "restart_required": false,            // does installing/enabling require a WebUI restart?
-
-  // --- gallery + trust ---
-  "screenshots": ["screenshots/pet.png"],
-  // Honest disclosure; drives review + the gallery's "this extension can…" note.
-  // Finer-grained than a coarse 4-bool set BECAUSE extension JS runs in the WebUI
-  // origin and can call authenticated WebUI APIs — that authority must be surfaced
-  // explicitly, not hidden inside a generic "network" bool. (per @santastabber)
-  "permissions": {
-    "webui_authenticated_api": true,   // calls authenticated same-origin WebUI APIs (the in-origin authority)
-    "webui_dom": ["composer", "sidebar"],  // which UI surfaces it reads/mutates (coarse named surfaces)
-    "network_external": false,         // any non-same-origin / non-loopback fetch
-    "loopback_sidecar": true,          // talks to a declared localhost sidecar
-    "filesystem": false,               // reads/writes local files (via a sidecar/native host)
-    "native_host": true,               // starts or drives a native/desktop process
-    "storage": ["localStorage"]        // browser storage it uses
+  // --- install / lifecycle behavior ---
+  // Different states restart independently (per @franksong2702 / Desktop Companion):
+  // installing WebUI assets, starting a loopback sidecar, and launching a native
+  // host are separate. Distinguish what actually needs to restart; leave
+  // native-host autostart preference owned by the EXTENSION, not WebUI core.
+  "lifecycle": {
+    "webui_restart_required": false,   // do the injected WebUI assets need a WebUI restart to take effect?
+    "sidecar_start_required": true,    // install/enable needs a loopback sidecar to be started
+    "native_host_start_required": true,// a native/desktop host process must launch
+    "native_host_autostart": "extension_owned"  // WebUI core does NOT own this; the extension decides
   },
 
-  // --- compatibility ---
-  "min_webui_version": "0.51.0"         // optional; prefer `capabilities` over hard version pins where possible
+  // --- gallery + trust ---
+  "screenshots": ["screenshots/pet.png"],   // in-repo for the first pass (per maintainers)
+  // Honest disclosure; drives review + the gallery's "this extension can…" note.
+  // Finer-grained than a coarse bool set BECAUSE extension JS runs in the WebUI
+  // origin and can call authenticated WebUI APIs — that authority must be surfaced
+  // explicitly. Vocabulary distinguishes purpose, not just on/off (per @santastabber
+  // + @franksong2702, grounded in Desktop Companion's real surface).
+  "permissions": {
+    // WebUI API access BY PURPOSE — read (session/status) vs write (chat/action)
+    "webui_api": { "read": ["sessions", "status"], "write": [] },
+    // navigation helpers it uses (e.g. window.loadSession), distinct from API writes
+    "webui_navigation": true,
+    // extension-OWNED DOM vs mutation/replacement of CORE views
+    "dom": { "owned": true, "mutates_core_views": false },
+    // extension-owned storage keys vs touching EXISTING WebUI keys
+    "storage": { "owned": ["companion-prefs"], "shared_webui_keys": ["hermes-webui-session"] },
+    "loopback_sidecar": true,          // talks to a declared localhost sidecar
+    "native_host": true,               // native host / windowing (transparent windows, menus, drag, restart)
+    // filesystem: distinguish ARBITRARY local file access from serving BUNDLED assets
+    "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
+    "network_external": false          // any non-same-origin / non-loopback fetch
+  },
+
+  // --- compatibility (capability-first; version only as a fallback hint) ---
+  "min_webui_version": "0.51.0"         // optional fallback; prefer `capabilities` over hard version pins
 }
 ```
 
@@ -135,20 +151,33 @@ delivery design:
   `webui_authenticated_api:false` + calls to authed endpoints → flagged)
 - no secrets / binaries committed; manifest within size bounds
 
+## Resolved (maintainer consensus)
+
+- **One file (not two).** Both maintainers favor: authors maintain `extension.json`,
+  CI derives the runtime loader manifest. Frank's rationale from real Desktop
+  Companion code: the author-facing metadata (identity, assets, sidecar,
+  permissions, compatibility, source repo, screenshots, install/lifecycle notes)
+  is much richer than the loader manifest, and hand-writing both would drift.
+- **Capabilities are core-owned; declare only shipped ones.** Desktop Companion
+  declares `manifest-bundle` + `loopback-sidecar` today, NOT `sidecar-proxy`.
+- **Screenshots in-repo for the first pass.** Revisit if repo size becomes an issue.
+- **Updates:** user-facing comparison by `version`; integrity by `sha256`.
+- **Compatibility capability-first**, `min_webui_version` as a fallback hint only.
+
 ## Open questions (please weigh in)
 
-1. **One file or two?** Author-writes-`extension.json` + Action-derives-`manifest.json`
-   (recommended), or authors hand-write both? Trade-off: single source of truth +
-   minimal loader contract vs. fewer moving parts / no generation step.
-2. **`capabilities` vocabulary + ownership.** Confirmed core-owned; what's the
-   initial shipped set? Proposed today: `manifest-bundle`, `loopback-sidecar`.
-   Future: `sidecar-proxy` (gated on core), later in-process routes.
-3. **`permissions` granularity.** The block above is a first cut at finer buckets
-   (surfacing in-origin authed-API access explicitly). Right set / right names?
-4. **Versioning / updates.** How does the gallery offer "update available" — compare
-   `version`, or the `sha256`? Where do older versions go?
-5. **Screenshots** — committed in-repo (simple, bloats the repo over time) or
-   referenced/hosted (lighter repo, another fetch + integrity question)?
+1. **`permissions` vocabulary — final shape.** The block above now distinguishes
+   purpose (API read vs write, owned-DOM vs core-view mutation, owned-storage vs
+   shared WebUI keys, native-host/windowing, bundled-assets vs arbitrary FS),
+   grounded in Desktop Companion's real surface. Is this the right set + names, or
+   still too fine / too coarse in places?
+2. **`lifecycle` shape.** Splitting `webui_restart_required` /
+   `sidecar_start_required` / `native_host_start_required` and leaving
+   `native_host_autostart` extension-owned — does that match how the install flow
+   (#4) should reason about "what needs to (re)start"?
+3. **Versioning details.** `version` drives "update available" in the gallery, but
+   where do older artifact versions live, and does the gallery pin/verify the
+   `sha256` of the specific version it offers?
 
 ## Not in scope for this RFC
 
