@@ -59,14 +59,32 @@ docs/
   extension-entry.md
 examples/
   manifest-bundle/
+  loopback-sidecar/
 ```
 
 Each extension should stay self-contained under `extensions/<extension-id>/`.
 Shared docs and examples live under `docs/` and `examples/`.
+
+## Compatibility And Testing
+
+Extensions should declare the WebUI extension API surface they expect, not just
+the WebUI version they were first tested with. This gives maintainers a way to
+check existing extensions when the main Hermes WebUI repo rolls forward.
+
+Extension entries should document:
+
+- supported Hermes WebUI version or release range
+- required extension API surface, such as manifest bundles or sidecar metadata
+- sidecar health expectations, if a local helper process is used
+- install, disable, and uninstall behavior
+- manual verification steps
+- any future CI check that should protect the extension
+
+The long-term goal is for this repository to validate existing extension
+entries as the main WebUI extension contract evolves.
 
 ## First Phase Scope
 
 This first phase defines repository shape and contribution expectations only.
 It does not add an extension registry UI, install flow, backend proxy, or any
 Desktop Companion assets.
-

@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "desktop-companion",
+      "name": "Desktop Companion",
+      "scripts": ["assets/companion-adapter.js"],
+      "stylesheets": ["assets/companion-adapter.css"],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17787",
+        "health_path": "/health"
+      }
+    }
+  ]
+}

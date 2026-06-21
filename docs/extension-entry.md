@@ -43,6 +43,43 @@ Extension entries should keep paths local to the extension directory.
 
 Use stable, lowercase extension IDs. Prefer letters, numbers, and hyphens.
 
+## Sidecar Metadata
+
+Extensions that depend on a local helper process should declare it in manifest
+metadata once the WebUI-side contract supports that field. This lets WebUI show
+users that an extension has a local dependency and eventually report coarse
+health state without hardcoding extension-specific behavior.
+
+Example shape:
+
+```json
+{
+  "extensions": [
+    {
+      "id": "desktop-companion",
+      "name": "Desktop Companion",
+      "scripts": ["assets/companion-adapter.js"],
+      "stylesheets": ["assets/companion-adapter.css"],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17787",
+        "health_path": "/health"
+      }
+    }
+  ]
+}
+```
+
+The `sidecar` object should stay descriptive unless the main WebUI repo defines
+stronger behavior. Declaring a sidecar should not imply install, auto-start,
+proxy, or public network access semantics.
+
+Suggested fields:
+
+- `type`: use `loopback` for a local HTTP service bound to localhost
+- `origin`: the localhost origin the extension expects
+- `health_path`: a read-only path WebUI can use for coarse health checks
+
 ## README Shape
 
 Each extension README should cover:
@@ -55,6 +92,7 @@ Each extension README should cover:
 - trust model and permissions
 - sidecar or native host behavior, if any
 - known limitations
+- compatibility and verification notes
 
 ## Sidecar And Native Host Notes
 
@@ -77,3 +115,6 @@ Because the WebUI extension API is still evolving, extension READMEs should
 name the WebUI version, PR, or API surface they were tested against whenever
 possible.
 
+Compatibility notes should prefer capability names over exact versions when
+possible. For example, say an extension needs manifest bundles and sidecar
+metadata rather than only naming the first release where those features worked.

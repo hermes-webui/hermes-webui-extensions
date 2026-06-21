@@ -16,6 +16,8 @@ before adding a large implementation.
 - Do not load remote third-party scripts at runtime.
 - Disclose any network, filesystem, native host, sidecar, or OS integration.
 - Bind sidecar services to localhost by default and document any ports used.
+- Document the WebUI version or extension API surface the entry was tested
+  against.
 - Prefer docs and examples when the WebUI extension contract is still changing.
 
 ## Pull Request Checklist
@@ -28,6 +30,7 @@ Before opening a PR, confirm:
 - [ ] The manifest uses local extension assets.
 - [ ] Install, disable, and uninstall behavior is documented.
 - [ ] Any sidecar or native integration is documented clearly.
+- [ ] Compatibility and verification notes are included.
 - [ ] No secrets, generated local state, or unreviewed binaries are included.
 
 ## Review Expectations
@@ -35,4 +38,3 @@ Before opening a PR, confirm:
 Maintainers may ask for an extension to start as documentation or an example
 until the WebUI-side API is ready. This is expected while the foundation work
 lands in stages.
-
