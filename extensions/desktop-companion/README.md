@@ -1,9 +1,10 @@
 # Desktop Companion
 
 Desktop Companion is a trusted local companion extension for Hermes WebUI. It
-watches session attention state and forwards lightweight snapshots to a local
-loopback sidecar for the native desktop pet host. It does not render a browser
-pet or WebUI overlay.
+watches session attention state, forwards lightweight snapshots to a local
+loopback sidecar, and executes trusted local desktop-pet commands in the
+authenticated WebUI browser session. It does not render a browser pet or WebUI
+overlay.
 
 This entry is the first sidecar-class extension candidate for the Hermes WebUI
 extension library. It keeps the WebUI-facing assets in this repository and keeps
@@ -28,6 +29,10 @@ invisible and quietly fails closed. When the sidecar is running, the extension
 posts snapshots to `POST /api/webui/snapshot` so the desktop pet can react.
 The sidecar and native desktop pet host are required for the user-visible
 desktop pet experience; the WebUI adapter alone is only the browser bridge.
+
+This bridge is bidirectional. The browser adapter sends attention snapshots to
+the sidecar, and it also polls the local sidecar for commands that the adapter
+executes inside the authenticated WebUI origin.
 
 The bundled `assets/pets/` resources are consumed by the native desktop pet
 host through the sidecar/source project. They are not a browser overlay and do
@@ -96,13 +101,21 @@ browser origin and can use the logged-in browser session.
 Current disclosed behavior:
 
 - reads the authenticated WebUI sessions API via `/api/sessions`
+- reads authenticated session detail via `/api/session`
+- writes authenticated WebUI APIs for desktop-pet commands:
+  `/api/session/draft`, `/api/approval/respond`, and `/api/clarify/respond`
 - reads guarded Hermes WebUI browser globals for live session state while no
   formal extension runtime API exists (`S`, `_allSessions`, `INFLIGHT`,
   `_currentPanel`, `switchPanel`, `_saveComposerDraftNow`, and `send`)
 - reads existing WebUI localStorage keys for viewed/unread session state
+- writes extension-owned localStorage markers for consumed desktop-pet commands:
+  `hermes-pet-navigation-last-id` and `hermes-pet-action-last-id`
 - talks to a loopback sidecar at `http://127.0.0.1:17787`
 - sends the local sidecar page URL/title, companion state, and current session
   attention summaries, including session titles and status text
+- polls the local sidecar for trusted commands and can switch sessions, inject
+  composer drafts, optionally autosend a draft, and respond to approval or
+  clarification prompts in the logged-in WebUI session
 - uses a native host for transparent windows, menus, drag behavior, and restart
   behavior when the desktop pet is launched
 - serves bundled pet assets
@@ -113,6 +126,10 @@ The adapter endpoint can be overridden with trusted local configuration via
 `window.HERMES_DESKTOP_COMPANION_CONFIG` before the adapter loads. Do not point
 that override at an untrusted remote origin, because the adapter sends
 authenticated WebUI attention state and executes queued desktop-pet actions.
+
+The autosend path is intentionally limited to commands delivered by the local
+loopback sidecar the user starts. It is not exposed to remote origins or
+third-party script loaders by this extension entry.
 
 ## Sidecar Contract
 
@@ -150,6 +167,10 @@ Required WebUI surface:
 - manifest-bundled extension assets
 - same-origin extension asset serving under `/extensions/`
 - browser access to authenticated WebUI session APIs
+- authenticated WebUI write APIs for session drafts, approval responses, and
+  clarification responses
+- browser navigation/session-loading hooks for desktop-pet jump and quick-reply
+  flows
 - loopback CSP allowance for `http://127.0.0.1:17787`
 - guarded access to the current WebUI browser globals listed in the trust
   section until WebUI core exposes an equivalent extension runtime API
@@ -174,6 +195,7 @@ capability model rather than today's manual startup mechanics.
 From this repository:
 
 ```bash
+node scripts/validate-desktop-companion.mjs
 python3 -m json.tool extensions/desktop-companion/extension.json
 python3 -m json.tool extensions/desktop-companion/manifest.json
 node --check extensions/desktop-companion/assets/companion-adapter.js

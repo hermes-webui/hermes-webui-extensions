@@ -30,17 +30,32 @@
   "permissions": {
     "webui_api": {
       "read": [
-        "sessions"
+        "sessions",
+        "session"
       ],
-      "write": []
+      "write": [
+        "session/draft",
+        "approval/respond",
+        "clarify/respond"
+      ]
     },
-    "webui_navigation": false,
+    "webui_navigation": true,
+    "sidecar_commands": {
+      "from_loopback": true,
+      "can_switch_sessions": true,
+      "can_write_drafts": true,
+      "can_autosend": true,
+      "can_respond_approval": true,
+      "can_respond_clarify": true
+    },
     "dom": {
       "owned": false,
       "mutates_core_views": false
     },
     "storage": {
       "owned": [
+        "hermes-pet-navigation-last-id",
+        "hermes-pet-action-last-id"
       ],
       "shared_webui_keys": [
         "hermes-session-viewed-counts",
