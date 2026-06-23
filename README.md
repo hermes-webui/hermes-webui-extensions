@@ -87,6 +87,18 @@ Extension entries should document:
 The long-term goal is for this repository to validate existing extension
 entries as the main WebUI extension contract evolves.
 
+Run the current repo-wide checks locally with:
+
+```bash
+node scripts/validate-extensions.mjs
+node scripts/test-extension-validator.mjs
+node scripts/generate-registry.mjs --out dist/registry.json
+```
+
+Pull requests run the same validator in CI. Pushes to `main` generate the
+registry artifact for GitHub Pages. Artifact zip delivery and install-time hash
+verification are tracked separately from this first registry generator.
+
 ## Current Entries
 
 - `extensions/desktop-companion/`: trusted local Desktop Companion entry and

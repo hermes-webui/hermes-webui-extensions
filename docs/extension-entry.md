@@ -123,3 +123,29 @@ possible.
 Compatibility notes should prefer capability names over exact versions when
 possible. For example, say an extension needs manifest bundles and sidecar
 metadata rather than only naming the first release where those features worked.
+
+## Validation And Registry
+
+Run the repo-wide validator before opening or updating an extension PR:
+
+```bash
+node scripts/validate-extensions.mjs
+```
+
+The validator scans every `extensions/*/extension.json`, checks required files,
+safe local asset paths, runtime `manifest.json` consistency, shipped capability
+names, lifecycle and permission shape, and selected permissions-vs-code drift
+such as WebUI API read/write disclosures.
+
+Generate the registry locally with:
+
+```bash
+node scripts/generate-registry.mjs --out dist/registry.json
+```
+
+The generated registry is the gallery/install index consumed by future WebUI
+extension UI work. The first version includes the reviewed entry metadata plus
+Action-added fields such as `entry_path`, `runtime_manifest_path`,
+`published_at`, `file_count`, and per-file `file_sha256` values. Per-extension
+download zips and install-time `sha256` verification are tracked separately in
+the install-delivery issue.
