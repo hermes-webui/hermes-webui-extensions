@@ -112,6 +112,7 @@ the table.
 {
   "download": "https://<pages-host>/artifacts/desktop-companion-0.1.0.zip",
   "sha256": "…",                        // integrity hash; install verifies bytes == reviewed entry
+  "artifact_size": 123456,
   "published_at": "2026-…",
   "entry_path": "extensions/desktop-companion/"
 }

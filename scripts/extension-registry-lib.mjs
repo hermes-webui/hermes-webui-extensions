@@ -2,9 +2,13 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-export const REPO_ROOT = process.cwd();
+export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const EXTENSIONS_ROOT = path.join(REPO_ROOT, 'extensions');
+export const DEFAULT_REGISTRY_BASE_URL = 'https://hermes-webui.github.io/hermes-webui-extensions/';
+const ZIP32_MAX = 0xffffffff;
+const ZIP16_MAX = 0xffff;
 
 const VALID_CAPABILITIES = new Set([
   'manifest-bundle',
@@ -105,6 +109,115 @@ function collectFiles(dir, prefix = '') {
 
 function sha256File(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+function sha256Buffer(buffer) {
+  return createHash('sha256').update(buffer).digest('hex');
+}
+
+const CRC32_TABLE = new Uint32Array(256).map((_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  return value >>> 0;
+});
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime() {
+  // Fixed timestamp keeps extension artifacts deterministic across CI runs.
+  const date = ((1980 - 1980) << 9) | (1 << 5) | 1;
+  const time = 0;
+  return { date, time };
+}
+
+function writeZipLocalHeader({ name, content }) {
+  const nameBuffer = Buffer.from(name, 'utf8');
+  if (content.length > ZIP32_MAX) throw new Error(`Zip member too large for non-Zip64 artifact: ${name}`);
+  if (nameBuffer.length > ZIP16_MAX) throw new Error(`Zip member path too long: ${name}`);
+  const header = Buffer.alloc(30);
+  const { date, time } = dosDateTime();
+  const checksum = crc32(content);
+  header.writeUInt32LE(0x04034b50, 0);
+  header.writeUInt16LE(10, 4);
+  header.writeUInt16LE(0, 6);
+  header.writeUInt16LE(0, 8);
+  header.writeUInt16LE(time, 10);
+  header.writeUInt16LE(date, 12);
+  header.writeUInt32LE(checksum, 14);
+  header.writeUInt32LE(content.length, 18);
+  header.writeUInt32LE(content.length, 22);
+  header.writeUInt16LE(nameBuffer.length, 26);
+  header.writeUInt16LE(0, 28);
+  return { buffer: Buffer.concat([header, nameBuffer, content]), checksum };
+}
+
+function writeZipCentralHeader({ name, content, offset, checksum }) {
+  const nameBuffer = Buffer.from(name, 'utf8');
+  const header = Buffer.alloc(46);
+  const { date, time } = dosDateTime();
+  header.writeUInt32LE(0x02014b50, 0);
+  header.writeUInt16LE(0x031e, 4);
+  header.writeUInt16LE(10, 6);
+  header.writeUInt16LE(0, 8);
+  header.writeUInt16LE(0, 10);
+  header.writeUInt16LE(time, 12);
+  header.writeUInt16LE(date, 14);
+  header.writeUInt32LE(checksum, 16);
+  header.writeUInt32LE(content.length, 20);
+  header.writeUInt32LE(content.length, 24);
+  header.writeUInt16LE(nameBuffer.length, 28);
+  header.writeUInt16LE(0, 30);
+  header.writeUInt16LE(0, 32);
+  header.writeUInt16LE(0, 34);
+  header.writeUInt16LE(0, 36);
+  header.writeUInt32LE(0, 38);
+  header.writeUInt32LE(offset, 42);
+  return Buffer.concat([header, nameBuffer]);
+}
+
+function writeZipEndRecord({ entryCount, centralSize, centralOffset }) {
+  const header = Buffer.alloc(22);
+  header.writeUInt32LE(0x06054b50, 0);
+  header.writeUInt16LE(0, 4);
+  header.writeUInt16LE(0, 6);
+  header.writeUInt16LE(entryCount, 8);
+  header.writeUInt16LE(entryCount, 10);
+  header.writeUInt32LE(centralSize, 12);
+  header.writeUInt32LE(centralOffset, 16);
+  header.writeUInt16LE(0, 20);
+  return header;
+}
+
+function buildZip(files) {
+  if (files.length > ZIP16_MAX) throw new Error(`Too many files for non-Zip64 artifact: ${files.length}`);
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const file of files) {
+    if (offset > ZIP32_MAX) throw new Error('Zip artifact is too large for non-Zip64 central directory offsets');
+    const local = writeZipLocalHeader(file);
+    localParts.push(local.buffer);
+    centralParts.push(writeZipCentralHeader({ ...file, offset, checksum: local.checksum }));
+    offset += local.buffer.length;
+  }
+  const central = Buffer.concat(centralParts);
+  if (offset > ZIP32_MAX || central.length > ZIP32_MAX || offset + central.length > ZIP32_MAX) {
+    throw new Error('Zip artifact is too large for non-Zip64 central directory');
+  }
+  const end = writeZipEndRecord({
+    entryCount: files.length,
+    centralSize: central.length,
+    centralOffset: offset
+  });
+  return Buffer.concat([...localParts, central, end]);
 }
 
 function assertArray(value, label, errors) {
@@ -358,7 +471,7 @@ export function validateAllEntries() {
   return { discovered, results };
 }
 
-export function buildRegistry({ publishedAt = new Date().toISOString() } = {}) {
+function assertValidResults() {
   const { results } = validateAllEntries();
   const failures = results.filter((result) => result.errors.length);
   if (failures.length) {
@@ -367,26 +480,93 @@ export function buildRegistry({ publishedAt = new Date().toISOString() } = {}) {
       .join('\n');
     throw new Error(`Cannot generate registry from invalid entries:\n${message}`);
   }
+  return results;
+}
 
+function extensionFiles(result) {
+  return collectFiles(result.root).map((rel) => ({
+    path: rel,
+    absolutePath: path.join(result.root, rel.split('/').join(path.sep))
+  }));
+}
+
+function artifactName(entry) {
+  return `${entry.id}-${entry.version}.zip`;
+}
+
+function normalizeBaseUrl(baseUrl) {
+  return baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+}
+
+function artifactDownloadUrl(baseUrl, name) {
+  return new URL(`artifacts/${name}`, normalizeBaseUrl(baseUrl)).href;
+}
+
+export function buildExtensionArtifact(result) {
+  const files = extensionFiles(result).map((file) => ({
+    name: `${result.entry.id}/${file.path}`,
+    content: readFileSync(file.absolutePath)
+  }));
+  const buffer = buildZip(files);
+  return {
+    id: result.entry.id,
+    name: artifactName(result.entry),
+    buffer,
+    sha256: sha256Buffer(buffer),
+    size: buffer.length,
+    file_count: files.length
+  };
+}
+
+function buildRegistryFromResults(results, {
+  publishedAt,
+  artifactBaseUrl = DEFAULT_REGISTRY_BASE_URL,
+  artifactsById = new Map()
+}) {
   return {
     version: 1,
     generated_at: publishedAt,
     extensions: results
       .map((result) => {
         const entryDir = repoRelative(result.root);
-        const fileHashes = collectFiles(result.root).map((rel) => ({
-          path: rel,
-          sha256: sha256File(path.join(result.root, rel.split('/').join(path.sep)))
+        const fileHashes = extensionFiles(result).map((file) => ({
+          path: file.path,
+          sha256: sha256File(file.absolutePath)
         }));
+        const artifact = artifactsById.get(result.entry.id);
         return {
           ...result.entry,
           entry_path: `${entryDir}/extension.json`,
           runtime_manifest_path: `${entryDir}/manifest.json`,
+          ...(artifact
+            ? {
+                download: artifactDownloadUrl(artifactBaseUrl, artifact.name),
+                sha256: artifact.sha256,
+                artifact_size: artifact.size
+              }
+            : {}),
           published_at: publishedAt,
           file_count: fileHashes.length,
           file_sha256: fileHashes
         };
       })
       .sort((a, b) => a.id.localeCompare(b.id))
+  };
+}
+
+export function buildRegistry({ publishedAt = new Date().toISOString() } = {}) {
+  return buildRegistryFromResults(assertValidResults(), { publishedAt });
+}
+
+export function buildRegistryWithArtifacts({
+  publishedAt = new Date().toISOString(),
+  artifactBaseUrl = DEFAULT_REGISTRY_BASE_URL
+} = {}) {
+  const results = assertValidResults();
+  const artifacts = results.map((result) => buildExtensionArtifact(result));
+  const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+  return {
+    registry: buildRegistryFromResults(results, { publishedAt, artifactBaseUrl, artifactsById }),
+    artifacts
   };
 }

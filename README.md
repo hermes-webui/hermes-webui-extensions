@@ -96,8 +96,11 @@ node scripts/generate-registry.mjs --out dist/registry.json
 ```
 
 Pull requests run the same validator in CI. Pushes to `main` generate the
-registry artifact for GitHub Pages. Artifact zip delivery and install-time hash
-verification are tracked separately from this first registry generator.
+registry and per-extension zip artifacts for GitHub Pages. The registry entry
+includes a `download` URL and artifact-level `sha256` for each extension so the
+future WebUI install client can fetch and verify reviewed bytes before
+extracting them. The core-side install client, safe extraction, rollback, and
+uninstall flow are tracked in the main Hermes WebUI repo.
 
 ## Current Entries
 
@@ -106,4 +109,5 @@ verification are tracked separately from this first registry generator.
 
 This repository does not yet add an extension registry UI, install flow, or
 backend proxy. Entries should continue to document their current manual install
-and lifecycle behavior explicitly.
+and lifecycle behavior explicitly until the core WebUI gallery/install client
+ships.

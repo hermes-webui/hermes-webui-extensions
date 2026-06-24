@@ -146,6 +146,17 @@ node scripts/generate-registry.mjs --out dist/registry.json
 The generated registry is the gallery/install index consumed by future WebUI
 extension UI work. The first version includes the reviewed entry metadata plus
 Action-added fields such as `entry_path`, `runtime_manifest_path`,
-`published_at`, `file_count`, and per-file `file_sha256` values. Per-extension
-download zips and install-time `sha256` verification are tracked separately in
-the install-delivery issue.
+`published_at`, `file_count`, and per-file `file_sha256` values.
+
+The generator also writes deterministic per-extension zip artifacts under
+`dist/artifacts/` and adds install-delivery fields to each registry entry:
+
+- `download`: the GitHub Pages URL for the reviewed extension zip
+- `sha256`: the artifact-level SHA-256 hash the install client must verify
+- `artifact_size`: the artifact byte size
+
+Zip members are rooted under the extension id, for example
+`desktop-companion/extension.json`, so the core install client can extract into
+the extension root with a zip-slip-safe path check. The core WebUI install
+client still owns fetch, hash verification, extraction, installed-file tracking,
+rollback, and uninstall.
