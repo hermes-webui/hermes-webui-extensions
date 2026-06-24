@@ -92,15 +92,16 @@ Run the current repo-wide checks locally with:
 ```bash
 node scripts/validate-extensions.mjs
 node scripts/test-extension-validator.mjs
+node scripts/scan-extension-safety.mjs
 node scripts/generate-registry.mjs --out dist/registry.json
 ```
 
-Pull requests run the same validator in CI. Pushes to `main` generate the
-registry and per-extension zip artifacts for GitHub Pages. The registry entry
-includes a `download` URL and artifact-level `sha256` for each extension so the
-future WebUI install client can fetch and verify reviewed bytes before
-extracting them. The core-side install client, safe extraction, rollback, and
-uninstall flow are tracked in the main Hermes WebUI repo.
+Pull requests run the same validator and safety scan in CI. Pushes to `main`
+generate the registry and per-extension zip artifacts for GitHub Pages. The
+registry entry includes a `download` URL and artifact-level `sha256` for each
+extension so the future WebUI install client can fetch and verify reviewed
+bytes before extracting them. The core-side install client, safe extraction,
+rollback, and uninstall flow are tracked in the main Hermes WebUI repo.
 
 ## Current Entries
 

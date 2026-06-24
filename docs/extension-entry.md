@@ -130,12 +130,18 @@ Run the repo-wide validator before opening or updating an extension PR:
 
 ```bash
 node scripts/validate-extensions.mjs
+node scripts/scan-extension-safety.mjs
 ```
 
 The validator scans every `extensions/*/extension.json`, checks required files,
 safe local asset paths, runtime `manifest.json` consistency, shipped capability
 names, lifecycle and permission shape, and selected permissions-vs-code drift
 such as WebUI API read/write disclosures.
+
+The safety scan layers on high-risk checks for entry files before they can land:
+obvious secrets, symlinks or unsafe paths, blocked JavaScript execution patterns,
+undeclared external network literals, localStorage writes without owned-key
+declarations, and generated artifact hash/size consistency.
 
 Generate the registry locally with:
 
