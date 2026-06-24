@@ -42,6 +42,9 @@ jobs:
       - name: Test extension validator
         run: node scripts/test-extension-validator.mjs
 
+      - name: Scan extension safety gates
+        run: node scripts/scan-extension-safety.mjs
+
       - name: Generate registry
         run: node scripts/generate-registry.mjs --out dist/registry.json
 

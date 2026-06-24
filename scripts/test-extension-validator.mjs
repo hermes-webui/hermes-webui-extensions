@@ -134,6 +134,14 @@ try {
   assert.equal(validateFromScripts.status, 0, validateFromScripts.stderr || validateFromScripts.stdout);
   assert.match(validateFromScripts.stdout, /validated 1 extension entry/);
 
+  const safetyScanFromScripts = spawnSync(process.execPath, ['scan-extension-safety.mjs'], {
+    cwd: scriptsDir,
+    encoding: 'utf8',
+    timeout: 30000
+  });
+  assert.equal(safetyScanFromScripts.status, 0, safetyScanFromScripts.stderr || safetyScanFromScripts.stdout);
+  assert.match(safetyScanFromScripts.stdout, /safety scan passed for 1 extension entry/);
+
   console.log('extension validator self-tests passed');
 } finally {
   rmSync(tmpRoot, { recursive: true, force: true });

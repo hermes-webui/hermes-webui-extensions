@@ -150,6 +150,12 @@ delivery design:
 - `permissions` block present and honest — cross-checked against a static scan of
   the assets (e.g. `network_external:false` + an external `fetch` → flagged;
   `webui_authenticated_api:false` + calls to authed endpoints → flagged)
+- high-risk entry scan blocks obvious secrets, symlinks or unsafe paths, dangerous
+  JavaScript execution patterns, undeclared external network literals, and
+  undeclared localStorage writes
+- generated registry artifacts must carry matching `download`, artifact-level
+  `sha256`, and `artifact_size` fields, and the generated zip must be readable as
+  an extension artifact
 - no secrets / binaries committed; manifest within size bounds
 
 ## Resolved (maintainer consensus)
