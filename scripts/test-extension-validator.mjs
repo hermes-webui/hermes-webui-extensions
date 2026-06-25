@@ -113,18 +113,31 @@ try {
     publishedAt: '2026-01-01T00:00:00.000Z',
     artifactBaseUrl: 'https://example.test/extensions/'
   });
-  assert.equal(first.registry.extensions.length, 1);
+  assert(first.registry.extensions.length >= 1);
+  assert.equal(first.artifacts.length, first.registry.extensions.length);
+  assert.equal(second.artifacts.length, first.artifacts.length);
+  for (const entry of first.registry.extensions) {
+    const artifact = first.artifacts.find((item) => item.id === entry.id);
+    const secondArtifact = second.artifacts.find((item) => item.id === entry.id);
+    assert(artifact, `${entry.id} artifact is present`);
+    assert(secondArtifact, `${entry.id} second artifact is present`);
+    assert.equal(entry.download, `https://example.test/extensions/artifacts/${entry.id}-${entry.version}.zip`);
+    assert.match(entry.sha256, /^[0-9a-f]{64}$/);
+    assert.equal(artifact.name, `${entry.id}-${entry.version}.zip`);
+    assert.equal(artifact.sha256, entry.sha256);
+    assert.equal(artifact.sha256, secondArtifact.sha256);
+    assert(artifact.buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])));
+    assert(artifact.buffer.includes(Buffer.from(`${entry.id}/extension.json`)));
+  }
   const desktopCompanion = first.registry.extensions.find((entry) => entry.id === 'desktop-companion');
   assert(desktopCompanion);
-  assert.equal(desktopCompanion.download, 'https://example.test/extensions/artifacts/desktop-companion-0.1.0.zip');
-  assert.match(desktopCompanion.sha256, /^[0-9a-f]{64}$/);
-  assert.equal(first.artifacts.length, 1);
-  assert.equal(first.artifacts[0].name, 'desktop-companion-0.1.0.zip');
-  assert.equal(first.artifacts[0].sha256, desktopCompanion.sha256);
-  assert.equal(first.artifacts[0].sha256, second.artifacts[0].sha256);
-  assert(first.artifacts[0].buffer.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])));
-  assert(first.artifacts[0].buffer.includes(Buffer.from('desktop-companion/extension.json')));
-  assert(first.artifacts[0].buffer.includes(Buffer.from('desktop-companion/assets/companion-adapter.js')));
+  const desktopArtifact = first.artifacts.find((item) => item.id === 'desktop-companion');
+  assert(desktopArtifact.buffer.includes(Buffer.from('desktop-companion/assets/companion-adapter.js')));
+
+  const mobileConversations = first.registry.extensions.find((entry) => entry.id === 'mobile-conversations');
+  assert(mobileConversations);
+  const mobileArtifact = first.artifacts.find((item) => item.id === 'mobile-conversations');
+  assert(mobileArtifact.buffer.includes(Buffer.from('mobile-conversations/assets/mobile-conversations.js')));
 
   const validateFromScripts = spawnSync(process.execPath, ['validate-extensions.mjs'], {
     cwd: scriptsDir,
@@ -132,7 +145,7 @@ try {
     timeout: 30000
   });
   assert.equal(validateFromScripts.status, 0, validateFromScripts.stderr || validateFromScripts.stdout);
-  assert.match(validateFromScripts.stdout, /validated 1 extension entry/);
+  assert.match(validateFromScripts.stdout, /validated \d+ extension entr(?:y|ies)/);
 
   const safetyScanFromScripts = spawnSync(process.execPath, ['scan-extension-safety.mjs'], {
     cwd: scriptsDir,
@@ -140,7 +153,7 @@ try {
     timeout: 30000
   });
   assert.equal(safetyScanFromScripts.status, 0, safetyScanFromScripts.stderr || safetyScanFromScripts.stdout);
-  assert.match(safetyScanFromScripts.stdout, /safety scan passed for 1 extension entry/);
+  assert.match(safetyScanFromScripts.stdout, /safety scan passed for \d+ extension entr(?:y|ies)/);
 
   console.log('extension validator self-tests passed');
 } finally {

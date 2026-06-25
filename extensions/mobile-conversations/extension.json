@@ -1,0 +1,47 @@
+{
+  "id": "mobile-conversations",
+  "name": "Mobile Conversations Button",
+  "description": "Phone-only floating Conversations button for Hermes WebUI that opens the existing mobile conversations drawer and exposes long-press shortcuts.",
+  "version": "0.1.0",
+  "author": "santastabber",
+  "assets": {
+    "scripts": [
+      "assets/mobile-conversations.js"
+    ],
+    "stylesheets": [
+      "assets/mobile-conversations.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": true,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}

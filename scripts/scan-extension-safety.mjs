@@ -38,7 +38,12 @@ const JS_DANGER_PATTERNS = [
   { label: 'remote script element loader', pattern: /createElement\s*\(\s*['"`]script['"`]\s*\)[\s\S]{0,500}\.src\s*=\s*['"`]https?:\/\// }
 ];
 
-function isLoopbackUrl(value) {
+const SAFE_LITERAL_URLS = new Set([
+  'http://www.w3.org/2000/svg'
+]);
+
+function isAllowedNetworkLiteral(value) {
+  if (SAFE_LITERAL_URLS.has(value)) return true;
   try {
     const url = new URL(value);
     return ['127.0.0.1', 'localhost', '::1'].includes(url.hostname);
@@ -89,7 +94,7 @@ function scanJavaScriptFile(entry, file, text, errors) {
   const networkExternal = permissions.network_external === true;
   const urls = [...text.matchAll(/['"`](https?:\/\/[^'"`\s)]+)['"`]/g)].map((match) => match[1]);
   for (const url of urls) {
-    if (!isLoopbackUrl(url) && !networkExternal) {
+    if (!isAllowedNetworkLiteral(url) && !networkExternal) {
       errors.push(`${repoRelative(file.path)} contains external URL literal while permissions.network_external is false: ${url}`);
     }
   }

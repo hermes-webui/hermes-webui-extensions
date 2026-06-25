@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "mobile-conversations",
+      "name": "Mobile Conversations Button",
+      "description": "Phone-only floating Conversations button and shortcut menu for Hermes WebUI.",
+      "scripts": [
+        "assets/mobile-conversations.js"
+      ],
+      "stylesheets": [
+        "assets/mobile-conversations.css"
+      ]
+    }
+  ]
+}
