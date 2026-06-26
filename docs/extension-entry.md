@@ -114,6 +114,34 @@ document:
 
 Sidecars should bind to localhost by default and avoid public network exposure.
 
+## Post-Install Guidance
+
+Extensions that need a local app, sidecar, or native host should include
+`post_install` so gallery UIs can tell users what to do after clicking Install.
+This is user-facing guidance; lifecycle remains the machine-readable source for
+what must start.
+
+Example:
+
+```json
+{
+  "post_install": {
+    "summary": "Install enables the WebUI bridge. In the Desktop Companion repo, run npm run start:pet to launch the desktop pet.",
+    "docs_url": "https://github.com/franksong2702/hermes-webui-desktop-companion#after-gallery-install",
+    "requires_local_app": true,
+    "local_app_label": "Desktop Companion app"
+  }
+}
+```
+
+Suggested fields:
+
+- `summary`: one short sentence shown after install
+- `docs_url`: an http(s) link with setup/start instructions
+- `requires_local_app`: `true` when the extension needs a local app or native
+  host for its visible behavior
+- `local_app_label`: the reader-facing name of that local app or host
+
 ## Compatibility Notes
 
 Because the WebUI extension API is still evolving, extension READMEs should

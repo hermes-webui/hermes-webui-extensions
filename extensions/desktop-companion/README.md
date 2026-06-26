@@ -49,6 +49,24 @@ It does not declare `sidecar-proxy`. Direct browser-to-loopback access is the
 current integration model. A same-origin sidecar proxy can be added later if
 Hermes WebUI core ships that capability.
 
+## Install From Gallery
+
+In Hermes WebUI, open Settings -> Extensions -> Gallery and install
+Desktop Companion.
+
+Gallery install enables the WebUI bridge only. To show and use the desktop pet,
+open the Desktop Companion source repo and run the local start command:
+
+```bash
+git clone https://github.com/franksong2702/hermes-webui-desktop-companion
+cd hermes-webui-desktop-companion
+npm install
+npm run start:pet
+```
+
+The setup guide link opens the source repo's `After Gallery install` section,
+which starts with the same command for an existing local clone.
+
 ## Install For Local Testing
 
 Start Hermes WebUI with this extension directory:
@@ -60,8 +78,8 @@ HERMES_WEBUI_EXTENSION_MANIFEST=manifest.json \
 ./start.sh
 ```
 
-Start the companion sidecar from the source repo when desktop behavior is
-needed:
+If you are testing without Gallery install, start the companion sidecar from the
+source repo when desktop behavior is needed:
 
 ```bash
 git clone https://github.com/franksong2702/hermes-webui-desktop-companion
@@ -70,8 +88,8 @@ npm install
 npm run dev
 ```
 
-Start the native desktop pet host from the same source repo to show and use the
-desktop pet surface:
+Then start the native desktop pet host from the same source repo to show and use
+the desktop pet surface:
 
 ```bash
 npm install --prefix desktop-pet

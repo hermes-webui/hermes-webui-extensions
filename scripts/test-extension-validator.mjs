@@ -131,6 +131,12 @@ try {
   }
   const desktopCompanion = first.registry.extensions.find((entry) => entry.id === 'desktop-companion');
   assert(desktopCompanion);
+  assert.equal(desktopCompanion.post_install.requires_local_app, true);
+  assert.match(desktopCompanion.post_install.summary, /npm run start:pet/);
+  assert.equal(
+    desktopCompanion.post_install.docs_url,
+    'https://github.com/franksong2702/hermes-webui-desktop-companion#after-gallery-install'
+  );
   const desktopArtifact = first.artifacts.find((item) => item.id === 'desktop-companion');
   assert(desktopArtifact.buffer.includes(Buffer.from('desktop-companion/assets/companion-adapter.js')));
 

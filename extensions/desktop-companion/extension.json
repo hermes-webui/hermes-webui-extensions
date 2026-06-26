@@ -26,6 +26,12 @@
     "native_host_start_required": true,
     "native_host_autostart": "extension_owned"
   },
+  "post_install": {
+    "summary": "Install enables the WebUI bridge. In the Desktop Companion repo, run npm run start:pet to launch the desktop pet.",
+    "docs_url": "https://github.com/franksong2702/hermes-webui-desktop-companion#after-gallery-install",
+    "requires_local_app": true,
+    "local_app_label": "Desktop Companion app"
+  },
   "screenshots": [],
   "permissions": {
     "webui_api": {

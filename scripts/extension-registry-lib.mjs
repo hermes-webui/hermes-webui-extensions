@@ -78,6 +78,16 @@ function isSemver(value) {
   return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(String(value || ''));
 }
 
+function isHttpUrl(value) {
+  if (!isNonEmptyString(value)) return false;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol);
+  } catch (_) {
+    return false;
+  }
+}
+
 function isSafeLocalPath(value) {
   if (!isNonEmptyString(value)) return false;
   if (value.startsWith('/') || value.startsWith('\\')) return false;
@@ -389,6 +399,27 @@ function validateLifecycle(entry, errors) {
   }
 }
 
+function validatePostInstall(entry, errors) {
+  if (entry.post_install === undefined) return;
+  if (!isPlainObject(entry.post_install)) {
+    errors.push('post_install must be an object');
+    return;
+  }
+  assertString(entry.post_install.summary, 'post_install.summary', errors);
+  if (entry.post_install.docs_url !== undefined && !isHttpUrl(entry.post_install.docs_url)) {
+    errors.push('post_install.docs_url must be an http(s) URL');
+  }
+  if (entry.post_install.requires_local_app !== undefined) {
+    assertBoolean(entry.post_install.requires_local_app, 'post_install.requires_local_app', errors);
+  }
+  if (entry.post_install.local_app_label !== undefined) {
+    assertString(entry.post_install.local_app_label, 'post_install.local_app_label', errors);
+  }
+  if (entry.post_install.requires_local_app === true && !isNonEmptyString(entry.post_install.local_app_label)) {
+    errors.push('post_install.local_app_label is required when post_install.requires_local_app is true');
+  }
+}
+
 function validateSidecar(entry, errors) {
   const hasCapability = Array.isArray(entry.capabilities) && entry.capabilities.includes('loopback-sidecar');
   if (!hasCapability) return;
@@ -448,6 +479,7 @@ export function validateEntry(discovered) {
   validateRuntimeManifest(entry, assets, errors);
   validateCapabilities(entry, errors);
   validateLifecycle(entry, errors);
+  validatePostInstall(entry, errors);
   validateSidecar(entry, errors);
 
   const scriptText = assets.scripts
