@@ -11,7 +11,7 @@
   // locally; nothing is uploaded.
   //
   // DEPENDENCY: requires the core registerHermesSkin capability
-  // (nesquena/hermes-webui PR #5083). Without it the extension shows a notice and
+  // (nesquena/hermes-webui PR #5100). Without it the extension shows a notice and
   // does nothing destructive.
   //
   // Design note: rather than expose ~30 raw tokens, the editor offers a curated
@@ -186,7 +186,7 @@
           '<button type="button" class="hwx-tc-x" aria-label="Close">✕</button></div>' +
         (hasCapability() ? '' :
           '<div class="hwx-tc-warn">The theme-registration capability isn\u2019t available in this WebUI build ' +
-          '(needs core PR #5083). You can still design a theme, but it can\u2019t be applied yet.</div>') +
+          '(needs core PR #5100). You can still design a theme, but it can\u2019t be applied yet.</div>') +
         '<div class="hwx-tc-body">' +
           '<div class="hwx-tc-editor"></div>' +
           '<div class="hwx-tc-saved"></div>' +
