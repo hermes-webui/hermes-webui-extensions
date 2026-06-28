@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "theme-creator",
+      "name": "Theme Creator",
+      "description": "Build your own theme with a live color editor; saves into the native Appearance picker.",
+      "scripts": [
+        "assets/theme-creator.js"
+      ],
+      "stylesheets": [
+        "assets/theme-creator.css"
+      ]
+    }
+  ]
+}

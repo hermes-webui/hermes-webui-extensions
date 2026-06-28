@@ -1,0 +1,104 @@
+/* Theme Creator extension for Hermes WebUI.
+   Scoped to hwx-tc-* classes; uses core CSS variables for theme-fit. */
+
+.hwx-tc-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .45);
+}
+.hwx-tc-card {
+  width: min(560px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--surface, #16161f);
+  color: var(--text, #f5f5f5);
+  border: 1px solid var(--border, rgba(127, 127, 127, .3));
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .45);
+  padding: 16px 18px;
+}
+.hwx-tc-head {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.hwx-tc-title { font-weight: 700; font-size: 16px; flex: 1 1 auto; }
+.hwx-tc-x {
+  appearance: none; border: none; background: transparent;
+  color: var(--muted, #888); font-size: 15px; cursor: pointer;
+  width: 28px; height: 28px; border-radius: 7px;
+}
+.hwx-tc-x:hover { background: var(--hover-bg, rgba(127,127,127,.15)); color: var(--text, #fff); }
+
+.hwx-tc-warn {
+  font-size: 12px; color: var(--warning, #d98f3a);
+  background: var(--code-bg, rgba(127,127,127,.1));
+  border: 1px solid var(--border2, rgba(127,127,127,.25));
+  border-radius: 8px; padding: 8px 10px; margin-bottom: 12px;
+}
+
+.hwx-tc-section-title { font-weight: 650; font-size: 13px; margin: 8px 0; color: var(--muted, #9aa0b5); }
+
+.hwx-tc-namerow, .hwx-tc-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 8px; font-size: 13px;
+}
+.hwx-tc-namerow > span, .hwx-tc-row > span:first-child { flex: 0 0 150px; color: var(--text2, #ddd); }
+.hwx-tc-name, .hwx-tc-hex {
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127,127,127,.3));
+  background: var(--bg, #0d0d1a);
+  color: var(--text, #fff);
+  border-radius: 7px; padding: 7px 9px; font-size: 13px;
+}
+.hwx-tc-name { flex: 1 1 auto; }
+.hwx-tc-swatchwrap { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; }
+.hwx-tc-color {
+  appearance: none; -webkit-appearance: none;
+  width: 38px; height: 30px; padding: 0;
+  border: 1px solid var(--border2, rgba(127,127,127,.3));
+  border-radius: 7px; background: transparent; cursor: pointer; flex: 0 0 auto;
+}
+.hwx-tc-color::-webkit-color-swatch-wrapper { padding: 2px; }
+.hwx-tc-color::-webkit-color-swatch { border: none; border-radius: 5px; }
+.hwx-tc-hex { width: 96px; font-family: ui-monospace, monospace; }
+
+.hwx-tc-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.hwx-tc-spacer { flex: 1 1 auto; }
+.hwx-tc-btn {
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127,127,127,.3));
+  background: var(--code-bg, rgba(127,127,127,.12));
+  color: var(--text, #fff);
+  border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.hwx-tc-btn:hover { background: var(--hover-bg, rgba(127,127,127,.18)); border-color: var(--border, rgba(127,127,127,.4)); }
+.hwx-tc-save { background: var(--accent-bg, rgba(99,102,241,.15)); border-color: var(--accent, #6366f1); color: var(--accent-text, var(--text)); }
+
+.hwx-tc-err { font-size: 12px; color: var(--danger, #e5534b); margin-top: 8px; }
+
+.hwx-tc-saved { margin-top: 18px; border-top: 1px solid var(--border2, rgba(127,127,127,.2)); padding-top: 10px; }
+.hwx-tc-muted { font-size: 12px; color: var(--muted, #888); }
+.hwx-tc-saved-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13px; }
+.hwx-tc-swatches { display: inline-flex; gap: 3px; flex: 0 0 auto; }
+.hwx-tc-mini { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(127,127,127,.35); display: inline-block; }
+.hwx-tc-saved-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hwx-tc-link {
+  appearance: none; border: none; background: transparent;
+  color: var(--accent-text, var(--accent, #6366f1)); cursor: pointer;
+  font-size: 12px; padding: 3px 6px; border-radius: 6px;
+}
+.hwx-tc-link:hover { background: var(--hover-bg, rgba(127,127,127,.15)); }
+.hwx-tc-del { color: var(--danger, #e5534b); }
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-tc-btn { transition: none; }
+}
+@media (max-width: 560px) {
+  .hwx-tc-namerow > span, .hwx-tc-row > span:first-child { flex-basis: 110px; }
+}

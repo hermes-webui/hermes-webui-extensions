@@ -1,0 +1,52 @@
+{
+  "id": "theme-creator",
+  "name": "Theme Creator",
+  "description": "Build your own theme: pick colors for the key design tokens, see a live preview, name it, and save. Custom themes register into the native Settings \u2192 Appearance picker. Create, edit, and delete multiple themes; everything is stored locally.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/theme-creator.js"
+    ],
+    "stylesheets": [
+      "assets/theme-creator.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-custom-themes"
+      ],
+      "shared_webui_keys": [
+        "hermes-skin"
+      ]
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "registers_skin": true
+  }
+}

@@ -26,3 +26,5 @@ need it and maintainers agree on the shared contract.
   ★ Favorites group at the top of the composer model picker.
 - `custom-avatar`: give the assistant a custom avatar image in the chat
   transcript (downscaled + stored locally; assistant-only).
+- `theme-creator`: build your own theme with a live color editor; custom themes
+  register into the native Appearance picker (needs core theme-registration).
