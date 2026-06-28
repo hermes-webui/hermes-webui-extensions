@@ -52,7 +52,7 @@
     const apiFn = window.api;
     const p = (typeof apiFn === 'function')
       ? apiFn('/api/mcp/tools')
-      : fetch(new URL('api/mcp/tools', document.baseURI || location.href).href, { credentials: 'same-origin' })
+      : fetch('/api/mcp/tools', { credentials: 'same-origin' })
           .then((r) => r.ok ? r.json() : { tools: [] });
     return Promise.resolve(p).then((r) => {
       liveTools = (r && Array.isArray(r.tools)) ? r.tools : [];
