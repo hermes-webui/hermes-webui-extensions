@@ -89,6 +89,7 @@
   #hwxPrintRoot .hwx-print-head { margin: 0 0 18px; padding-bottom: 10px; border-bottom: 2px solid #111; }
   #hwxPrintRoot .hwx-print-head h1 { font-size: 20px; margin: 0 0 4px; }
   #hwxPrintRoot .hwx-print-meta { font-size: 11px; color: #555; }
+  #hwxPrintRoot .hwx-print-note { font-size: 11px; color: #8a5a00; background: #fff7e6; border: 1px solid #f0d8a8; border-radius: 6px; padding: 6px 8px; margin-top: 8px; }
   #hwxPrintRoot .hwx-print-msg { margin: 0 0 16px; page-break-inside: avoid; }
   #hwxPrintRoot .hwx-print-role {
     font-size: 11px; font-weight: 700; text-transform: uppercase;

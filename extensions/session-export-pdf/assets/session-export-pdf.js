@@ -75,10 +75,26 @@
   }
 
   // ── PDF via print ─────────────────────────────────────────────────────────
+  // Detect whether the transcript DOM is windowed/virtualized — in that case the
+  // rendered #messages only holds part of the conversation, so an export from the
+  // DOM is the "loaded/visible transcript", not necessarily the full session
+  // (Frank, PR #27). Signals: a virtual spacer node, or the virtualize flag on
+  // with a partial window.
+  function transcriptMaybeWindowed() {
+    try {
+      const c = $('messages');
+      if (!c) return false;
+      if (c.querySelector('[data-virtual-spacer]')) return true;
+      if (window._virtualizeTranscript === true) return true;
+      return false;
+    } catch (_) { return false; }
+  }
+
   function exportPdf() {
     const rows = collectRows();
     if (!rows.length) { toast('No conversation to export.'); return; }
     const title = currentTitle();
+    const windowed = transcriptMaybeWindowed();
     // Build an off-screen print root that ONLY shows during print.
     let root = $(PRINT_ROOT_ID);
     if (root) root.remove();
@@ -87,7 +103,14 @@
     root.setAttribute('aria-hidden', 'true');
     let html = '<div class="hwx-print-head"><h1>' + escapeHtml(title) + '</h1>' +
       '<div class="hwx-print-meta">' + escapeHtml(new Date().toLocaleString()) +
-      ' · ' + rows.length + ' messages</div></div>';
+      ' · ' + rows.length + ' messages rendered</div>' +
+      (windowed
+        ? '<div class="hwx-print-note">Note: this conversation is long enough to be ' +
+          'windowed/virtualized, so this export covers the currently-loaded ' +
+          'transcript, which may not include the entire conversation. Scroll to ' +
+          'the top to load earlier messages before exporting for a complete copy.</div>'
+        : '') +
+      '</div>';
     for (const r of rows) {
       html += '<div class="hwx-print-msg hwx-print-' + r.role + '">' +
         '<div class="hwx-print-role">' + (r.role === 'user' ? 'You' : 'Assistant') + '</div>' +
@@ -103,6 +126,7 @@
       window.removeEventListener('afterprint', cleanup);
     };
     window.addEventListener('afterprint', cleanup);
+    if (windowed) toast('Exporting the loaded transcript — scroll up to include earlier messages.');
     // Give layout a tick, then print.
     setTimeout(() => { try { window.print(); } catch (_) { cleanup(); } }, 60);
     closeMenu();
@@ -112,11 +136,19 @@
   function exportMarkdown() {
     const rows = collectRows();
     if (!rows.length) { toast('No conversation to export.'); return; }
+    const windowed = transcriptMaybeWindowed();
     let md = '# ' + currentTitle() + '\n\n';
+    if (windowed) {
+      md += '> _Note: this export covers the currently-loaded transcript and may ' +
+        'not include the entire conversation (long transcripts are windowed). ' +
+        'Scroll to the top to load earlier messages before exporting._\n\n';
+    }
     for (const r of rows) {
       md += '## ' + (r.role === 'user' ? 'You' : 'Assistant') + '\n\n' + r.text + '\n\n';
     }
-    const done = () => toast('Conversation copied as Markdown');
+    const done = () => toast(windowed
+      ? 'Loaded transcript copied as Markdown (scroll up for earlier messages)'
+      : 'Conversation copied as Markdown');
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(md).then(done).catch(() => fallbackCopy(md, done));
     } else {

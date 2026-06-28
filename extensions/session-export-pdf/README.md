@@ -117,5 +117,13 @@ Manual verification:
 - PDF generation uses the browser print dialog (choose "Save as PDF") — there is
   no silent server-side PDF render (deliberate: no bundled library, no backend).
 - Exports the currently-open conversation (not a bulk/all-sessions export).
-- Reads the rendered transcript, so only what's rendered in the DOM is exported;
-  very long virtualized transcripts export what is present in `#messages`.
+- **Scope = the loaded/rendered transcript, not guaranteed to be the full
+  session.** It reads `#messages` from the DOM and adds no WebUI API dependency.
+  For long conversations the transcript can be windowed/virtualized (the core
+  "virtualize transcript" setting, or large sessions), so earlier messages may
+  not be in the DOM at export time. The extension **detects this** (a virtual
+  spacer / the virtualize flag) and, when it applies, shows a toast and prints a
+  visible "this covers the loaded transcript, scroll up for earlier messages"
+  note in the export — so a windowed export is never silently presented as
+  complete. For a guaranteed-complete copy, scroll to the top first (or disable
+  transcript virtualization) before exporting.
