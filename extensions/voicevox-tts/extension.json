@@ -1,0 +1,48 @@
+{
+  "id": "voicevox-tts",
+  "name": "VOICEVOX TTS",
+  "description": "Use VOICEVOX (a free, locally-hosted Japanese text-to-speech engine) as a TTS engine in Hermes WebUI. Registers into Settings \u2192 TTS Engine; works for both the per-message Listen button and hands-free voice mode. Talks only to your local VOICEVOX server (127.0.0.1:50021).",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/voicevox-tts.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": false,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-voicevox-speaker"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "registers_tts_engine": true
+  }
+}
