@@ -28,3 +28,5 @@ need it and maintainers agree on the shared contract.
   transcript (downscaled + stored locally; assistant-only).
 - `theme-creator`: build your own theme with a live color editor; custom themes
   register into the native Appearance picker (needs core theme-registration).
+- `session-export-pdf`: export the current conversation to PDF (print) or copy
+  it as Markdown, via a titlebar button.

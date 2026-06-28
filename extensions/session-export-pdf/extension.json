@@ -1,0 +1,49 @@
+{
+  "id": "session-export-pdf",
+  "name": "Session Export to PDF",
+  "description": "Export the current conversation to a clean PDF (via the browser print dialog, with a print-styled layout) or copy it as Markdown. Adds an export button to the app titlebar. No backend, no bundled PDF library.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/session-export-pdf.js"
+    ],
+    "stylesheets": [
+      "assets/session-export-pdf.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "uses_clipboard": true,
+    "uses_print": true
+  }
+}

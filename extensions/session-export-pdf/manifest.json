@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "session-export-pdf",
+      "name": "Session Export to PDF",
+      "description": "Export the current conversation to PDF (print) or copy it as Markdown.",
+      "scripts": [
+        "assets/session-export-pdf.js"
+      ],
+      "stylesheets": [
+        "assets/session-export-pdf.css"
+      ]
+    }
+  ]
+}

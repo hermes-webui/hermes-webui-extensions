@@ -1,0 +1,112 @@
+/* Session Export to PDF extension for Hermes WebUI.
+   Scoped to hwx-export-* / hwx-print-* classes. Uses core CSS variables. */
+
+/* ── titlebar button (flex child next to Reload — no absolute positioning,
+   so it can't collide with other titlebar controls) ── */
+.hwx-export-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color .12s ease, background .12s ease;
+}
+.hwx-export-btn:hover {
+  color: var(--text, #111);
+  background: var(--hover-bg, rgba(127, 127, 127, .14));
+}
+
+/* ── dropdown menu ── */
+.hwx-export-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, rgba(127, 127, 127, .3));
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hwx-export-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text, #111);
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hwx-export-item:hover { background: var(--hover-bg, rgba(127, 127, 127, .14)); }
+
+/* ── toast ── */
+.hwx-export-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--surface, #222);
+  color: var(--text, #fff);
+  border: 1px solid var(--border, rgba(127, 127, 127, .3));
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
+  opacity: 0;
+  transition: opacity .2s ease, transform .2s ease;
+  z-index: 1001;
+  pointer-events: none;
+}
+.hwx-export-toast--in { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── the print root: hidden on screen, the ONLY thing shown when printing ── */
+#hwxPrintRoot { display: none; }
+
+@media print {
+  /* When we're printing the conversation, hide the entire live app and show
+     only our print root. body.hwx-printing is added just before window.print(). */
+  body.hwx-printing > *:not(#hwxPrintRoot) { display: none !important; }
+  body.hwx-printing #hwxPrintRoot {
+    display: block !important;
+    position: static !important;
+    margin: 0;
+    padding: 0;
+    background: #fff !important;
+    color: #111 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #hwxPrintRoot .hwx-print-head { margin: 0 0 18px; padding-bottom: 10px; border-bottom: 2px solid #111; }
+  #hwxPrintRoot .hwx-print-head h1 { font-size: 20px; margin: 0 0 4px; }
+  #hwxPrintRoot .hwx-print-meta { font-size: 11px; color: #555; }
+  #hwxPrintRoot .hwx-print-msg { margin: 0 0 16px; page-break-inside: avoid; }
+  #hwxPrintRoot .hwx-print-role {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: #555; margin-bottom: 4px;
+  }
+  #hwxPrintRoot .hwx-print-user .hwx-print-role { color: #1a56db; }
+  #hwxPrintRoot .hwx-print-body { font-size: 13px; line-height: 1.5; color: #111; }
+  #hwxPrintRoot .hwx-print-body pre {
+    background: #f4f4f4; border: 1px solid #ddd; border-radius: 6px;
+    padding: 8px 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+    font-size: 12px; page-break-inside: avoid;
+  }
+  #hwxPrintRoot .hwx-print-body code { background: #f4f4f4; padding: 1px 4px; border-radius: 4px; font-size: 12px; }
+  #hwxPrintRoot .hwx-print-body img { max-width: 100%; }
+  #hwxPrintRoot .hwx-print-body a { color: #1a56db; text-decoration: underline; }
+  @page { margin: 1.5cm; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-export-btn, .hwx-export-toast { transition: none; }
+}
