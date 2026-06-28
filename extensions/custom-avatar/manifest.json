@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "custom-avatar",
+      "name": "Custom Assistant Avatar",
+      "description": "Give the assistant a custom avatar image in the chat transcript.",
+      "scripts": [
+        "assets/custom-avatar.js"
+      ],
+      "stylesheets": [
+        "assets/custom-avatar.css"
+      ]
+    }
+  ]
+}

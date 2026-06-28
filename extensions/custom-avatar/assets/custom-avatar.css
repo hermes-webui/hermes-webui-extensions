@@ -1,0 +1,64 @@
+/* Custom Avatar extension for Hermes WebUI.
+   Scoped to hwx-avatar-* classes; uses core CSS variables for theme-fit. */
+
+/* The avatar image fills the existing .role-icon badge. */
+.role-icon.assistant.hwx-avatar-set {
+  overflow: hidden;
+  padding: 0;
+}
+.hwx-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+/* Picker popover. */
+.hwx-avatar-picker {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, rgba(127, 127, 127, .3));
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hwx-avatar-picker-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #888);
+}
+.hwx-avatar-btn {
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127, 127, 127, .25));
+  background: var(--code-bg, rgba(127, 127, 127, .1));
+  color: var(--text, #111);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: background .12s ease, border-color .12s ease;
+}
+.hwx-avatar-btn:hover {
+  background: var(--hover-bg, rgba(127, 127, 127, .16));
+  border-color: var(--border, rgba(127, 127, 127, .4));
+}
+.hwx-avatar-btn--clear {
+  color: var(--danger, #e5534b);
+}
+.hwx-avatar-status {
+  font-size: 11px;
+  color: var(--muted, #888);
+  min-height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-avatar-btn { transition: none; }
+}
