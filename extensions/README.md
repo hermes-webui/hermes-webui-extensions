@@ -39,3 +39,6 @@ need it and maintainers agree on the shared contract.
   Appearance picker via the theme-registration API.
 - `mobile-haptics`: short device vibration when an assistant turn finishes
   (Android / Android-PWA; no-ops on desktop and iOS).
+- `external-app-tab`: pin a self-hosted web app (Grafana, Vaultwarden, a
+  dashboard) as a tab inside the WebUI via an iframe (needs the core
+  `HERMES_WEBUI_CSP_FRAME_EXTRA` knob for external origins).

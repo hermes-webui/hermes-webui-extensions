@@ -1,0 +1,137 @@
+/* External App Tab extension for Hermes WebUI.
+   Scoped to hwx-extapp-* classes; uses core CSS variables for theme-fit. */
+
+/* Full-area overlay framing the external app (covers the main content area,
+   leaving the rail accessible). */
+.hwx-extapp-overlay {
+  position: fixed;
+  inset: 0 0 0 0;
+  z-index: 60;
+  display: none;
+  flex-direction: column;
+  background: var(--bg, #11131a);
+}
+/* Leave the left rail clickable by insetting the overlay past it where the rail
+   is a fixed-width column. Falls back to full-width on narrow screens. */
+@media (min-width: 641px) {
+  .hwx-extapp-overlay { left: 56px; }
+}
+
+.hwx-extapp-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, rgba(127,127,127,.3));
+  background: var(--surface, #1a1d27);
+  flex: 0 0 auto;
+}
+.hwx-extapp-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+}
+.hwx-extapp-spacer { flex: 1 1 auto; }
+.hwx-extapp-btn {
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127,127,127,.25));
+  background: var(--code-bg, rgba(127,127,127,.1));
+  color: var(--text, #fff);
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.hwx-extapp-btn:hover {
+  background: var(--hover-bg, rgba(127,127,127,.16));
+  border-color: var(--border, rgba(127,127,127,.4));
+}
+.hwx-extapp-close { font-size: 13px; line-height: 1; }
+
+.hwx-extapp-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hwx-extapp-iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+.hwx-extapp-cspnote {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted, #888);
+  padding: 6px 12px;
+  border-top: 1px solid var(--border2, rgba(127,127,127,.2));
+  background: var(--surface, #1a1d27);
+}
+.hwx-extapp-cspnote code,
+.hwx-extapp-config-note code {
+  background: var(--code-bg, rgba(127,127,127,.15));
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.hwx-extapp-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text, #fff);
+  max-width: 360px;
+  padding: 24px;
+}
+.hwx-extapp-empty .hwx-extapp-muted { color: var(--muted, #888); font-size: 13px; }
+.hwx-extapp-empty .hwx-extapp-btn { margin-top: 12px; }
+
+/* Config dialog */
+.hwx-extapp-config-dlg {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.45);
+}
+.hwx-extapp-config-card {
+  width: min(440px, 92vw);
+  background: var(--surface, #1a1d27);
+  color: var(--text, #fff);
+  border: 1px solid var(--border, rgba(127,127,127,.3));
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.4);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hwx-extapp-config-title { font-weight: 700; font-size: 15px; }
+.hwx-extapp-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted, #888); }
+.hwx-extapp-input {
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127,127,127,.3));
+  background: var(--bg, #11131a);
+  color: var(--text, #fff);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.hwx-extapp-input:focus { outline: none; border-color: var(--accent, #6366f1); }
+.hwx-extapp-config-note { font-size: 11px; color: var(--muted, #888); line-height: 1.5; }
+.hwx-extapp-config-err { font-size: 12px; color: var(--danger, #e5534b); }
+.hwx-extapp-config-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-extapp-btn { transition: none; }
+}
