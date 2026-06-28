@@ -34,7 +34,7 @@ security chokepoint.
 ## Dependency
 
 Requires the core **theme-registration capability** (`window.registerHermesSkin`),
-added in `nesquena/hermes-webui` **PR #5083**. Without it, the panel still opens
+added in `nesquena/hermes-webui` **PR #5100**. Without it, the panel still opens
 and you can design a theme, but a notice explains it can't be applied yet (the
 extension does nothing destructive).
 
@@ -102,7 +102,7 @@ This is trusted local code. Current disclosed behavior:
 
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
 - the left rail (`.rail`) to host the button
-- the core theme-registration capability (`window.registerHermesSkin`, PR #5083)
+- the core theme-registration capability (`window.registerHermesSkin`, PR #5100)
 - uses the core `_pickSkin()` to apply when available, falling back to setting
   `data-skin` + `hermes-skin` directly
 
@@ -117,7 +117,7 @@ python3 -m json.tool extensions/theme-creator/extension.json
 python3 -m json.tool extensions/theme-creator/manifest.json
 ```
 
-Manual verification (on a WebUI build with PR #5083):
+Manual verification (on a WebUI build with PR #5100):
 
 - the rail button opens the editor; color pickers + hex fields stay in sync
 - Live preview applies the theme app-wide; Stop preview reverts
@@ -127,7 +127,7 @@ Manual verification (on a WebUI build with PR #5083):
 
 ## Known Limitations
 
-- Requires the core theme-registration capability (PR #5083).
+- Requires the core theme-registration capability (PR #5100).
 - Curated inputs with derived tokens (not every raw token is individually
   editable) — a deliberate usability trade-off.
 - Themes are per-browser (`localStorage`), not synced across devices.
