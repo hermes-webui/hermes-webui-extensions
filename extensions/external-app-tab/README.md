@@ -91,9 +91,18 @@ This is trusted local code. Current disclosed behavior:
 - does NOT access cookies, loopback sidecars, the filesystem, or native hosts
 - does NOT itself `fetch()` any remote resource — it only sets an iframe `src`
 
-The embedded app runs in its own browsing context (a separate origin in its own
-iframe); it cannot read the WebUI's DOM or session. All user-supplied strings
-(label, URL) are escaped where rendered.
+The embedded app runs in its own `<iframe>` with an explicit `sandbox`
+allow-list: `allow-scripts allow-forms allow-popups
+allow-popups-to-escape-sandbox allow-same-origin allow-downloads`. This lets a
+real web app function (run its scripts, submit forms, open links/downloads)
+while still being a sandboxed frame. **Honest tradeoff:** a functional app
+generally needs both `allow-scripts` and `allow-same-origin`, and that pairing
+relaxes the sandbox's origin barrier — so for a **same-origin** target the frame
+is effectively trusted browser content, not strongly isolated. Treat any app you
+embed as trusted: you opt in per-origin by allow-listing it via
+`HERMES_WEBUI_CSP_FRAME_EXTRA`, and cross-origin targets remain bounded by the
+same-origin policy. All user-supplied strings (label, URL) are escaped where
+rendered.
 
 ## Compatibility
 

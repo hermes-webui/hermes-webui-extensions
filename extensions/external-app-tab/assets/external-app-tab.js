@@ -132,7 +132,14 @@
     frame.className = 'hwx-extapp-iframe';
     frame.src = cfg.url;
     frame.setAttribute('title', cfg.label || 'External app');
-    // Sandboxed but functional; allow the framed app its own scripts/forms.
+    // Sandbox the embedded app with an explicit, documented allow-list so it can
+    // function (scripts/forms/popups) while staying constrained (Frank, PR #25:
+    // the previous comment claimed "sandboxed" but never set a sandbox attr).
+    // Tradeoff: a real web app generally needs allow-scripts + allow-same-origin
+    // to work; for a SAME-ORIGIN target that pairing relaxes the origin barrier,
+    // so the README is explicit that an embedded app is trusted browser content
+    // once the operator allow-lists its origin via HERMES_WEBUI_CSP_FRAME_EXTRA.
+    frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-downloads');
     frame.setAttribute('referrerpolicy', 'no-referrer');
     // A CSP frame-src block surfaces as a blank frame; show a hint underneath
     // that the operator may need HERMES_WEBUI_CSP_FRAME_EXTRA.
