@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "message-pins",
+      "name": "Message Pins",
+      "description": "Pin individual messages in a conversation, with a header popover and click-to-jump.",
+      "scripts": [
+        "assets/message-pins.js"
+      ],
+      "stylesheets": [
+        "assets/message-pins.css"
+      ]
+    }
+  ]
+}

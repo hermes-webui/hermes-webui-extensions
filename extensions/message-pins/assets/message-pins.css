@@ -1,0 +1,187 @@
+/* Message Pins extension for Hermes WebUI.
+   Scoped to hwx-pin-* classes so it cannot collide with core styles.
+   Uses core CSS variables (with fallbacks) so it adapts to light/dark themes. */
+
+/* ── per-message pin button ────────────────────────────────────────────── */
+.hwx-pin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted, #888);
+  background: transparent;
+  border: none;
+  transition: color .12s ease, opacity .12s ease, transform .12s ease;
+}
+.hwx-pin-btn:hover { color: var(--text, #111); }
+.hwx-pin-btn--active { color: var(--accent, #3b82f6); }
+.hwx-pin-btn--active:hover { color: var(--accent, #3b82f6); opacity: .85; }
+
+/* Floating fallback button (when a row has no .msg-actions bar). */
+.hwx-pin-host { position: relative; }
+.hwx-pin-btn--float {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--code-bg, rgba(127, 127, 127, .12));
+  border: 1px solid var(--border2, rgba(127, 127, 127, .25));
+  opacity: 0;
+  z-index: 4;
+}
+[data-msg-idx]:hover .hwx-pin-btn--float,
+.hwx-pin-btn--float:focus-visible { opacity: 1; }
+/* A pinned row keeps its floating button visible even when not hovered. */
+.hwx-pinned-row .hwx-pin-btn--float { opacity: 1; }
+
+/* Subtle marker on a pinned row. */
+.hwx-pinned-row { position: relative; }
+
+/* ── jump flash highlight ──────────────────────────────────────────────── */
+.hwx-pin-flash {
+  animation: hwx-pin-flash-kf 1.4s ease;
+  border-radius: 8px;
+}
+@keyframes hwx-pin-flash-kf {
+  0%   { box-shadow: 0 0 0 0 var(--accent, #3b82f6); }
+  20%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #3b82f6) 45%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ── header button + badge ─────────────────────────────────────────────── */
+.hwx-pin-header-btn {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border2, rgba(127, 127, 127, .25));
+  background: var(--code-bg, rgba(127, 127, 127, .1));
+  color: var(--muted, #888);
+  cursor: pointer;
+  z-index: 11;
+  transition: color .12s ease, border-color .12s ease, background .12s ease, transform .12s ease;
+}
+.hwx-pin-header-btn:hover {
+  color: var(--text, #111);
+  border-color: var(--border, rgba(127, 127, 127, .4));
+  transform: translateY(-1px);
+}
+.hwx-pin-header-btn--has-pins { color: var(--accent, #3b82f6); }
+.hwx-pin-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* ── popover ───────────────────────────────────────────────────────────── */
+.hwx-pin-popover {
+  position: fixed;
+  z-index: 1000;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, rgba(127, 127, 127, .3));
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+  padding: 6px;
+}
+.hwx-pin-popover-head {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #888);
+  padding: 6px 8px 8px;
+}
+.hwx-pin-popover-empty {
+  font-size: 12px;
+  color: var(--muted, #888);
+  padding: 4px 8px 10px;
+  line-height: 1.4;
+}
+.hwx-pin-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text, #111);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s ease;
+}
+.hwx-pin-item:hover { background: var(--hover-bg, rgba(127, 127, 127, .12)); }
+.hwx-pin-item-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hwx-pin-item-remove {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--muted, #888);
+  font-size: 16px;
+  line-height: 1;
+}
+.hwx-pin-item-remove:hover {
+  color: var(--text, #111);
+  background: var(--border2, rgba(127, 127, 127, .25));
+}
+
+/* ── toast ─────────────────────────────────────────────────────────────── */
+.hwx-pin-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%) translateY(8px);
+  max-width: min(420px, 90vw);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: var(--surface, #1f2330);
+  color: var(--text, #fff);
+  border: 1px solid var(--border, rgba(127, 127, 127, .3));
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
+  font-size: 13px;
+  z-index: 1100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.hwx-pin-toast--show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-pin-btn,
+  .hwx-pin-header-btn,
+  .hwx-pin-toast,
+  .hwx-pin-item { transition: none; }
+  .hwx-pin-flash { animation: none; }
+}
