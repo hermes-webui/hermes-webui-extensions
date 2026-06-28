@@ -18,6 +18,18 @@ server.
 - The speaker id is configurable via `localStorage`
   (`hermes-ext-voicevox-speaker`, default 1); the user's saved rate nudges
   VOICEVOX's `speedScale`.
+- **Configurable server URL** — override the VOICEVOX address via a **VOICEVOX
+  Server URL** field injected into Settings → TTS Engine (shown only when VOICEVOX
+  is the selected engine); stored in `localStorage` (`hermes-ext-voicevox-base`,
+  default `http://127.0.0.1:50021`). Absolute URLs and same-origin relative paths
+  (for a reverse proxy) are accepted.
+- **Voice list** — when VOICEVOX is selected, the Voice dropdown is populated from
+  the server's `GET /speakers` (speaker + style names), cached ~30s; changing the
+  server URL refreshes it (debounced).
+
+> Server-URL field, voice-list population, and the configurable base URL were
+> contributed by **@luperrypf** (extensions PR #30), folded into this PR with
+> thanks.
 
 ## Dependency
 
