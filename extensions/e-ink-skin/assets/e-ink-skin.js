@@ -10,7 +10,7 @@
   // any built-in skin.
   //
   // DEPENDENCY: requires the core `registerHermesSkin` capability
-  // (nesquena/hermes-webui PR #5083). On an older WebUI without it, this
+  // (nesquena/hermes-webui PR #5100). On an older WebUI without it, this
   // extension simply no-ops (the skin is unavailable) rather than erroring.
 
   if (window.__hermesEInkSkinLoaded) return;

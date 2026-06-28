@@ -20,7 +20,7 @@ skin.
 ## Dependency
 
 This extension requires the core **theme-registration capability**
-(`window.registerHermesSkin`), added in `nesquena/hermes-webui` **PR #5083**. On
+(`window.registerHermesSkin`), added in `nesquena/hermes-webui` **PR #5100**. On
 an older WebUI build without it, the extension **no-ops gracefully** (the skin is
 simply unavailable; nothing errors). Once that capability ships, the skin
 registers automatically on load.
@@ -87,7 +87,7 @@ color tokens.
 Required WebUI surface:
 
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
-- the core theme-registration capability (`window.registerHermesSkin`, PR #5083)
+- the core theme-registration capability (`window.registerHermesSkin`, PR #5100)
 
 ## Verification
 
@@ -102,7 +102,7 @@ python3 -m json.tool extensions/e-ink-skin/extension.json
 python3 -m json.tool extensions/e-ink-skin/manifest.json
 ```
 
-Manual verification (on a WebUI build with PR #5083):
+Manual verification (on a WebUI build with PR #5100):
 
 - Settings → Appearance shows **E-Ink** in the skin picker
 - selecting it applies the high-contrast monochrome palette across the app
@@ -111,7 +111,7 @@ Manual verification (on a WebUI build with PR #5083):
 
 ## Known Limitations
 
-- Requires the core theme-registration capability (PR #5083); no-ops without it.
+- Requires the core theme-registration capability (PR #5100); no-ops without it.
 - E-ink panels vary; this is a general high-contrast tuning, not per-device
   calibration.
 - A single light palette by design — e-ink screens are effectively monochrome,
