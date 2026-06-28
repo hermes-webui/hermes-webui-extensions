@@ -34,3 +34,6 @@ need it and maintainers agree on the shared contract.
   the composer (never auto-executes); lives in Settings → MCP Tools.
 - `e-ink-skin`: maximum-contrast near-monochrome light skin for e-ink displays;
   registers into the native Appearance picker via the theme-registration API.
+- `skin-pack`: popular editor-inspired color themes (Dracula, Gruvbox, One Dark,
+  Tokyo Night, Rosé Pine, Solarized Dark) that register into the native
+  Appearance picker via the theme-registration API.

@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "skin-pack",
+      "name": "Skin Pack",
+      "description": "Popular editor-inspired color themes that register into the native Appearance skin picker.",
+      "scripts": [
+        "assets/skin-pack.js"
+      ],
+      "stylesheets": []
+    }
+  ]
+}

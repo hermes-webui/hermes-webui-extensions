@@ -1,0 +1,46 @@
+{
+  "id": "skin-pack",
+  "name": "Skin Pack",
+  "description": "A pack of popular editor-inspired color themes (Dracula, Gruvbox, One Dark, Tokyo Night, Ros\u00e9 Pine, Solarized Dark) that register into the native Settings \u2192 Appearance skin picker.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/skin-pack.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": false,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": [],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "registers_skin": true
+  }
+}
