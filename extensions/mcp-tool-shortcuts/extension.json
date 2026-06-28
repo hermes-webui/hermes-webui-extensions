@@ -1,0 +1,53 @@
+{
+  "id": "mcp-tool-shortcuts",
+  "name": "MCP Tool Shortcuts",
+  "description": "Pin frequently-used MCP tools and get a one-click strip that DRAFTS a ready-to-send natural-language tool request into the composer. Never auto-executes a tool \u2014 it only inserts a prompt you review and send. Lives in Settings \u2192 MCP Tools.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/mcp-tool-shortcuts.js"
+    ],
+    "stylesheets": [
+      "assets/mcp-tool-shortcuts.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "mcp/tools"
+      ],
+      "write": []
+    },
+    "webui_navigation": true,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-mcp-pinned-tools"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "drafts_composer_prompt": true,
+    "never_executes_tools": true
+  }
+}

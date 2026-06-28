@@ -1,0 +1,95 @@
+/* MCP Tool Shortcuts extension for Hermes WebUI.
+   Scoped to hwx-mcp-* classes; uses core CSS variables. */
+
+/* pin star on each tool row */
+.hwx-mcp-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  transition: color .12s ease, background .12s ease;
+}
+.hwx-mcp-star:hover { color: var(--text, #111); background: var(--hover-bg, rgba(127,127,127,.14)); }
+.hwx-mcp-star--on { color: var(--accent, #f5c542); }
+
+/* pinned-tools strip */
+.hwx-mcp-strip {
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border2, rgba(127,127,127,.25));
+  border-radius: 10px;
+  background: var(--code-bg, rgba(127,127,127,.08));
+}
+.hwx-mcp-strip-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--accent-text, var(--accent, #f5c542));
+  margin-bottom: 8px;
+}
+.hwx-mcp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.hwx-mcp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid var(--border2, rgba(127,127,127,.3));
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 100%;
+  transition: border-color .12s ease, background .12s ease;
+}
+.hwx-mcp-chip:hover { border-color: var(--accent, #6366f1); background: var(--hover-bg, rgba(127,127,127,.12)); }
+.hwx-mcp-chip-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.hwx-mcp-chip-server { color: var(--muted, #888); font-size: 11px; white-space: nowrap; }
+.hwx-mcp-chip-x {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 50%;
+}
+.hwx-mcp-chip-x:hover { color: var(--danger, #e5534b); background: var(--hover-bg, rgba(127,127,127,.18)); }
+
+/* toast */
+.hwx-mcp-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--surface, #222);
+  color: var(--text, #fff);
+  border: 1px solid var(--border, rgba(127,127,127,.3));
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.3);
+  opacity: 0;
+  transition: opacity .2s ease, transform .2s ease;
+  z-index: 1001;
+  pointer-events: none;
+  max-width: 80vw;
+  text-align: center;
+}
+.hwx-mcp-toast--in { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-mcp-star, .hwx-mcp-chip, .hwx-mcp-toast { transition: none; }
+}

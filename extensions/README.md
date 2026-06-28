@@ -30,3 +30,5 @@ need it and maintainers agree on the shared contract.
   register into the native Appearance picker (needs core theme-registration).
 - `session-export-pdf`: export the current conversation to PDF (print) or copy
   it as Markdown, via a titlebar button.
+- `mcp-tool-shortcuts`: pin MCP tools and draft a ready-to-send request into
+  the composer (never auto-executes); lives in Settings → MCP Tools.
