@@ -27,14 +27,17 @@
     },
     "webui_navigation": false,
     "dom": {
-      "owned": false,
-      "mutates_core_views": false
+      "owned": true,
+      "mutates_core_views": true
     },
     "storage": {
       "owned": [
-        "hermes-ext-voicevox-speaker"
+        "hermes-ext-voicevox-speaker",
+        "hermes-ext-voicevox-base"
       ],
-      "shared_webui_keys": []
+      "shared_webui_keys": [
+        "hermes-tts-voice"
+      ]
     },
     "loopback_sidecar": true,
     "native_host": false,
