@@ -10,7 +10,7 @@
   // for.
   //
   // DEPENDENCY: requires the core registerHermesSkin capability
-  // (nesquena/hermes-webui PR #5083). On an older WebUI it no-ops gracefully.
+  // (nesquena/hermes-webui PR #5100). On an older WebUI it no-ops gracefully.
 
   if (window.__hermesSkinPackLoaded) return;
   window.__hermesSkinPackLoaded = true;

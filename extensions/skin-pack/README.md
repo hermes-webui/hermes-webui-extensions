@@ -29,7 +29,7 @@ sidebar, bubbles), not just an accent tint.
 ## Dependency
 
 This extension requires the core **theme-registration capability**
-(`window.registerHermesSkin`), added in `nesquena/hermes-webui` **PR #5083**. On
+(`window.registerHermesSkin`), added in `nesquena/hermes-webui` **PR #5100**. On
 an older WebUI without it, the extension **no-ops gracefully** (the themes are
 simply unavailable; nothing errors).
 
@@ -87,7 +87,7 @@ tokens.
 ## Compatibility
 
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
-- the core theme-registration capability (`window.registerHermesSkin`, PR #5083)
+- the core theme-registration capability (`window.registerHermesSkin`, PR #5100)
 
 ## Verification
 
@@ -100,7 +100,7 @@ python3 -m json.tool extensions/skin-pack/extension.json
 python3 -m json.tool extensions/skin-pack/manifest.json
 ```
 
-Manual verification (on a WebUI build with PR #5083):
+Manual verification (on a WebUI build with PR #5100):
 
 - Settings → Appearance shows all six themes in the skin picker
 - selecting each applies its full palette across the app
@@ -109,7 +109,7 @@ Manual verification (on a WebUI build with PR #5083):
 
 ## Known Limitations
 
-- Requires the core theme-registration capability (PR #5083); no-ops without it.
+- Requires the core theme-registration capability (PR #5100); no-ops without it.
 - The Hermes brand logo glyph keeps its gold gradient (a hardcoded inline-SVG
   gradient in core, driven by no theme token, so no skin recolors it).
 - All themes are dark palettes (the genre is editor dark themes); a light
