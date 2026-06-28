@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "e-ink-skin",
+      "name": "E-Ink Skin",
+      "description": "Maximum-contrast near-monochrome light skin for e-ink displays; registers into the native Appearance picker.",
+      "scripts": [
+        "assets/e-ink-skin.js"
+      ],
+      "stylesheets": []
+    }
+  ]
+}
