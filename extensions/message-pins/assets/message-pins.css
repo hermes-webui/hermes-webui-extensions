@@ -12,18 +12,35 @@
   background: transparent;
   border: none;
   transition: color .12s ease, opacity .12s ease, transform .12s ease;
+  /* Reliable hit target (Frank, PR #19 round 2): core keeps .msg-actions quiet
+     with pointer-events:none at rest, and a tiny/variable-size button made the
+     unpin click resolve to .msg-foot or the SVG child instead of the button.
+     Force a stable 24x24 clickable button and make the SVG non-interactive so
+     elementFromPoint() always lands on the BUTTON. */
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  flex: 0 0 auto;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  line-height: 1;
+  border-radius: 6px;
 }
+.hwx-pin-btn svg { pointer-events: none; }
 .hwx-pin-btn:hover { color: var(--text, #111); }
 /* Active (pinned) state: make it clearly, obviously "on" — filled accent chip,
    not just a color swap, so success is discoverable right where the user clicked
-   (Frank, PR #19: active feedback was too subtle). */
+   (Frank, PR #19: active feedback was too subtle). Keep the size stable so the
+   hit target doesn't shift between pin/unpin. */
 .hwx-pin-btn--active {
   color: var(--accent-contrast, #fff);
   background: var(--accent, #3b82f6);
   border-radius: 6px;
 }
 .hwx-pin-btn--active:hover { color: var(--accent-contrast, #fff); opacity: .9; }
-.hwx-pin-btn--inline.hwx-pin-btn--active { padding: 2px 4px; }
+.hwx-pin-btn--inline.hwx-pin-btn--active { padding: 0; }
 
 /* Floating fallback button (when a row has no .msg-actions bar). */
 .hwx-pin-host { position: relative; }
