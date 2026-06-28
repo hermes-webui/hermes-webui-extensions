@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "mcp-tool-shortcuts",
+      "name": "MCP Tool Shortcuts",
+      "description": "Pin MCP tools and draft a ready-to-send request into the composer (never auto-executes).",
+      "scripts": [
+        "assets/mcp-tool-shortcuts.js"
+      ],
+      "stylesheets": [
+        "assets/mcp-tool-shortcuts.css"
+      ]
+    }
+  ]
+}
