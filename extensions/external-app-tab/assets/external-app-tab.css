@@ -11,10 +11,13 @@
   flex-direction: column;
   background: var(--bg, #11131a);
 }
-/* Leave the left rail clickable by insetting the overlay past it where the rail
-   is a fixed-width column. Falls back to full-width on narrow screens. */
+/* Leave the left rail clickable by insetting the overlay past it. Core's rail is
+   48px wide and only shown at min-width:641px (.rail{width:48px} +
+   @media(min-width:641px){.rail{display:flex}}). Match both so the overlay never
+   covers the rail nor leaves a background sliver. Full-width below the breakpoint
+   where the rail is hidden. */
 @media (min-width: 641px) {
-  .hwx-extapp-overlay { left: 56px; }
+  .hwx-extapp-overlay { left: 48px; }
 }
 
 .hwx-extapp-bar {
