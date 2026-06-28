@@ -156,7 +156,10 @@
     closePopover();
     const row = findRow(idx);
     if (row && row.getClientRects && row.getClientRects().length > 0) {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // Jump to the START of the pinned row, not its center — for long
+      // assistant/final-answer messages, block:'center' landed mid-message which
+      // doesn't feel like "jump to this pinned thing" (Frank, PR #19 round 2).
+      row.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'smooth' });
       row.classList.add('hwx-pin-flash');
       setTimeout(() => row.classList.remove('hwx-pin-flash'), 1400);
       return;
