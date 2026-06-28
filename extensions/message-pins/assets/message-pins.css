@@ -14,8 +14,16 @@
   transition: color .12s ease, opacity .12s ease, transform .12s ease;
 }
 .hwx-pin-btn:hover { color: var(--text, #111); }
-.hwx-pin-btn--active { color: var(--accent, #3b82f6); }
-.hwx-pin-btn--active:hover { color: var(--accent, #3b82f6); opacity: .85; }
+/* Active (pinned) state: make it clearly, obviously "on" — filled accent chip,
+   not just a color swap, so success is discoverable right where the user clicked
+   (Frank, PR #19: active feedback was too subtle). */
+.hwx-pin-btn--active {
+  color: var(--accent-contrast, #fff);
+  background: var(--accent, #3b82f6);
+  border-radius: 6px;
+}
+.hwx-pin-btn--active:hover { color: var(--accent-contrast, #fff); opacity: .9; }
+.hwx-pin-btn--inline.hwx-pin-btn--active { padding: 2px 4px; }
 
 /* Floating fallback button (when a row has no .msg-actions bar). */
 .hwx-pin-host { position: relative; }
@@ -36,8 +44,21 @@
 /* A pinned row keeps its floating button visible even when not hovered. */
 .hwx-pinned-row .hwx-pin-btn--float { opacity: 1; }
 
-/* Subtle marker on a pinned row. */
+/* Pinned row marker — a visible accent rail on the left so a pinned message is
+   obvious at a glance, not just via the button state (Frank, PR #19). */
 .hwx-pinned-row { position: relative; }
+.hwx-pinned-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent, #3b82f6);
+  opacity: .8;
+  pointer-events: none;
+}
 
 /* ── jump flash highlight ──────────────────────────────────────────────── */
 .hwx-pin-flash {
@@ -51,10 +72,11 @@
 }
 
 /* ── header button + badge ─────────────────────────────────────────────── */
+/* NOTE: top/right are set in JS (positionHeaderButton) so the button never
+   overlaps core's #jumpToSessionStartBtn — do not hard-code them here. */
 .hwx-pin-header-btn {
   position: absolute;
-  top: 12px;
-  right: 16px;
+  top: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

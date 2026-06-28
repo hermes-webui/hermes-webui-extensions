@@ -225,14 +225,35 @@
     }
   }
 
+  // A [data-msg-idx] node is only a REAL, decoratable message row if it is
+  // actually visible and carries renderable content. Core also tags hidden
+  // anchor/worklog segments with data-msg-idx (assistant-segment-anchor /
+  // assistant-segment-worklog-source are display:none) — decorating those
+  // created floating/hidden pin buttons on non-message nodes (Frank, PR #19).
+  function isRealMessageRow(row) {
+    if (!row || !row.classList) return false;
+    if (row.classList.contains('assistant-segment-anchor') ||
+        row.classList.contains('assistant-segment-worklog-source')) return false;
+    // must have a real content/action surface
+    const hasContent = row.querySelector(':scope .msg-body') ||
+                       row.querySelector(':scope .msg-foot .msg-actions') ||
+                       row.querySelector(':scope .msg-actions');
+    if (!hasContent) return false;
+    // must be visibly laid out (skips display:none anchors + collapsed nodes)
+    const rect = row.getBoundingClientRect();
+    if (rect.height <= 1) return false;
+    return true;
+  }
+
   function redecorate() {
     const container = $('messages');
     if (!container) return;
     const pins = loadPins();
     const seen = new Set();
     container.querySelectorAll('[data-msg-idx]').forEach((row) => {
+      if (!isRealMessageRow(row)) return;       // skip hidden anchor/worklog segments
       const idx = rowIdx(row);
-      if (idx == null || seen.has(idx)) return; // decorate first node per idx
+      if (idx == null || seen.has(idx)) return; // decorate first real node per idx
       seen.add(idx);
       decorateRow(row, pins);
     });
@@ -259,7 +280,32 @@
       togglePopover(btn);
     });
     shell.appendChild(btn);
+    positionHeaderButton(btn);
     return btn;
+  }
+
+  // Reserve a non-overlapping slot. Core's #jumpToSessionStartBtn
+  // (.session-jump-btn--start) sits at top:16px; right:20px; height:32px in the
+  // same .messages-shell and only appears in long, session-nav-enabled
+  // conversations. When it's visible, place the pins button to its LEFT
+  // (computed from its width); otherwise use the default top-right slot.
+  // (Frank, PR #19: the two controls collided in the top-right corner.)
+  function positionHeaderButton(btn) {
+    btn = btn || $('hwxMessagePinsHeaderBtn');
+    if (!btn) return;
+    const GAP = 8;
+    const DEFAULT_RIGHT = 20;   // align to core's right:20px
+    const startBtn = document.getElementById('jumpToSessionStartBtn');
+    let right = DEFAULT_RIGHT;
+    const startVisible = startBtn &&
+      getComputedStyle(startBtn).display !== 'none' &&
+      startBtn.getBoundingClientRect().width > 0;
+    if (startVisible) {
+      // sit to the left of the Start button: its width + the gap + its own right offset
+      right = DEFAULT_RIGHT + startBtn.getBoundingClientRect().width + GAP;
+    }
+    btn.style.right = right + 'px';
+    btn.style.top = '16px';      // match core's vertical slot
   }
 
   function refreshHeader() {
@@ -272,6 +318,7 @@
       badge.hidden = pins.length === 0;
     }
     btn.classList.toggle('hwx-pin-header-btn--has-pins', pins.length > 0);
+    positionHeaderButton(btn);   // recompute slot (session-nav / Start btn may have toggled)
   }
 
   function togglePopover(anchor) {
@@ -416,6 +463,28 @@
     if (!container || observer) return !!observer;
     observer = new MutationObserver(scheduleSync);
     observer.observe(container, { childList: true, subtree: true });
+    // The core Start button (#jumpToSessionStartBtn) toggles its display on
+    // scroll in long, session-nav-enabled conversations — that does NOT cause a
+    // #messages childList mutation, so observe its attribute flips directly and
+    // reposition the pins header button so the two never overlap (Frank, PR #19).
+    const startBtn = document.getElementById('jumpToSessionStartBtn');
+    if (startBtn && !startBtn.dataset.hwxPinObserved) {
+      startBtn.dataset.hwxPinObserved = '1';
+      const so = new MutationObserver(() => positionHeaderButton());
+      so.observe(startBtn, { attributes: true, attributeFilter: ['style', 'class'] });
+    }
+    // Also reposition on scroll within the shell (cheap, rAF-throttled).
+    const shell = document.querySelector('.messages-shell');
+    if (shell && !shell.dataset.hwxPinScroll) {
+      shell.dataset.hwxPinScroll = '1';
+      let posRaf = false;
+      const onScroll = () => {
+        if (posRaf) return;
+        posRaf = true;
+        requestAnimationFrame(() => { posRaf = false; positionHeaderButton(); });
+      };
+      shell.addEventListener('scroll', onScroll, { passive: true, capture: true });
+    }
     return true;
   }
 
