@@ -1,0 +1,67 @@
+/* Model Favorites extension for Hermes WebUI.
+   Scoped to hwx-fav-* classes so it cannot collide with core styles.
+   Uses core CSS variables so it adapts to the active theme/skin. */
+
+.hwx-fav-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+  opacity: 0;
+  transition: color .12s ease, opacity .12s ease, background .12s ease;
+}
+/* Reveal the star on row hover, or keep it visible when favorited. */
+.model-opt:hover .hwx-fav-star,
+.hwx-fav-star:focus-visible,
+.hwx-fav-star--on {
+  opacity: 1;
+}
+.hwx-fav-star:hover {
+  color: var(--text, #111);
+  background: var(--hover-bg, rgba(127, 127, 127, .12));
+}
+.hwx-fav-star--on {
+  color: var(--accent, #f5c542);
+}
+.hwx-fav-star--on:hover {
+  color: var(--accent, #f5c542);
+}
+
+/* The model-opt-top row needs to lay the star out inline at the end. */
+.model-opt .model-opt-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.model-opt .model-opt-top .model-opt-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Injected Favorites group. */
+.hwx-fav-group {
+  border-bottom: 1px solid var(--border2, rgba(127, 127, 127, .25));
+  margin-bottom: 2px;
+  padding-bottom: 2px;
+}
+.hwx-fav-heading.model-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent, #f5c542);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-fav-star { transition: none; }
+}
