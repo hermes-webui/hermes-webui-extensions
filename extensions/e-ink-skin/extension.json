@@ -1,0 +1,46 @@
+{
+  "id": "e-ink-skin",
+  "name": "E-Ink Skin",
+  "description": "A maximum-contrast, near-monochrome light skin tuned for e-ink displays (Kindle, Boox, reMarkable). Pure-white background, near-black text, no gray-on-gray, flattened shadows. Registers into the native Settings \u2192 Appearance skin picker.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/e-ink-skin.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": false,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": [],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "registers_skin": true
+  }
+}

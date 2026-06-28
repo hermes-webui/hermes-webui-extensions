@@ -32,3 +32,5 @@ need it and maintainers agree on the shared contract.
   it as Markdown, via a titlebar button.
 - `mcp-tool-shortcuts`: pin MCP tools and draft a ready-to-send request into
   the composer (never auto-executes); lives in Settings → MCP Tools.
+- `e-ink-skin`: maximum-contrast near-monochrome light skin for e-ink displays;
+  registers into the native Appearance picker via the theme-registration API.
