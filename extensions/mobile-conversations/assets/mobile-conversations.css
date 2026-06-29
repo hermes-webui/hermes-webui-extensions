@@ -8,7 +8,12 @@
   .messages-shell .mobile-conversations-fab.hwx-mobile-conversations-fab.active,
   .messages-shell .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--pressing{background:var(--accent-bg);border-color:var(--accent-bg-strong);color:var(--text);}
   .messages-shell .mobile-conversations-fab.hwx-mobile-conversations-fab svg{display:block;}
-  .messages-shell .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--drawer-open{display:none!important;}
+  .messages-shell .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--drawer-open,
+  body > .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--drawer-open{position:fixed;right:20px;bottom:60px;top:auto;z-index:240;width:44px;height:44px;min-width:44px;min-height:44px;border-radius:999px;border:1px solid var(--border);display:inline-flex!important;align-items:center;justify-content:center;background:var(--surface,var(--code-bg));color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.35);cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+  .messages-shell .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--drawer-open:hover,
+  .messages-shell .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--drawer-open:focus-visible,
+  body > .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--drawer-open:hover,
+  body > .mobile-conversations-fab.hwx-mobile-conversations-fab.mobile-conversations-fab--drawer-open:focus-visible{background:var(--hover-bg);border-color:var(--border2);color:var(--text);outline:none;}
   .mobile-conversations-menu.hwx-mobile-conversations-menu .ws-opt-action{min-height:44px;}
   .mobile-conversations-menu.hwx-mobile-conversations-menu .ws-opt-name{white-space:nowrap;}
 }

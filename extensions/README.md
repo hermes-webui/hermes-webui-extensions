@@ -19,5 +19,5 @@ need it and maintainers agree on the shared contract.
 
 - `desktop-companion`: trusted local Desktop Companion entry and first
   sidecar-class extension candidate.
-- `mobile-conversations`: phone-only floating Conversations button and
-  long-press shortcuts for the existing Hermes WebUI mobile drawer.
+- `mobile-conversations`: phone-only floating Conversations button, same-location
+  drawer close X, and long-press shortcuts for the existing Hermes WebUI mobile drawer.

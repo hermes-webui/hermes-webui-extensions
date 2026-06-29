@@ -2,20 +2,21 @@
 
 Mobile Conversations Button is a trusted local Hermes WebUI extension that adds
 a phone-only floating **Conversations** button near the chat composer. It opens
-the existing mobile conversations drawer and provides a long-press shortcuts
-menu for common conversation navigation actions.
+the existing mobile conversations drawer, then stays in the same floating
+position as an **X** above the open drawer so it can be closed again. It also
+provides a long-press shortcuts menu for common conversation navigation actions.
 
 ## What It Does
 
 - Adds a phone-width-only floating Conversations button inside the chat messages
   shell.
-- Short tap opens or closes the existing mobile conversations/sidebar drawer.
+- Short tap opens the existing mobile conversations/sidebar drawer.
 - Long press opens a menu with shortcuts for:
   - New conversation
   - Open sidebar
   - Go to top
   - Go to last message
-- Hides the floating button while the mobile drawer is already open.
+- Keeps the same button in its normal floating position above the open mobile drawer as an **X** close affordance.
 - Leaves desktop-width layouts unchanged.
 
 ## Current Shape
@@ -88,13 +89,14 @@ browser origin and can use the logged-in browser session.
 Current disclosed behavior:
 
 - creates extension-owned DOM for the floating button and long-press menu
-- inserts the floating button into the existing `.messages-shell`
+- inserts the floating button into the existing `.messages-shell` and temporarily reparents it to `document.body` while the mobile drawer is open so it can sit above the drawer at the same visual position
 - reads existing mobile layout state through WebUI DOM/classes
 - calls existing WebUI browser functions when available, including
   `switchPanel`, `closeMobileSidebar`, `newSession`, `renderSessionList`,
   `jumpToSessionStart`, and `scrollToBottom`
 - toggles existing mobile sidebar classes as a fallback when the public browser
   helper is unavailable
+- swaps its icon between the conversations glyph and a close X based on the mobile sidebar state
 - uses pointer, context-menu, keyboard, resize, scroll, and mutation-observer
   handlers for mobile interaction and accessibility behavior
 - does not call WebUI HTTP APIs

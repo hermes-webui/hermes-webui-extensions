@@ -1,8 +1,8 @@
 {
   "id": "mobile-conversations",
   "name": "Mobile Conversations Button",
-  "description": "Phone-only floating Conversations button for Hermes WebUI that opens the existing mobile conversations drawer and exposes long-press shortcuts.",
-  "version": "0.1.0",
+  "description": "Phone-only floating Conversations button for Hermes WebUI that opens the existing mobile conversations drawer, becomes a same-location close X while the drawer is open, and exposes long-press shortcuts.",
+  "version": "0.1.1",
   "author": "santastabber",
   "assets": {
     "scripts": [

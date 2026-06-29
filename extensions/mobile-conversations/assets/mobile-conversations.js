@@ -3,6 +3,7 @@
 
   const EXT = 'mobile-conversations';
   const BUTTON_ID = 'mobileConversationsBtn';
+  const SVG_NS = 'http://www.w3.org/2000/svg';
   const LONG_PRESS_DELAY_MS = 400;
   const CLICK_IGNORE_MS = 700;
   const INIT_RETRIES = 80;
@@ -45,22 +46,58 @@
     return !!(sidebar && sidebar.classList.contains('mobile-open'));
   }
 
-  function chatPanelActive() {
-    const panel = $('panelChat');
-    if (panel && panel.classList.contains('active')) return true;
-    const main = document.querySelector('main.main');
-    if (!main) return true;
-    return !Array.from(main.classList).some((name) => name.indexOf('showing-') === 0);
+  function buttonHomeShell() {
+    return document.querySelector('.messages-shell');
+  }
+
+  function buttonHomeBefore(shell) {
+    if (!shell) return null;
+    return $('jumpToSessionStartBtn') || $('scrollToBottomBtn') || shell.firstElementChild;
+  }
+
+  function placeButtonForSidebarState(btn, open) {
+    if (!btn) return;
+    if (open) {
+      if (btn.parentNode !== document.body) document.body.appendChild(btn);
+      return;
+    }
+    const shell = buttonHomeShell();
+    if (!shell || btn.parentNode === shell) return;
+    const before = buttonHomeBefore(shell);
+    shell.insertBefore(btn, before || null);
+  }
+
+  function appendSvgNode(svg, name, attrs) {
+    const node = document.createElementNS(SVG_NS, name);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+    svg.appendChild(node);
+    return node;
+  }
+
+  function setButtonIcon(btn, open) {
+    const svg = btn.querySelector('svg[data-hwx-mobile-conversations-icon="1"]');
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    if (open) {
+      appendSvgNode(svg, 'line', { x1: '18', y1: '6', x2: '6', y2: '18' });
+      appendSvgNode(svg, 'line', { x1: '6', y1: '6', x2: '18', y2: '18' });
+      return;
+    }
+    appendSvgNode(svg, 'path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' });
   }
 
   function syncButton() {
     const btn = $(BUTTON_ID);
     if (!btn || btn.dataset.hwxMobileConversations !== '1') return;
     const open = sidebarOpen();
+    placeButtonForSidebarState(btn, open);
+    setButtonIcon(btn, open);
     btn.classList.toggle('mobile-conversations-fab--drawer-open', open);
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     btn.setAttribute('aria-label', open ? 'Close conversations' : 'Open conversations');
     btn.title = open ? 'Close conversations' : 'Conversations';
+    if (open) btn.removeAttribute('aria-haspopup');
+    else btn.setAttribute('aria-haspopup', 'menu');
   }
 
   function closeDrawer() {
@@ -117,7 +154,7 @@
   async function toggleMobileConversationsSidebar() {
     if (isDesktopWidth()) return false;
     closeMenu();
-    if (sidebarOpen() && chatPanelActive()) {
+    if (sidebarOpen()) {
       closeDrawer();
       return false;
     }
@@ -337,8 +374,7 @@
   }
 
   function buttonSvg() {
-    const svgNamespace = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(svgNamespace, 'svg');
+    const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('width', '20');
     svg.setAttribute('height', '20');
     svg.setAttribute('viewBox', '0 0 24 24');
@@ -348,9 +384,8 @@
     svg.setAttribute('stroke-linecap', 'round');
     svg.setAttribute('stroke-linejoin', 'round');
     svg.setAttribute('aria-hidden', 'true');
-    const path = document.createElementNS(svgNamespace, 'path');
-    path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
-    svg.appendChild(path);
+    svg.setAttribute('data-hwx-mobile-conversations-icon', '1');
+    appendSvgNode(svg, 'path', { d: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z' });
     return svg;
   }
 
@@ -374,7 +409,7 @@
       btn.setAttribute('aria-expanded', 'false');
       btn.title = 'Conversations';
       btn.appendChild(buttonSvg());
-      const before = $('jumpToSessionStartBtn') || $('scrollToBottomBtn') || shell.firstElementChild;
+      const before = buttonHomeBefore(shell);
       shell.insertBefore(btn, before || null);
     }
     return btn;
@@ -392,6 +427,11 @@
     btn.addEventListener('pointerdown', (event) => {
       if (isDesktopWidth()) return;
       if (event.pointerType === 'mouse' || (event.button && event.button !== 0)) return;
+      if (sidebarOpen()) {
+        clearPressTimer();
+        clearClickIgnore();
+        return;
+      }
       clearPressTimer();
       clearClickIgnore();
       pressX = event.clientX;
@@ -412,6 +452,7 @@
     btn.addEventListener('contextmenu', (event) => {
       if (isDesktopWidth()) return;
       event.preventDefault();
+      if (sidebarOpen()) return;
       clearPressTimer();
       ignoreNextClick();
       openMenu(btn);
@@ -433,7 +474,7 @@
       observeSidebar();
       syncButton();
       window.HermesMobileConversationsExtension = {
-        version: '0.1.0',
+        version: '0.1.1',
         sync: syncButton,
         openMenu,
         toggle: toggleMobileConversationsSidebar,
