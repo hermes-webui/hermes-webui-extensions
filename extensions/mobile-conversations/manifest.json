@@ -3,7 +3,7 @@
     {
       "id": "mobile-conversations",
       "name": "Mobile Conversations Button",
-      "description": "Phone-only floating Conversations button and shortcut menu for Hermes WebUI.",
+      "description": "Phone-only floating Conversations button with same-location drawer close X and shortcut menu for Hermes WebUI.",
       "scripts": [
         "assets/mobile-conversations.js"
       ],
