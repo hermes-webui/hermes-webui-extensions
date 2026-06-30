@@ -27,6 +27,8 @@
   const BASE_KEY = 'hermes-ext-voicevox-base';
   const DEF_BASE = 'http://127.0.0.1:50021';
   const SPEAKER_KEY = 'hermes-ext-voicevox-speaker';
+  const CORE_VOICE_KEY = 'hermes-tts-voice';
+  const CORE_ENGINE_KEY = 'hermes-tts-engine';
 
   // Accept ONLY a loopback http(s) host, OR a safe root-relative same-origin proxy
   // path (single leading slash, no protocol-relative '//', no query/hash). This
@@ -59,56 +61,27 @@
     return DEF_BASE;                                       // anything else → loopback default
   }
 
-  // Resolve the speaker id, preferring the core voice selection (opts.voice from
-  // the Settings dropdown / hermes-tts-voice) over the extension's own key, both
-  // validated as a non-negative integer. (Codex gate, PR #29.)
-  function resolveSpeaker(opts) {
-    function asId(raw) {
-      var n = parseInt(raw, 10);
-      return (Number.isFinite(n) && n >= 0) ? n : null;
-    }
+  function engineNow() {
+    try { return localStorage.getItem(CORE_ENGINE_KEY) || 'browser'; }
+    catch (_) { return 'browser'; }
+  }
+
+  function asId(raw) {
+    var n = parseInt(raw, 10);
+    return (Number.isFinite(n) && n >= 0) ? n : null;
+  }
+
+  // The raw speaker candidate, preferring the core voice selection (opts.voice
+  // from the Settings dropdown / hermes-tts-voice) over the extension's own key.
+  function rawCandidate(opts) {
     if (opts && opts.voice != null) { var ov = asId(opts.voice); if (ov != null) return ov; }
     var stored = asId(localStorage.getItem(SPEAKER_KEY));
-    return stored != null ? stored : 1;
+    return stored != null ? stored : null;
   }
 
   function speakerId() {
     const v = parseInt(localStorage.getItem(SPEAKER_KEY) || '', 10);
     return Number.isFinite(v) && v >= 0 ? v : 1;
-  }
-
-  // VOICEVOX synthesis is two calls:
-  //   1) POST /audio_query?text=...&speaker=N  -> a query JSON
-  //   2) POST /synthesis?speaker=N  (body: the query JSON)  -> WAV audio bytes
-  // credentials:'omit' — never send ambient cookies to the (possibly same-origin
-  // proxy) VOICEVOX endpoint. (Codex gate, PR #29.)
-  function synthesize(text, opts) {
-    const base = baseUrl();
-    const speaker = resolveSpeaker(opts);
-    const q = base + '/audio_query?text=' + encodeURIComponent(text) +
-      '&speaker=' + encodeURIComponent(speaker);
-    return fetch(q, { method: 'POST', credentials: 'omit' })
-      .then(function (r) {
-        if (!r.ok) throw new Error('VOICEVOX audio_query failed: ' + r.status);
-        return r.json();
-      })
-      .then(function (query) {
-        // Optional: nudge speed from the user's saved rate (VOICEVOX uses
-        // speedScale ~0.5..2). opts.rate is the core slider (1 = normal).
-        if (opts && typeof opts.rate === 'number' && !isNaN(opts.rate)) {
-          query.speedScale = Math.min(2, Math.max(0.5, opts.rate));
-        }
-        return fetch(base + '/synthesis?speaker=' + encodeURIComponent(speaker), {
-          method: 'POST',
-          credentials: 'omit',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(query),
-        });
-      })
-      .then(function (r) {
-        if (!r.ok) throw new Error('VOICEVOX synthesis failed: ' + r.status);
-        return r.arrayBuffer();   // WAV bytes -> core plays via <audio>
-      });
   }
 
   // ── Voice list ───────────────────────────────────────────────────
@@ -132,12 +105,117 @@
       });
   }
 
+  // Resolve a speaker id that is KNOWN-VALID against the live /speakers list.
+  // VOICEVOX returns 500 on /audio_query for an unknown speaker id, so stale
+  // numeric browser state (an id that no longer exists on this engine build)
+  // must be detected and replaced before we ever hit /audio_query. Returns a
+  // Promise<{speaker, fallback, ids:Set, first, rejected}>. (Frank, PR #29.)
+  function pickSpeaker(opts) {
+    return fetchVoices().then(function (voices) {
+      var ids = new Set(), first = null;
+      (voices || []).forEach(function (v) {
+        var n = parseInt(v.value, 10);
+        if (Number.isFinite(n)) { ids.add(n); if (first == null) first = n; }
+      });
+      var cand = rawCandidate(opts);
+      // No live list (empty) → trust the candidate (or default 1); can't validate.
+      if (ids.size === 0) return { speaker: cand != null ? cand : 1, fallback: false, ids: ids, first: first };
+      if (cand != null && ids.has(cand)) return { speaker: cand, fallback: false, ids: ids, first: first };
+      // Stale / invalid / unset → fall back to the first real speaker and clear
+      // the stale persisted values so the UI/state self-heals.
+      try {
+        if (cand != null) {
+          if (asId(localStorage.getItem(CORE_VOICE_KEY)) === cand) localStorage.removeItem(CORE_VOICE_KEY);
+          if (asId(localStorage.getItem(SPEAKER_KEY)) === cand) localStorage.removeItem(SPEAKER_KEY);
+        }
+      } catch (_) {}
+      return { speaker: first != null ? first : 1, fallback: true, ids: ids, first: first, rejected: cand };
+    }).catch(function () {
+      // /speakers unavailable (server down) — don't block synthesis; use the raw
+      // candidate or the default and let synthesis surface the real failure.
+      var cand = rawCandidate(opts);
+      return { speaker: cand != null ? cand : 1, fallback: false, ids: null, first: null };
+    });
+  }
+
+  // One VOICEVOX synthesis pass for a concrete speaker id. Two calls:
+  //   1) POST /audio_query?text=...&speaker=N  -> a query JSON
+  //   2) POST /synthesis?speaker=N  (body: the query JSON)  -> WAV audio bytes
+  // credentials:'omit' — never send ambient cookies to the (possibly same-origin
+  // proxy) VOICEVOX endpoint. (Codex gate, PR #29.) The error text includes the
+  // rejected speaker id so a 500 is diagnosable. (Frank, PR #29.)
+  function synthOnce(base, text, speaker, opts) {
+    const q = base + '/audio_query?text=' + encodeURIComponent(text) +
+      '&speaker=' + encodeURIComponent(speaker);
+    return fetch(q, { method: 'POST', credentials: 'omit' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('VOICEVOX audio_query failed: ' + r.status + ' (speaker ' + speaker + ')');
+        return r.json();
+      })
+      .then(function (query) {
+        // Optional: nudge speed from the user's saved rate (VOICEVOX uses
+        // speedScale ~0.5..2). opts.rate is the core slider (1 = normal).
+        if (opts && typeof opts.rate === 'number' && !isNaN(opts.rate)) {
+          query.speedScale = Math.min(2, Math.max(0.5, opts.rate));
+        }
+        return fetch(base + '/synthesis?speaker=' + encodeURIComponent(speaker), {
+          method: 'POST',
+          credentials: 'omit',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(query),
+        });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error('VOICEVOX synthesis failed: ' + r.status + ' (speaker ' + speaker + ')');
+        return r.arrayBuffer();   // WAV bytes -> core plays via <audio>
+      });
+  }
+
+  function synthesize(text, opts) {
+    const base = baseUrl();
+    return pickSpeaker(opts).then(function (sel) {
+      return synthOnce(base, text, sel.speaker, opts).catch(function (err) {
+        // If we used the candidate id (not already a fallback) and audio_query
+        // rejected it with a 500 (the invalid-speaker failure class), retry once
+        // with a known-valid speaker rather than surfacing a dead Listen button.
+        var invalidSpeaker = err && /audio_query failed: 500/.test(err.message || '');
+        if (!sel.fallback && invalidSpeaker && sel.first != null && sel.first !== sel.speaker) {
+          try {
+            if (asId(localStorage.getItem(CORE_VOICE_KEY)) === sel.speaker) localStorage.removeItem(CORE_VOICE_KEY);
+            if (asId(localStorage.getItem(SPEAKER_KEY)) === sel.speaker) localStorage.removeItem(SPEAKER_KEY);
+          } catch (_) {}
+          return synthOnce(base, text, sel.first, opts);
+        }
+        throw err;
+      });
+    });
+  }
+
+  // The first option label written by THIS extension. Used to detect whether the
+  // voice <select> is currently "owned" by us vs. wiped back to core's built-in
+  // (browser/edge/elevenlabs) options, so re-ownership doesn't loop.
+  var OWNED_FIRST_LABELS = ['Loading voices...', 'Default speaker', 'No voices available', 'Failed to load voices'];
+  function selectOwnedByVv(sel) {
+    if (!sel || !sel.options || !sel.options.length) return false;
+    return OWNED_FIRST_LABELS.indexOf(sel.options[0].textContent) !== -1;
+  }
+
   function populateVoiceDropdown(sel) {
     if (!sel) return;
+    // Persist a chosen VOICEVOX voice on change (core also binds this, but bind
+    // defensively so a selection made before core re-binds still persists).
+    sel.onchange = function () { try { localStorage.setItem(CORE_VOICE_KEY, this.value); } catch (_) {} };
     sel.innerHTML = '<option value="">Loading voices...</option>';
     fetchVoices().then(function (voices) {
       if (!voices || !voices.length) { sel.innerHTML = '<option value="">No voices available</option>'; return; }
-      var cur = localStorage.getItem('hermes-tts-voice') || '';
+      var validIds = new Set();
+      voices.forEach(function (v) { validIds.add(String(v.value)); });
+      var cur = localStorage.getItem(CORE_VOICE_KEY) || '';
+      // Clear stale state: a saved voice that isn't a valid VOICEVOX speaker id
+      // (e.g. an edge/browser voice name left over from another engine, or a
+      // speaker id this engine build no longer has) would otherwise reach
+      // /audio_query as an invalid speaker and 500. (Frank, PR #29.)
+      if (cur && !validIds.has(cur)) { try { localStorage.removeItem(CORE_VOICE_KEY); } catch (_) {} cur = ''; }
       sel.innerHTML = '<option value="">Default speaker</option>';
       voices.forEach(function (v) {
         var opt = document.createElement('option');
@@ -146,6 +224,29 @@
         sel.appendChild(opt);
       });
     }).catch(function () { sel.innerHTML = '<option value="">Failed to load voices</option>'; });
+  }
+
+  // ── Re-own the voice dropdown across every core repaint ───────────────────
+  // Core's _populateTtsVoices() treats any non-built-in engine as browser TTS
+  // (its `else` branch), so on Settings save / section switch / panel re-open it
+  // wipes our VOICEVOX list back to "Default system voice". Wrap the core fn so
+  // that whenever the active engine is VOICEVOX, WE own the dropdown; otherwise
+  // delegate to core unchanged. Core reassigns window._populateTtsVoices on each
+  // loadSettingsPanel, so the MutationObserver re-installs this wrapper. (Frank, PR #29.)
+  function wrapCorePopulate() {
+    var core = window._populateTtsVoices;
+    if (typeof core !== 'function' || core.__vvWrapped) return;
+    var wrapped = function () {
+      if (engineNow() === 'voicevox') {
+        var s = document.getElementById('settingsTtsVoice');
+        if (s) populateVoiceDropdown(s);
+        return;
+      }
+      return core.apply(this, arguments);
+    };
+    wrapped.__vvWrapped = true;
+    wrapped.__vvCore = core;
+    window._populateTtsVoices = wrapped;
   }
 
   // ── URL field + MutationObserver ──────────────────────────────────-
@@ -180,11 +281,24 @@
     _urlInjected = true;
   }
 
-  function onEngineChange() {
+  // Reconcile the URL field visibility to the current engine. Idempotent — safe
+  // to call every observer tick. Reads the EFFECTIVE engine (the select value if
+  // present, else persisted state) rather than only the select, because core
+  // sets settingsTtsEngine.value AFTER our first hook fires, without a `change`
+  // event — so a one-shot onEngineChange() at hook time would leave the field
+  // hidden while VOICEVOX is actually selected. (Frank, PR #29.)
+  function syncUrlFieldVisibility() {
     var f = document.getElementById('settingsVoicevoxUrlField');
+    if (!f) return;
+    var es = document.getElementById('settingsTtsEngine');
+    var eng = (es && es.value) ? es.value : engineNow();
+    f.style.display = (eng === 'voicevox') ? '' : 'none';
+  }
+
+  function onEngineChange() {
+    syncUrlFieldVisibility();
     var es = document.getElementById('settingsTtsEngine');
     var eng = es ? es.value : 'browser';
-    if (f) f.style.display = (eng === 'voicevox') ? '' : 'none';
     if (eng === 'voicevox') {
       var s = document.getElementById('settingsTtsVoice');
       if (s) populateVoiceDropdown(s);
@@ -193,11 +307,23 @@
 
   new MutationObserver(function () {
     injectUrlField();
+    // Keep our wrapper installed over whatever _populateTtsVoices core last assigned.
+    wrapCorePopulate();
     var es = document.getElementById('settingsTtsEngine');
     if (es && !es.__vvHooked) {
       es.__vvHooked = true;
       es.addEventListener('change', onEngineChange);
       onEngineChange();
+    }
+    // Keep the URL field visibility in sync with the effective engine every tick
+    // (core may set the engine value after our first hook, with no change event).
+    syncUrlFieldVisibility();
+    // If VOICEVOX is the active engine but core just repainted the voice list
+    // back to its built-ins (not owned by us), re-own it. selectOwnedByVv guards
+    // against re-entrancy so this can't loop on our own writes.
+    if (engineNow() === 'voicevox') {
+      var s = document.getElementById('settingsTtsVoice');
+      if (s && !selectOwnedByVv(s)) populateVoiceDropdown(s);
     }
   }).observe(document.body, { childList: true, subtree: true });
 
