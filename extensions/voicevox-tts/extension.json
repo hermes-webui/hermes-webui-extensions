@@ -36,7 +36,8 @@
         "hermes-ext-voicevox-base"
       ],
       "shared_webui_keys": [
-        "hermes-tts-voice"
+        "hermes-tts-voice",
+        "hermes-tts-engine"
       ]
     },
     "loopback_sidecar": true,

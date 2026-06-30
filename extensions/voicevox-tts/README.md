@@ -100,7 +100,10 @@ This is trusted local code. Current disclosed behavior:
   loopback default (`network_external: false`; `loopback_sidecar: true`)
 - reads/writes `localStorage` under `hermes-ext-voicevox-speaker` (its own speaker
   id) and `hermes-ext-voicevox-base` (the server-URL override), and **reads** the
-  shared core key `hermes-tts-voice` (the Settings voice selection)
+  shared core keys `hermes-tts-voice` (the Settings voice selection) and
+  `hermes-tts-engine` (to know when VOICEVOX is the active engine). It may also
+  clear a stale `hermes-tts-voice` value when that voice is no longer a valid
+  VOICEVOX speaker id, so a dead selection self-heals.
 - injects **one Settings field** ("VOICEVOX Server URL") next to the core TTS voice
   selector, and populates the core voice dropdown from `/speakers` — a scoped DOM
   mutation of the Settings panel only
