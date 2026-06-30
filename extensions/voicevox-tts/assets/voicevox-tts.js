@@ -48,8 +48,12 @@
 
   // VOICEVOX engine base. Configurable via localStorage (hermes-ext-voicevox-base).
   // The speaker id is also configurable; default 1 (a standard VOICEVOX voice).
+  // Default: use the same-origin proxy path /voicevox (proxied by Tailscale Serve
+  // or nginx to the VOICEVOX engine).  This works from any device — desktop,
+  // iPhone, etc.  For direct loopback access (localhost browser), override to
+  // http://127.0.0.1:50021 in Settings.
   const BASE_KEY = 'hermes-ext-voicevox-base';
-  const DEF_BASE = 'http://127.0.0.1:50021';
+  const DEF_BASE = '/voicevox';
   const SPEAKER_KEY = 'hermes-ext-voicevox-speaker';
 
   // Accept ONLY a loopback http(s) host, OR a safe root-relative same-origin proxy
@@ -184,12 +188,12 @@
     div.className = 'settings-field'; div.id = 'settingsVoicevoxUrlField';
     div.style.display = 'none';
     div.innerHTML = '<label for="settingsVoicevoxUrl">VOICEVOX Server URL</label>'
-      + '<input type="text" id="settingsVoicevoxUrl" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px" placeholder="http://127.0.0.1:50021">'
+      + '<input type="text" id="settingsVoicevoxUrl" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px" placeholder="/voicevox">'
       + '<div style="font-size:11px;color:var(--muted);margin-top:4px">Override the VOICEVOX server address. Defaults to the standard loopback. Use a relative path for same-origin proxies.</div>';
     vf.parentNode.insertBefore(div, vf.nextSibling);
     var inp = document.getElementById('settingsVoicevoxUrl');
     if (inp) {
-      inp.value = localStorage.getItem(BASE_KEY) || DEF_BASE;
+      inp.value = localStorage.getItem(BASE_KEY) || '/voicevox';
       inp.oninput = function () {
         var v = this.value.trim();
         if (v) localStorage.setItem(BASE_KEY, v); else localStorage.removeItem(BASE_KEY);
