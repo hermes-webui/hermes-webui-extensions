@@ -31,6 +31,18 @@ still sent through the core `registerHermesSkin` **sanitizer**, so an invalid or
 malicious color value can never be applied — the core capability is the single
 security chokepoint.
 
+## Code / chat surface coverage
+
+The core `registerHermesSkin()` allowlist excludes a few code/chat-surface tokens
+(`--strong`, `--code-inline-bg`, `--pre-text`, `--input-bg`) and emits no
+dark-mode variant, so on a mismatched base theme a custom theme's inline code and
+code blocks would inherit the base-theme values and could render unreadable. To
+cover that, the extension emits its own managed `<style>` (id
+`hwxThemeCreatorCodeStyles`) with those tokens derived from each saved theme's
+(and the live preview's) own palette, under both `:root[data-skin]` and
+`:root.dark[data-skin]`, so a custom theme composes cleanly in Light, Dark, and
+System Default base modes. The block is refreshed on register/save/preview/delete.
+
 ## Dependency
 
 Requires the core **theme-registration capability** (`window.registerHermesSkin`),

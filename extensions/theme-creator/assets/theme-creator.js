@@ -130,6 +130,44 @@
     };
   }
 
+  // ── code / chat surface token coverage ───────────────────────────────────
+  // The core registerHermesSkin allowlist excludes several code/chat-surface
+  // tokens (--strong, --code-inline-bg, --pre-text, --input-bg) and emits no
+  // dark-mode variant, so on a mismatched base theme a custom theme's inline
+  // code / code blocks inherit the base-theme values and can render unreadable
+  // (the same composition gap @franksong2702 flagged on the fixed skin packs).
+  // We can't push these through registerHermesSkin, so we emit our own managed
+  // <style> for every saved theme + the live-preview key, derived from each
+  // theme's own palette, under both :root[data-skin] and :root.dark[data-skin]
+  // so it composes cleanly in Light, Dark, and System Default base modes.
+  const _CODE_STYLE_ID = 'hwxThemeCreatorCodeStyles';
+
+  function codeTokensFor(base) {
+    const dark = luminance(base.bg) < 0.5;
+    return {
+      '--strong': mix(base.text, dark ? '#ffffff' : '#000000', 0.15),
+      '--code-bg': mix(base.bg, dark ? '#ffffff' : '#000000', 0.04),
+      '--code-text': base.text,
+      '--code-inline-bg': 'rgba(' + rgbStr(dark ? '#ffffff' : '#000000') + ', ' + (dark ? '0.08' : '0.06') + ')',
+      '--pre-text': base.text,
+      '--input-bg': mix(base.surface, dark ? '#ffffff' : '#000000', 0.03),
+    };
+  }
+
+  function renderCodeStyles(extra) {
+    let el = document.getElementById(_CODE_STYLE_ID);
+    if (!el) { el = document.createElement('style'); el.id = _CODE_STYLE_ID; document.head.appendChild(el); }
+    const entries = loadThemes().map((t) => ({ key: t.key, base: t.base }));
+    if (extra && extra.key && extra.base) entries.push(extra);
+    const blocks = [];
+    for (const e of entries) {
+      const toks = codeTokensFor(e.base);
+      const decls = Object.keys(toks).map((k) => k + ':' + toks[k] + ' !important').join(';');
+      if (decls) blocks.push(':root[data-skin="' + e.key + '"],\n:root.dark[data-skin="' + e.key + '"]{' + decls + '}');
+    }
+    el.textContent = blocks.join('\n');
+  }
+
   // Register all saved themes into the native picker.
   function registerAll() {
     if (!hasCapability()) return 0;
@@ -137,6 +175,7 @@
     for (const t of loadThemes()) {
       try { if (window.registerHermesSkin(descriptorFor(t))) n++; } catch (_) {}
     }
+    renderCodeStyles();
     return n;
   }
 
@@ -273,6 +312,7 @@
     }
     try {
       window.registerHermesSkin({ name: 'Preview', value: previewKey, colors: [base.accent, base.bg, base.surface], tokens: deriveTokens(base) });
+      renderCodeStyles({ key: previewKey, base });
       applySkin(previewKey);
     } catch (_) {}
     togglePreviewButtons(true);
@@ -280,7 +320,7 @@
   function updatePreview() {
     if (!previewKey || !hasCapability()) return;
     const base = currentBaseFromInputs();
-    try { window.registerHermesSkin({ name: 'Preview', value: previewKey, colors: [base.accent, base.bg, base.surface], tokens: deriveTokens(base) }); applySkin(previewKey); } catch (_) {}
+    try { window.registerHermesSkin({ name: 'Preview', value: previewKey, colors: [base.accent, base.bg, base.surface], tokens: deriveTokens(base) }); renderCodeStyles({ key: previewKey, base }); applySkin(previewKey); } catch (_) {}
   }
   function cancelPreview() {
     if (previewKey && prevSkinBeforePreview !== null) {
@@ -327,6 +367,7 @@
     // register + apply it
     if (hasCapability()) {
       try { window.registerHermesSkin(descriptorFor(rec)); } catch (_) {}
+      renderCodeStyles();
       cancelPreview();
       applySkin(key);
     }
@@ -369,6 +410,7 @@
         if (editing && editing.key === key) editing = null;
         // if the deleted theme was active, revert to default
         try { if ((localStorage.getItem('hermes-skin') || '') === key) applySkin('default'); } catch (_) {}
+        renderCodeStyles();
         renderEditor();
         renderSaved();
       });
@@ -381,7 +423,7 @@
       ensureRailButton();
       registerAll();   // make saved themes available in the picker on load
       window.HermesThemeCreatorExtension = {
-        version: '0.1.0',
+        version: '0.1.1',
         themes: loadThemes,
         open: openPanel,
         registerAll,

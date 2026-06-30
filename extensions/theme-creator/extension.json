@@ -1,8 +1,8 @@
 {
   "id": "theme-creator",
   "name": "Theme Creator",
-  "description": "Build your own theme: pick colors for the key design tokens, see a live preview, name it, and save. Custom themes register into the native Settings \u2192 Appearance picker. Create, edit, and delete multiple themes; everything is stored locally.",
-  "version": "0.1.0",
+  "description": "Build your own theme: pick colors for the key design tokens, see a live preview, name it, and save. Custom themes register into the native Settings → Appearance picker. Create, edit, and delete multiple themes; everything is stored locally.",
+  "version": "0.1.1",
   "author": "nesquena-hermes",
   "assets": {
     "scripts": [
