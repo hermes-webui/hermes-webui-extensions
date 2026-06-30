@@ -1,0 +1,70 @@
+/* ── Skin Pack: code / chat surface token coverage ───────────────────────────
+ *
+ * All six skins here are DARK editor palettes registered through the core
+ * theme-registration API (window.registerHermesSkin). That API only accepts
+ * tokens on its allowlist and emits a single `:root[data-skin="..."]{...}` rule
+ * with NO dark-mode variant. Several code/chat-surface tokens core uses are not
+ * on that allowlist:
+ *
+ *   --strong            (bold prose / emphasis text)
+ *   --code-inline-bg    (inline `code` background in prose + tables)
+ *   --pre-text          (fenced code-block text)
+ *   --input-bg          (composer / pre headers)
+ *
+ * On a Light / System-Default-light base theme, those four keep their LIGHT
+ * base values (dark text, light inline-code bg) against these dark skin
+ * surfaces, so assistant inline code such as `/api/session/delete` renders
+ * nearly invisible (reported by @franksong2702 on Tokyo Night). Each skin is a
+ * self-contained dark palette, so we pin the code/chat tokens to that skin's own
+ * dark values here, under both `:root[data-skin]` and `:root.dark[data-skin]`,
+ * so it stays readable in Light, Dark, and System Default base modes.
+ * !important is required because the base theme sets these on :root / :root.dark.
+ */
+
+/* Dracula */
+:root[data-skin="dracula"],
+:root.dark[data-skin="dracula"] {
+  --strong: #ffffff !important; --code-bg: #21222c !important; --code-text: #f8f8f2 !important;
+  --code-inline-bg: rgba(255, 255, 255, 0.08) !important; --pre-text: #f8f8f2 !important;
+  --input-bg: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Gruvbox */
+:root[data-skin="gruvbox"],
+:root.dark[data-skin="gruvbox"] {
+  --strong: #fbf1c7 !important; --code-bg: #1d2021 !important; --code-text: #ebdbb2 !important;
+  --code-inline-bg: rgba(255, 255, 255, 0.08) !important; --pre-text: #ebdbb2 !important;
+  --input-bg: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* One Dark */
+:root[data-skin="one-dark"],
+:root.dark[data-skin="one-dark"] {
+  --strong: #d7dae0 !important; --code-bg: #21252b !important; --code-text: #abb2bf !important;
+  --code-inline-bg: rgba(255, 255, 255, 0.08) !important; --pre-text: #abb2bf !important;
+  --input-bg: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Tokyo Night */
+:root[data-skin="tokyo-night"],
+:root.dark[data-skin="tokyo-night"] {
+  --strong: #d5d9f0 !important; --code-bg: #16161e !important; --code-text: #c0caf5 !important;
+  --code-inline-bg: rgba(255, 255, 255, 0.08) !important; --pre-text: #c0caf5 !important;
+  --input-bg: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Rosé Pine */
+:root[data-skin="rose-pine"],
+:root.dark[data-skin="rose-pine"] {
+  --strong: #eae8ff !important; --code-bg: #15131f !important; --code-text: #e0def4 !important;
+  --code-inline-bg: rgba(255, 255, 255, 0.08) !important; --pre-text: #e0def4 !important;
+  --input-bg: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Solarized Dark */
+:root[data-skin="solarized-dark"],
+:root.dark[data-skin="solarized-dark"] {
+  --strong: #eee8d5 !important; --code-bg: #001f27 !important; --code-text: #93a1a1 !important;
+  --code-inline-bg: rgba(255, 255, 255, 0.08) !important; --pre-text: #93a1a1 !important;
+  --input-bg: rgba(255, 255, 255, 0.04) !important;
+}

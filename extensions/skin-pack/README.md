@@ -89,6 +89,18 @@ tokens.
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
 - the core theme-registration capability (`window.registerHermesSkin`, PR #5100)
 
+## Code / chat surface coverage
+
+All six skins are dark editor palettes. The core `registerHermesSkin()` API only
+accepts allowlisted tokens and emits a single `:root[data-skin="..."]` rule with
+no dark-mode variant, and a few code/chat-surface tokens core uses (`--strong`,
+`--code-inline-bg`, `--pre-text`, `--input-bg`) are not on that allowlist. On a
+Light / System-Default-light base theme those keep their light base values
+against the dark skin surfaces, so assistant inline code and code blocks render
+nearly invisible. The bundled `assets/skin-pack.css` pins those tokens to each
+skin's own dark palette under both `:root[data-skin]` and `:root.dark[data-skin]`,
+so every skin stays readable in Light, Dark, and System Default base modes.
+
 ## Verification
 
 ```bash
