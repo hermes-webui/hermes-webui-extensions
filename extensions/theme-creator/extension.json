@@ -25,7 +25,9 @@
   "permissions": {
     "webui_api": {
       "read": [],
-      "write": []
+      "write": [
+        "settings"
+      ]
     },
     "webui_navigation": false,
     "dom": {

@@ -101,14 +101,22 @@ This is trusted local code. Current disclosed behavior:
 
 - creates extension-owned DOM (a rail button + the editor panel)
 - calls `window.registerHermesSkin(...)` with derived, sanitized color tokens
+- injects a small extension-managed `<style>` (`hwxThemeCreatorCodeStyles`) for
+  per-theme code/chat token coverage, using validated hex/rgba values only
 - reads/writes `localStorage`:
-  - **owned:** `hermes-ext-custom-themes` (your saved themes)
+  - **owned:** `hermes-ext-custom-themes` (your saved themes; validated on read,
+    capped at 50 themes / 256 KB)
   - **shared:** `hermes-skin` — the core skin-selection key, written to apply a
     theme (the same key the built-in Appearance picker uses)
-- does NOT call WebUI HTTP APIs, access cookies, contact any network, or use the
-  filesystem / native hosts
-- all rendered text (theme names) is escaped; all colors are validated hex and
-  re-sanitized by the core registration API
+- applies a theme through the core `window._pickSkin()` path when available, which
+  commits the appearance change immediately — i.e. core **autosaves appearance via
+  an authenticated `POST /api/settings`** as a side effect (disclosed as
+  `webui_api.write: ["settings"]`). The extension itself issues no other HTTP calls.
+- does NOT access cookies, contact any external network, or use the filesystem /
+  native hosts
+- all rendered text (theme names) is escaped; theme records are validated on read
+  (key grammar + hex base colors); all colors are validated hex and re-sanitized by
+  the core registration API
 
 ## Compatibility
 

@@ -40,16 +40,46 @@
   ];
 
   // ── helpers ────────────────────────────────────────────────────────────
+  const MAX_THEMES = 50;                            // cap saved themes (storage-growth guard)
+  const MAX_STORE_BYTES = 256 * 1024;               // hard byte ceiling for the whole store
+
+  // Validate a stored theme record before any CSS/HTML rendering consumes it.
+  // Stored data is user-controlled (localStorage), so a tampered record must not
+  // be able to inject CSS via the selector key or a non-hex base value. (Codex gate, PR #26.)
+  function validTheme(t) {
+    if (!t || typeof t !== 'object') return null;
+    const key = String(t.key || '');
+    // key grammar: custom- prefix + slug chars only (safe as data-skin attr + CSS attr selector)
+    if (!/^custom-[a-z0-9_-]+$/.test(key)) return null;
+    if (!t.base || typeof t.base !== 'object') return null;
+    const base = {};
+    for (const f of FIELDS) {
+      const v = t.base[f.id];
+      if (!isHex(v)) return null;                   // every base color must be a valid hex
+      base[f.id] = v;
+    }
+    return { key: key, name: String(t.name || key).slice(0, 28), base: base };
+  }
+
   function loadThemes() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return [];
       const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? arr.filter((t) => t && t.key && t.base) : [];
+      if (!Array.isArray(arr)) return [];
+      const out = [];
+      for (const t of arr) { const v = validTheme(t); if (v) out.push(v); }
+      return out;
     } catch (_) { return []; }
   }
   function saveThemes(themes) {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(themes)); } catch (_) {}
+    try {
+      const capped = (themes || []).slice(0, MAX_THEMES);
+      const json = JSON.stringify(capped);
+      if (json.length > MAX_STORE_BYTES) return false;   // refuse oversized writes
+      localStorage.setItem(STORE_KEY, json);
+      return true;
+    } catch (_) { return false; }
   }
   function hasCapability() { return typeof window.registerHermesSkin === 'function'; }
 
@@ -362,8 +392,18 @@
     const key = editing ? editing.key : slugify(name);
     const existingIdx = themes.findIndex((t) => t.key === key);
     const rec = { key, name: name.slice(0, 28), base };
-    if (existingIdx >= 0) themes[existingIdx] = rec; else themes.push(rec);
-    saveThemes(themes);
+    if (existingIdx >= 0) themes[existingIdx] = rec;
+    else {
+      if (themes.length >= MAX_THEMES) {
+        showErr('Theme limit reached (' + MAX_THEMES + '). Delete one before adding another.');
+        return;
+      }
+      themes.push(rec);
+    }
+    if (!saveThemes(themes)) {
+      showErr('Could not save — theme storage is full. Delete a theme and try again.');
+      return;
+    }
     // register + apply it
     if (hasCapability()) {
       try { window.registerHermesSkin(descriptorFor(rec)); } catch (_) {}
