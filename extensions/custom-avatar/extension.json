@@ -1,0 +1,49 @@
+{
+  "id": "custom-avatar",
+  "name": "Custom Assistant Avatar",
+  "description": "Give the assistant a custom avatar image in the chat transcript. Click any assistant avatar badge to upload or clear an image; it's downscaled and stored locally and re-applied as the transcript re-renders.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/custom-avatar.js"
+    ],
+    "stylesheets": [
+      "assets/custom-avatar.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-assistant-avatar"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}

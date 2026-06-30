@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "model-favorites",
+      "name": "Model Favorites",
+      "description": "Star your most-used models; favorites are promoted to the top of the composer model picker.",
+      "scripts": [
+        "assets/model-favorites.js"
+      ],
+      "stylesheets": [
+        "assets/model-favorites.css"
+      ]
+    }
+  ]
+}
