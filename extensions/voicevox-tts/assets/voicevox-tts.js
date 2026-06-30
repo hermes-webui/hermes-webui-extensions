@@ -28,11 +28,48 @@
   const DEF_BASE = 'http://127.0.0.1:50021';
   const SPEAKER_KEY = 'hermes-ext-voicevox-speaker';
 
+  // Accept ONLY a loopback http(s) host, OR a safe root-relative same-origin proxy
+  // path (single leading slash, no protocol-relative '//', no query/hash). This
+  // keeps the loopback-only / network_external:false disclosure honest — an
+  // arbitrary external host is rejected and falls back to the default. (Codex gate, PR #29.)
+  function isLoopbackHost(h) {
+    h = (h || '').toLowerCase();
+    if (h === 'localhost' || h === '::1' || h === '[::1]') return true;
+    // 127.0.0.0/8
+    var m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (m && m[1] === '127') return true;
+    return false;
+  }
   function baseUrl() {
     var v = (localStorage.getItem(BASE_KEY) || '').trim();
     if (!v) return DEF_BASE;
-    if (v.charAt(0) === '/') return v;
-    try { new URL(v); return v; } catch (_) { return DEF_BASE; }
+    // Same-origin proxy path: a SINGLE leading slash, reject protocol-relative '//'
+    // and any query/hash so it can't smuggle an off-origin target.
+    if (v.charAt(0) === '/') {
+      if (v.charAt(1) === '/') return DEF_BASE;          // protocol-relative → reject
+      if (v.indexOf('?') >= 0 || v.indexOf('#') >= 0) return DEF_BASE;
+      return v.replace(/\/+$/, '');
+    }
+    try {
+      var u = new URL(v);
+      if ((u.protocol === 'http:' || u.protocol === 'https:') && isLoopbackHost(u.hostname)) {
+        return v.replace(/\/+$/, '');
+      }
+    } catch (_) {}
+    return DEF_BASE;                                       // anything else → loopback default
+  }
+
+  // Resolve the speaker id, preferring the core voice selection (opts.voice from
+  // the Settings dropdown / hermes-tts-voice) over the extension's own key, both
+  // validated as a non-negative integer. (Codex gate, PR #29.)
+  function resolveSpeaker(opts) {
+    function asId(raw) {
+      var n = parseInt(raw, 10);
+      return (Number.isFinite(n) && n >= 0) ? n : null;
+    }
+    if (opts && opts.voice != null) { var ov = asId(opts.voice); if (ov != null) return ov; }
+    var stored = asId(localStorage.getItem(SPEAKER_KEY));
+    return stored != null ? stored : 1;
   }
 
   function speakerId() {
@@ -43,12 +80,14 @@
   // VOICEVOX synthesis is two calls:
   //   1) POST /audio_query?text=...&speaker=N  -> a query JSON
   //   2) POST /synthesis?speaker=N  (body: the query JSON)  -> WAV audio bytes
+  // credentials:'omit' — never send ambient cookies to the (possibly same-origin
+  // proxy) VOICEVOX endpoint. (Codex gate, PR #29.)
   function synthesize(text, opts) {
     const base = baseUrl();
-    const speaker = speakerId();
+    const speaker = resolveSpeaker(opts);
     const q = base + '/audio_query?text=' + encodeURIComponent(text) +
       '&speaker=' + encodeURIComponent(speaker);
-    return fetch(q, { method: 'POST' })
+    return fetch(q, { method: 'POST', credentials: 'omit' })
       .then(function (r) {
         if (!r.ok) throw new Error('VOICEVOX audio_query failed: ' + r.status);
         return r.json();
@@ -61,6 +100,7 @@
         }
         return fetch(base + '/synthesis?speaker=' + encodeURIComponent(speaker), {
           method: 'POST',
+          credentials: 'omit',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(query),
         });
@@ -78,7 +118,7 @@
     var cb = baseUrl();
     if (_voiceCache && _voiceCacheBase === cb && Date.now() - _voiceCacheTs < 30000)
       return Promise.resolve(_voiceCache);
-    return fetch(cb + '/speakers')
+    return fetch(cb + '/speakers', { credentials: 'omit' })
       .then(function (r) { if (!r.ok) throw new Error('speakers ' + r.status); return r.json(); })
       .then(function (speakers) {
         var voices = [];

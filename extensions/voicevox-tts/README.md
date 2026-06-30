@@ -91,17 +91,24 @@ the `extensions/voicevox-tts/` directory.
 This is trusted local code. Current disclosed behavior:
 
 - calls `window.registerHermesTtsEngine(...)` once to add the VOICEVOX engine
-- on synthesis, makes **loopback-only** requests to `http://127.0.0.1:50021`
-  (`/audio_query`, `/synthesis`) — no external network
-  (`network_external: false`; `loopback_sidecar: true`)
-- reads/writes `localStorage` under the single key
-  `hermes-ext-voicevox-speaker`
-- creates **no DOM**
-- does NOT call WebUI HTTP APIs, access cookies, use the filesystem, or use native
-  hosts
+- on synthesis, makes **loopback-only** requests (`/audio_query`, `/synthesis`,
+  `/speakers`) with `credentials:'omit'` — no external network. The server address
+  defaults to `http://127.0.0.1:50021` and is user-overridable, but the override is
+  **strictly validated**: only an http(s) **loopback** host (`localhost`,
+  `127.0.0.0/8`, `::1`) or a safe **root-relative same-origin proxy path** is
+  accepted; any external/protocol-relative URL is rejected and falls back to the
+  loopback default (`network_external: false`; `loopback_sidecar: true`)
+- reads/writes `localStorage` under `hermes-ext-voicevox-speaker` (its own speaker
+  id) and `hermes-ext-voicevox-base` (the server-URL override), and **reads** the
+  shared core key `hermes-tts-voice` (the Settings voice selection)
+- injects **one Settings field** ("VOICEVOX Server URL") next to the core TTS voice
+  selector, and populates the core voice dropdown from `/speakers` — a scoped DOM
+  mutation of the Settings panel only
+- does NOT call WebUI HTTP APIs, access cookies (requests are `credentials:'omit'`),
+  use the filesystem, or use native hosts
 
-The loopback-only address (hardcoded `127.0.0.1`) mirrors the no-SSRF design of
-the source PR.
+The loopback-validation policy preserves the no-SSRF design of the source PR even
+with the configurable URL.
 
 ## Compatibility
 
