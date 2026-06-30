@@ -49,11 +49,12 @@
   // ── live tool list (authed endpoint; do NOT rely on the in-page cache) ────
   let liveTools = [];
   function fetchTools() {
-    const apiFn = window.api;
-    const p = (typeof apiFn === 'function')
-      ? apiFn('/api/mcp/tools')
-      : fetch('/api/mcp/tools', { credentials: 'same-origin' })
-          .then((r) => r.ok ? r.json() : { tools: [] });
+    // Always use an ABSOLUTE same-origin fetch. (Do NOT route through window.api:
+    // core's api() strips the leading slash and resolves against document.baseURI,
+    // so on a /session/<id> route '/api/mcp/tools' becomes '/session/api/mcp/tools'
+    // → 404 → silent empty tool list. Codex gate, PR #28.)
+    const p = fetch('/api/mcp/tools', { credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : { tools: [] });
     return Promise.resolve(p).then((r) => {
       liveTools = (r && Array.isArray(r.tools)) ? r.tools : [];
       return liveTools;
@@ -214,7 +215,10 @@
     const list = $('mcpToolList');
     if (!list) return false;
     const obs = new MutationObserver(schedule);
-    obs.observe(list, { childList: true, subtree: true });
+    // childList only (NOT subtree): decorateRows() rewrites star.innerHTML, and a
+    // subtree observer would re-trigger on our own mutation → rAF/decorate loop.
+    // Core renders MCP rows as direct children of #mcpToolList. (Codex gate, PR #28.)
+    obs.observe(list, { childList: true });
     return true;
   }
 
