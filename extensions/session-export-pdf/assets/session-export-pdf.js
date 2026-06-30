@@ -28,6 +28,49 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // Produce a SANITIZED clone of a rendered .msg-body for the print document.
+  // Although core already sanitizes rendered markdown, we never re-inject raw
+  // innerHTML (gate rule: clone, don't reparse attacker-influenceable HTML).
+  // We also strip OFF-ORIGIN media so exporting cannot fire cross-origin
+  // requests (image/audio/video beacons) — the extension declares
+  // network_external:false, and this keeps that honest. Same-origin and
+  // data:-URI media are preserved.
+  function sameOriginOrData(url) {
+    if (!url) return false;
+    const u = String(url).trim();
+    if (/^data:/i.test(u)) return true;
+    try {
+      const resolved = new URL(u, document.baseURI);
+      return resolved.origin === window.location.origin;
+    } catch (_) { return false; }
+  }
+  function sanitizeClone(body) {
+    const clone = body.cloneNode(true);
+    // Drop any event-handler attributes + script/style/iframe/object/embed nodes.
+    clone.querySelectorAll('script,style,iframe,object,embed,link,meta').forEach((n) => n.remove());
+    const walk = (el) => {
+      if (el.attributes) {
+        for (const attr of Array.from(el.attributes)) {
+          if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+        }
+      }
+      // Strip off-origin media sources so export triggers no cross-origin fetch.
+      ['src', 'href', 'poster'].forEach((a) => {
+        if (el.hasAttribute && el.hasAttribute(a) && !sameOriginOrData(el.getAttribute(a))) {
+          if (a === 'src' || a === 'poster') el.removeAttribute(a);
+          // keep off-origin <a href> as plain text link target is harmless on print,
+          // but neutralize javascript: URLs entirely
+          if (a === 'href' && /^\s*javascript:/i.test(el.getAttribute(a) || '')) el.removeAttribute(a);
+        }
+      });
+      if (el.hasAttribute && el.hasAttribute('srcset')) el.removeAttribute('srcset');
+      let child = el.firstElementChild;
+      while (child) { walk(child); child = child.nextElementSibling; }
+    };
+    walk(clone);
+    return clone;
+  }
+
   function currentTitle() {
     const el = $('appTitlebarTitle');
     const t = el ? el.textContent.trim() : '';
@@ -67,7 +110,7 @@
         node.closest('.assistant-turn');
       rows.push({
         role: assistant ? 'assistant' : 'user',
-        html: body.innerHTML,
+        body: body,
         text: (body.innerText || body.textContent || '').trim(),
       });
     });
@@ -86,6 +129,11 @@
       if (!c) return false;
       if (c.querySelector('[data-virtual-spacer]')) return true;
       if (window._virtualizeTranscript === true) return true;
+      // Server-paginated "load earlier" state: core renders #loadOlderIndicator /
+      // .message-window-load-earlier when older messages are not yet loaded, so the
+      // DOM holds only a partial window (Frank/Codex, PR #27).
+      if (c.querySelector('#loadOlderIndicator, .message-window-load-earlier')) return true;
+      if (document.querySelector('#loadOlderIndicator, .message-window-load-earlier')) return true;
       return false;
     } catch (_) { return false; }
   }
@@ -101,7 +149,9 @@
     root = document.createElement('div');
     root.id = PRINT_ROOT_ID;
     root.setAttribute('aria-hidden', 'true');
-    let html = '<div class="hwx-print-head"><h1>' + escapeHtml(title) + '</h1>' +
+    // Head (extension-authored text only) is built as escaped HTML; the message
+    // BODIES are appended as SANITIZED CLONES (never raw innerHTML reparse).
+    const headHtml = '<div class="hwx-print-head"><h1>' + escapeHtml(title) + '</h1>' +
       '<div class="hwx-print-meta">' + escapeHtml(new Date().toLocaleString()) +
       ' · ' + rows.length + ' messages rendered</div>' +
       (windowed
@@ -111,12 +161,22 @@
           'the top to load earlier messages before exporting for a complete copy.</div>'
         : '') +
       '</div>';
+    const head = document.createElement('div');
+    head.innerHTML = headHtml;   // extension-authored, fully escaped above
+    root.appendChild(head);
     for (const r of rows) {
-      html += '<div class="hwx-print-msg hwx-print-' + r.role + '">' +
-        '<div class="hwx-print-role">' + (r.role === 'user' ? 'You' : 'Assistant') + '</div>' +
-        '<div class="hwx-print-body">' + r.html + '</div></div>';
+      const msg = document.createElement('div');
+      msg.className = 'hwx-print-msg hwx-print-' + r.role;
+      const role = document.createElement('div');
+      role.className = 'hwx-print-role';
+      role.textContent = (r.role === 'user' ? 'You' : 'Assistant');
+      const bodyWrap = document.createElement('div');
+      bodyWrap.className = 'hwx-print-body';
+      bodyWrap.appendChild(sanitizeClone(r.body));   // sanitized clone, not raw HTML
+      msg.appendChild(role);
+      msg.appendChild(bodyWrap);
+      root.appendChild(msg);
     }
-    root.innerHTML = html;
     document.body.appendChild(root);
     document.body.classList.add('hwx-printing');
     const cleanup = () => {
