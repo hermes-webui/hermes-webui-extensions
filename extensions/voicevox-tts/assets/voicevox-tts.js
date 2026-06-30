@@ -22,6 +22,30 @@
   if (window.__hermesVoicevoxLoaded) return;
   window.__hermesVoicevoxLoaded = true;
 
+  // ── iOS Safari audio unlock ────────────────────────────────────────
+  // iOS Safari suspends AudioContext until the first user gesture (touch/
+  // click).  Without this the extension returns valid WAV bytes but the
+  // core's <audio> / AudioContext playback produces silence.  A one-shot
+  // silent buffer on the first interaction unlocks the audio subsystem.
+  (function installIOSAudioUnlock() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;   // no Web Audio API → nothing to unlock
+    function unlock() {
+      try {
+        var ctx = new AC();
+        var buf = ctx.createBuffer(1, 1, 22050);   // 1 sample of silence
+        var src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        if (ctx.state === 'suspended') ctx.resume();
+        setTimeout(function () { ctx.close(); }, 1000);
+      } catch (_) { /* best-effort unlock */ }
+    }
+    document.addEventListener('touchstart', unlock, { once: true });
+    document.addEventListener('click',     unlock, { once: true });
+  })();
+
   // VOICEVOX engine base. Configurable via localStorage (hermes-ext-voicevox-base).
   // The speaker id is also configurable; default 1 (a standard VOICEVOX voice).
   const BASE_KEY = 'hermes-ext-voicevox-base';
