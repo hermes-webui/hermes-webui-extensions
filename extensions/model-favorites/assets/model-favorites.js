@@ -124,10 +124,27 @@
       row.innerHTML = '<div class="model-opt-top"><span class="model-opt-name">' +
         escapeHtml(f.name || f.id) + '</span>' + provChip + '</div>' +
         '<span class="model-opt-id">' + escapeHtml(f.id) + '</span>';
-      // Selecting a favorite: defer to the canonical app selector if present.
+      // Selecting a favorite: prefer re-clicking the REAL core row so the exact
+      // providerId (carried only in core's row.onclick closure, not exposed as a
+      // DOM attribute) is used. Match the live row by model id; only fall back to
+      // selectModelFromDropdown(id) when no live row exists. This avoids selecting
+      // the wrong provider for duplicate model ids. (Codex gate, PR #23.)
       row.addEventListener('click', (ev) => {
         const star = ev.target.closest('.hwx-fav-star');
         if (star) return;
+        const dd = document.getElementById(DD_ID);
+        let liveRow = null;
+        if (dd) {
+          dd.querySelectorAll('.model-opt:not(.hwx-fav-row)').forEach((r) => {
+            if (liveRow) return;
+            const idEl = r.querySelector(':scope .model-opt-id');
+            if (idEl && idEl.textContent.trim() === f.id) liveRow = r;
+          });
+        }
+        if (liveRow && typeof liveRow.click === 'function') {
+          liveRow.click();   // exact core selection incl. real providerId
+          return;
+        }
         if (typeof window.selectModelFromDropdown === 'function') {
           window.selectModelFromDropdown(f.id, f.provider || null);
         }
@@ -158,10 +175,17 @@
         top.appendChild(star);
         row.dataset[DECOR_FLAG] = '1';
       } else {
-        star.classList.toggle('hwx-fav-star--on', fav);
-        star.setAttribute('aria-pressed', fav ? 'true' : 'false');
-        star.title = fav ? 'Remove from favorites' : 'Add to favorites';
-        star.innerHTML = starSvg(fav);
+        const want = fav;
+        const has = star.classList.contains('hwx-fav-star--on');
+        if (want !== has) {
+          // Only rewrite the star DOM when the filled state actually changed —
+          // an unconditional innerHTML rewrite every pass creates childList
+          // mutations that can feed an observer loop. (Codex gate, PR #23.)
+          star.classList.toggle('hwx-fav-star--on', fav);
+          star.setAttribute('aria-pressed', fav ? 'true' : 'false');
+          star.title = fav ? 'Remove from favorites' : 'Add to favorites';
+          star.innerHTML = starSvg(fav);
+        }
       }
     });
   }
@@ -170,11 +194,16 @@
     const dd = document.getElementById(DD_ID);
     if (!dd || applying) return;
     applying = true;
+    // Disconnect the observer for the duration of our own mutations so the
+    // queued MutationObserver callbacks (which fire on a microtask AFTER the
+    // `applying` flag is reset) can't re-trigger apply() in a loop. (Codex gate, PR #23.)
+    if (observer) { try { observer.disconnect(); } catch (_) {} }
     try {
       const favs = loadFavs();
       buildFavGroup(dd, favs);
       decorateRows(dd, favs);
     } finally {
+      if (observer) { try { observer.observe(dd, { childList: true, subtree: true }); } catch (_) {} }
       applying = false;
     }
   }
