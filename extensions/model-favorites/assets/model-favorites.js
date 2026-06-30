@@ -51,13 +51,25 @@
   }
 
   // ── read a row's identity from the existing DOM ──────────────────────────
+  // Provider identity: prefer the visible .model-opt-provider chip, but core omits
+  // it for rows under their own provider heading — in that case derive it from the
+  // enclosing core group wrapper .model-group-body[data-group] (data-group is the
+  // providerId, set in core ui.js renderModelDropdown). (Codex gate, PR #23.)
+  function rowProvider(row) {
+    const provEl = row.querySelector(':scope .model-opt-provider');
+    if (provEl && provEl.textContent.trim()) return provEl.textContent.trim();
+    const grp = row.closest('.model-group-body[data-group]');
+    if (grp && grp.dataset && grp.dataset.group && grp.dataset.group !== '__ungrouped__') {
+      return grp.dataset.group;
+    }
+    return '';
+  }
   function rowInfo(row) {
     const idEl = row.querySelector(':scope .model-opt-id');
     const nameEl = row.querySelector(':scope .model-opt-name');
-    const provEl = row.querySelector(':scope .model-opt-provider');
     const id = idEl ? idEl.textContent.trim() : '';
     const name = nameEl ? nameEl.textContent.trim() : id;
-    const provider = provEl ? provEl.textContent.trim() : '';
+    const provider = rowProvider(row);
     return { id, name, provider };
   }
 
@@ -137,8 +149,10 @@
         if (dd) {
           dd.querySelectorAll('.model-opt:not(.hwx-fav-row)').forEach((r) => {
             if (liveRow) return;
-            const idEl = r.querySelector(':scope .model-opt-id');
-            if (idEl && idEl.textContent.trim() === f.id) liveRow = r;
+            const info = rowInfo(r);
+            // Match on id + provider so duplicate model ids across providers don't
+            // re-click the wrong row. (Codex gate, PR #23.)
+            if (info.id === f.id && (info.provider || '') === (f.provider || '')) liveRow = r;
           });
         }
         if (liveRow && typeof liveRow.click === 'function') {
