@@ -1,0 +1,33 @@
+/* ── E-Ink Skin: code / chat surface token coverage ──────────────────────────
+ *
+ * The core theme-registration API (window.registerHermesSkin) can only set
+ * tokens on its allowlist, and emits a single `:root[data-skin="e-ink"]{...}`
+ * rule with NO dark-mode variant. Several code/chat-surface tokens that core
+ * uses are NOT on that allowlist:
+ *
+ *   --strong            (bold prose / emphasis text)
+ *   --code-inline-bg    (inline `code` background in prose + tables)
+ *   --pre-text          (fenced code-block text)
+ *   --input-bg          (composer / pre headers)
+ *
+ * So when the base Appearance theme is Dark, those four keep their dark-base
+ * values and render dark-on-white against the E-Ink light surfaces, making
+ * inline code and code blocks unreadable (reported by @franksong2702).
+ *
+ * E-Ink is intentionally a single high-contrast monochrome surface, so we pin
+ * these tokens to the E-Ink palette here regardless of the base theme. The
+ * `:root[data-skin="e-ink"]` and `:root.dark[data-skin="e-ink"]` selectors both
+ * carry the same values so the skin is self-consistent in Light, Dark, and
+ * System Default base modes. !important is required because the base theme also
+ * sets these on `:root` / `:root.dark`.
+ */
+:root[data-skin="e-ink"],
+:root.dark[data-skin="e-ink"] {
+  --strong: #000000 !important;
+  --em: #1a1a1a !important;
+  --code-bg: #f4f4f4 !important;
+  --code-text: #000000 !important;
+  --code-inline-bg: rgba(0, 0, 0, 0.06) !important;
+  --pre-text: #000000 !important;
+  --input-bg: #ffffff !important;
+}

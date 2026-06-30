@@ -7,7 +7,9 @@
       "scripts": [
         "assets/e-ink-skin.js"
       ],
-      "stylesheets": []
+      "stylesheets": [
+        "assets/e-ink-skin.css"
+      ]
     }
   ]
 }

@@ -89,6 +89,18 @@ Required WebUI surface:
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
 - the core theme-registration capability (`window.registerHermesSkin`, PR #5100)
 
+## Code / chat surface coverage
+
+The core `registerHermesSkin()` API only accepts tokens on its allowlist and
+emits a single `:root[data-skin="e-ink"]` rule with no dark-mode variant. A few
+code/chat-surface tokens core uses (`--strong`, `--code-inline-bg`, `--pre-text`,
+`--input-bg`) are **not** on that allowlist, so on a Dark base theme they would
+keep their dark values against the E-Ink light surfaces and render unreadable
+inline code / code blocks. The bundled `assets/e-ink-skin.css` pins those tokens
+to the E-Ink palette under both `:root[data-skin="e-ink"]` and
+`:root.dark[data-skin="e-ink"]`, so the skin stays readable in Light, Dark, and
+System Default base modes.
+
 ## Verification
 
 From this repository:
