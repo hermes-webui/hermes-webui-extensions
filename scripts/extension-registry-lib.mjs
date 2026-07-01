@@ -355,10 +355,20 @@ function validatePermissions(entry, scriptText, errors) {
   if (!isPlainObject(permissions.storage)) {
     errors.push('permissions.storage must be an object');
   } else {
-    const owned = new Set(assertArray(permissions.storage.owned || [], 'permissions.storage.owned', errors));
+    // storage.owned is EITHER an array of specific key names OR the boolean `true`.
+    // `true` means "owns its entire storage namespace" and is the exact form core
+    // (api/extensions.py) requires to enable the sanctioned settings_schema system.
+    // When true, the per-key "owned must include <key>" drift check is satisfied by
+    // definition; only the array form is checked key-by-key.
+    const ownsNamespace = permissions.storage.owned === true;
+    const owned = ownsNamespace
+      ? null
+      : new Set(assertArray(permissions.storage.owned || [], 'permissions.storage.owned', errors));
     const shared = new Set(assertArray(permissions.storage.shared_webui_keys || [], 'permissions.storage.shared_webui_keys', errors));
-    for (const key of OWNED_STORAGE_KEYS) {
-      if (scriptText.includes(key) && !owned.has(key)) errors.push(`permissions.storage.owned must include ${key}`);
+    if (!ownsNamespace) {
+      for (const key of OWNED_STORAGE_KEYS) {
+        if (scriptText.includes(key) && !owned.has(key)) errors.push(`permissions.storage.owned must include ${key}`);
+      }
     }
     for (const key of SHARED_STORAGE_KEYS) {
       if (scriptText.includes(key) && !shared.has(key)) errors.push(`permissions.storage.shared_webui_keys must include ${key}`);
