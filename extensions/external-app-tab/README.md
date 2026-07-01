@@ -1,9 +1,14 @@
 # External App Tab
 
-External App Tab is a trusted local Hermes WebUI extension that pins any
+External App Tab is a trusted local Hermes WebUI extension that pins a
 self-hosted web app — Grafana, Vaultwarden, Linkwarden, a personal dashboard —
 as a tab inside the WebUI via an `<iframe>`. It adds a button to the left rail
 that opens a full-area panel framing a URL you configure.
+
+It works best for **framable dashboards, status pages, and local tools** that
+don't require a cross-origin cookie login. It provides an iframe slot — not a
+guarantee that any arbitrary app will work correctly embedded (see **Known
+Limitations** for the third-party-iframe auth/cookie caveats).
 
 ## What It Does
 
@@ -135,7 +140,23 @@ Manual verification:
 
 - External origins require the operator to allow them via
   `HERMES_WEBUI_CSP_FRAME_EXTRA` (PR #5091) — a deliberate security boundary.
+  This is **necessary but not sufficient**: it answers "may Hermes embed this
+  origin?", not "will this app work correctly embedded?"
 - Some sites send `X-Frame-Options: DENY` / their own `frame-ancestors` and
   refuse to be embedded by anyone; those can't be framed (open them in a new tab
   instead). This is the remote site's choice, not a WebUI limitation.
+- **Authenticated apps may fail inside the iframe even when the origin is
+  allow-listed.** An embedded app runs in a third-party (cross-origin) context,
+  so its session cookies may not be sent from inside the iframe — third-party
+  cookie blocking, `SameSite`, `Secure`/HTTPS requirements, and the target app's
+  own frame/cookie policy all apply. A common failure mode: login succeeds
+  (the app creates a server-side session) but the next in-frame request returns
+  401 because the browser withheld the session cookie in the embedded context.
+  This is the normal browser security boundary — the extension can't fix it with
+  frontend JS.
+- **If login succeeds but the embedded app stays logged out / returns 401**, use
+  **Open in new tab**, or configure the target app for iframe use. Stable
+  embedded login usually requires a same-origin reverse proxy, or HTTPS plus
+  appropriate cookie settings (`SameSite=None; Secure`) and a framing policy that
+  permits embedding.
 - One app at a time (single configured URL).
