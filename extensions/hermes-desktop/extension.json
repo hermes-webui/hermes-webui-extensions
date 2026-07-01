@@ -1,0 +1,69 @@
+{
+  "id": "hermes-desktop",
+  "name": "Hermes Desktop",
+  "description": "A full Linux XFCE desktop inside Hermes WebUI. Drive GUI applications (Blender, LibreOffice, terminals) from your browser — the agent and you share the same desktop. Ships a Docker container, a loopback sidecar, and a WebUI panel.",
+  "version": "0.1.0",
+  "author": "ChonSong",
+  "homepage": "https://github.com/ChonSong/hermes-desktop",
+  "assets": {
+    "scripts": [
+      "assets/desktop-extension.js"
+    ],
+    "stylesheets": [
+      "assets/desktop-extension.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17887",
+    "health_path": "/health"
+  },
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "summary": "Install enables the WebUI desktop panel. Clone the companion repo, build the Docker container, and start the sidecar to launch the Linux desktop.",
+    "docs_url": "https://github.com/ChonSong/hermes-desktop#after-gallery-install",
+    "requires_local_app": true,
+    "local_app_label": "Hermes Desktop sidecar"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "sidecar_commands": {
+      "from_loopback": false,
+      "can_switch_sessions": false,
+      "can_write_drafts": false,
+      "can_autosend": false,
+      "can_respond_approval": false,
+      "can_respond_clarify": false,
+      "approval_clarify_response_default": false
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}
