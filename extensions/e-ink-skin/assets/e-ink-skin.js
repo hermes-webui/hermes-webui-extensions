@@ -9,9 +9,14 @@
   // up in the NATIVE Settings -> Appearance picker, selectable + persisted like
   // any built-in skin.
   //
-  // DEPENDENCY: requires the core `registerHermesSkin` capability
-  // (nesquena/hermes-webui PR #5100). On an older WebUI without it, this
-  // extension simply no-ops (the skin is unavailable) rather than erroring.
+  // DEPENDENCY: requires the core `registerHermesSkin` capability with the
+  // `scheme` option (nesquena/hermes-webui PR #5271, built on #5100). On an
+  // older WebUI without it, this extension simply no-ops (the skin is
+  // unavailable) rather than erroring. `scheme: 'light'` tells core to force a
+  // light base theme while E-Ink is selected, so core's own light-base tokens
+  // (--strong / --code-inline-bg / --pre-text / --input-bg, which are NOT on the
+  // registerHermesSkin allowlist) resolve to readable light values — no
+  // per-token stylesheet workaround needed.
 
   if (window.__hermesEInkSkinLoaded) return;
   window.__hermesEInkSkinLoaded = true;
@@ -22,6 +27,7 @@
     name: 'E-Ink',
     value: 'e-ink',
     label: 'E-Ink',
+    scheme: 'light',        // E-Ink is a light-only skin: core forces a light base while active
     colors: ['#000000', '#ffffff', '#000000'],
     tokens: {
       '--bg': '#ffffff',

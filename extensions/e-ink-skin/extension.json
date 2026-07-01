@@ -8,9 +8,7 @@
     "scripts": [
       "assets/e-ink-skin.js"
     ],
-    "stylesheets": [
-      "assets/e-ink-skin.css"
-    ]
+    "stylesheets": []
   },
   "capabilities": [
     "manifest-bundle"

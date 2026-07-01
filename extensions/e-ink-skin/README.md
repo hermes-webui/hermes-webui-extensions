@@ -20,10 +20,11 @@ skin.
 ## Dependency
 
 This extension requires the core **theme-registration capability**
-(`window.registerHermesSkin`), added in `nesquena/hermes-webui` **PR #5100**. On
-an older WebUI build without it, the extension **no-ops gracefully** (the skin is
-simply unavailable; nothing errors). Once that capability ships, the skin
-registers automatically on load.
+(`window.registerHermesSkin`) with the **`scheme` option** — the base capability
+landed in `nesquena/hermes-webui` **PR #5100**, and the `scheme: 'light' | 'dark'`
+extension shipped in **PR #5271**. On an older WebUI build without it, the
+extension **no-ops gracefully** (the skin is simply unavailable; nothing errors).
+Once that capability ships, the skin registers automatically on load.
 
 ## Current Shape
 
@@ -31,8 +32,8 @@ registers automatically on load.
 Hermes WebUI page
   -> manifest-bundled extension assets
   -> /extensions/assets/e-ink-skin.js
-  -> window.registerHermesSkin({ name:'E-Ink', tokens:{...} })
-  -> native Settings -> Appearance skin picker
+  -> window.registerHermesSkin({ name:'E-Ink', scheme:'light', tokens:{...} })
+  -> native Settings -> Appearance skin picker (core forces a light base while active)
 ```
 
 This extension is `static-ui` / manifest-bundle only. It does not add backend
@@ -87,19 +88,19 @@ color tokens.
 Required WebUI surface:
 
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
-- the core theme-registration capability (`window.registerHermesSkin`, PR #5100)
+- the core theme-registration capability with the `scheme` option (`window.registerHermesSkin`, PR #5100 + #5271)
 
 ## Code / chat surface coverage
 
-The core `registerHermesSkin()` API only accepts tokens on its allowlist and
-emits a single `:root[data-skin="e-ink"]` rule with no dark-mode variant. A few
-code/chat-surface tokens core uses (`--strong`, `--code-inline-bg`, `--pre-text`,
-`--input-bg`) are **not** on that allowlist, so on a Dark base theme they would
-keep their dark values against the E-Ink light surfaces and render unreadable
-inline code / code blocks. The bundled `assets/e-ink-skin.css` pins those tokens
-to the E-Ink palette under both `:root[data-skin="e-ink"]` and
-`:root.dark[data-skin="e-ink"]`, so the skin stays readable in Light, Dark, and
-System Default base modes.
+A few code/chat-surface tokens core uses (`--strong`, `--code-inline-bg`,
+`--pre-text`, `--input-bg`) are **not** on the `registerHermesSkin` token
+allowlist. On a Dark base theme they would otherwise keep their dark values
+against the E-Ink light surfaces and render inline code / code blocks unreadable.
+Rather than patch those tokens with a per-skin stylesheet, E-Ink declares
+**`scheme: 'light'`** in its registration: core then forces a light base theme
+while E-Ink is the active skin, so core's own light-base values for those tokens
+apply automatically and the skin stays readable in Light, Dark, and System
+Default base modes. No extension stylesheet is needed.
 
 ## Verification
 
@@ -114,7 +115,7 @@ python3 -m json.tool extensions/e-ink-skin/extension.json
 python3 -m json.tool extensions/e-ink-skin/manifest.json
 ```
 
-Manual verification (on a WebUI build with PR #5100):
+Manual verification (on a WebUI build with PR #5100 + #5271):
 
 - Settings → Appearance shows **E-Ink** in the skin picker
 - selecting it applies the high-contrast monochrome palette across the app
@@ -123,7 +124,7 @@ Manual verification (on a WebUI build with PR #5100):
 
 ## Known Limitations
 
-- Requires the core theme-registration capability (PR #5100); no-ops without it.
+- Requires the core theme-registration capability with `scheme` (PR #5100 + #5271); no-ops without it.
 - E-ink panels vary; this is a general high-contrast tuning, not per-device
   calibration.
 - A single light palette by design — e-ink screens are effectively monochrome,
