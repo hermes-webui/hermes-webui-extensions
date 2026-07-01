@@ -100,8 +100,15 @@ function scanJavaScriptFile(entry, file, text, errors) {
   }
 
   if (/localStorage\.setItem\s*\(/.test(text)) {
-    const owned = new Set(permissions.storage?.owned || []);
-    if (owned.size === 0) errors.push(`${repoRelative(file.path)} writes localStorage without declaring owned storage keys`);
+    // storage.owned is EITHER an array of specific key names OR the boolean `true`,
+    // which core (api/extensions.py) treats as "owns its whole storage namespace"
+    // and is the exact form REQUIRED to enable the sanctioned settings_schema system.
+    // Accept both: `true` (namespace-owning) satisfies the declaration; an array must
+    // be non-empty. Anything else (missing / false / empty array) fails closed.
+    const ownedDecl = permissions.storage?.owned;
+    const declared = ownedDecl === true
+      || (Array.isArray(ownedDecl) && ownedDecl.length > 0);
+    if (!declared) errors.push(`${repoRelative(file.path)} writes localStorage without declaring owned storage keys`);
   }
 }
 

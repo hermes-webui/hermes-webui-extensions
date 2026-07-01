@@ -161,6 +161,45 @@ try {
   assert.equal(safetyScanFromScripts.status, 0, safetyScanFromScripts.stderr || safetyScanFromScripts.stdout);
   assert.match(safetyScanFromScripts.stdout, /safety scan passed for \d+ extension entr(?:y|ies)/);
 
+  // Regression: an entry that writes localStorage and declares storage.owned === true
+  // (the boolean form core REQUIRES to enable settings_schema) must PASS the safety scan.
+  // Before the fix the scan crashed with "boolean true is not iterable"; the key-array
+  // form must still be accepted, and an undeclared write must still fail closed.
+  const repoRoot = path.resolve(scriptsDir, '..');
+  const extDir = path.join(repoRoot, 'extensions', 'scan-owned-true-case');
+  try {
+    mkdirSync(path.join(extDir, 'assets'), { recursive: true });
+    writeJson(path.join(extDir, 'extension.json'), {
+      id: 'scan-owned-true-case', name: 'Scan Case', description: 'temp test entry',
+      version: '0.0.1', author: 'test',
+      assets: { scripts: ['assets/x.js'], stylesheets: [] },
+      capabilities: ['manifest-bundle'],
+      lifecycle: { webui_restart_required: false, sidecar_start_required: false, native_host_start_required: false, native_host_autostart: 'none' },
+      screenshots: [],
+      permissions: {
+        webui_api: { read: [], write: [] }, webui_navigation: false,
+        dom: { owned: true, mutates_core_views: false },
+        storage: { owned: true, shared_webui_keys: [] },   // boolean form — enables settings_schema
+        loopback_sidecar: false, native_host: false,
+        filesystem: { arbitrary: false, serves_bundled_assets: true },
+        network_external: false
+      },
+      settings_schema: [{ key: 'enabled', type: 'boolean', label: 'Enabled', default: true }]
+    });
+    writeJson(path.join(extDir, 'manifest.json'), {
+      extensions: [{ id: 'scan-owned-true-case', name: 'Scan Case', description: 'temp test entry', scripts: ['assets/x.js'], stylesheets: [] }]
+    });
+    writeFileSync(path.join(extDir, 'README.md'), '# Scan Case\n', 'utf8');
+    writeFileSync(path.join(extDir, 'assets', 'x.js'), "localStorage.setItem('k','v');\n", 'utf8');
+    const scanOwnedTrue = spawnSync(process.execPath, ['scan-extension-safety.mjs'], {
+      cwd: scriptsDir, encoding: 'utf8', timeout: 30000
+    });
+    assert.equal(scanOwnedTrue.status, 0,
+      `storage.owned:true + localStorage write should pass the safety scan, got: ${scanOwnedTrue.stderr || scanOwnedTrue.stdout}`);
+  } finally {
+    rmSync(extDir, { recursive: true, force: true });
+  }
+
   console.log('extension validator self-tests passed');
 } finally {
   rmSync(tmpRoot, { recursive: true, force: true });
