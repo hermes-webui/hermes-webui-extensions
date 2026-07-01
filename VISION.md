@@ -37,9 +37,8 @@ so every entry is reviewed like application code. Entries must disclose the APIs
 and DOM surfaces they touch, any local sidecar process, any network/filesystem/
 native-host/OS access, and how to install/disable/remove them.
 
-Because the library is **curated**, *being merged is the vetting*. The future
-one-click install trusts the registry precisely because every entry in it passed
-review.
+Because the library is **curated**, *being merged is the vetting*. The one-click
+install trusts the registry precisely because every entry in it passed review.
 
 ## Capability ladder
 
@@ -48,8 +47,9 @@ Extensions grow in capability in stages. Each rung is independently shippable.
 1. **Asset bundling** ✅ *done* — a manifest bundles an extension's scripts/styles
    so multi-extension installs don't require hand-maintained env-var lists.
    Same-origin only (`/extensions/` or `/static/`).
-2. **Settings UI** *in progress* — a Settings → Extensions surface: read-only
-   listing first, then enable/disable, then install-from-GUI.
+2. **Settings UI** ✅ *shipped* — a Settings → Extensions surface: listing,
+   enable/disable, and one-click install/uninstall from the gallery (with sha256
+   verification against the registry), plus a diagnostics tab.
 3. **Sidecar metadata + direct loopback** *foundation merged (descriptive metadata); direct loopback shipped* — an extension can
    *declare* a local helper process (`sidecar: { type, origin, health_path }`) so
    WebUI can show the dependency and, later, report coarse health. **Today**, an
