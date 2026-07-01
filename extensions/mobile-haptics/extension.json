@@ -1,0 +1,48 @@
+{
+  "id": "mobile-haptics",
+  "name": "Mobile Haptics",
+  "description": "A short device vibration when an assistant turn finishes, so a phone user who set the device down gets a physical \"it's done\" cue. Opt-in; Android / Android-PWA only (no-ops on desktop and iOS Safari).",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/mobile-haptics.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": false,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-haptics-enabled"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "device_vibration": true
+  }
+}

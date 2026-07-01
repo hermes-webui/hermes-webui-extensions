@@ -37,3 +37,5 @@ need it and maintainers agree on the shared contract.
 - `skin-pack`: popular editor-inspired color themes (Dracula, Gruvbox, One Dark,
   Tokyo Night, Rosé Pine, Solarized Dark) that register into the native
   Appearance picker via the theme-registration API.
+- `mobile-haptics`: short device vibration when an assistant turn finishes
+  (Android / Android-PWA; no-ops on desktop and iOS).

@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "mobile-haptics",
+      "name": "Mobile Haptics",
+      "description": "Short device vibration when an assistant turn finishes (Android / Android-PWA).",
+      "scripts": [
+        "assets/mobile-haptics.js"
+      ],
+      "stylesheets": []
+    }
+  ]
+}
