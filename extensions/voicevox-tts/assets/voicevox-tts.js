@@ -93,13 +93,15 @@
   // returned WAVs into one buffer core can play.
   const MAX_CHUNK_CHARS = 1800;   // well under the ~4k+ where /audio_query starts 500ing
 
-  // Linear, bounded Markdown link/image stripper — NO regex backtracking.
-  // Scans once left-to-right. On '[' (or '![') it looks for a matching ']('
-  // then a closing ')', each within a bounded window; if the full structure
-  // isn't found in-bounds it emits the '[' literally and advances by one, so a
-  // crafted string of unterminated '[x](' openers can't cause superlinear work
-  // (ReDoS). Images drop entirely; links keep their label text. (Codex gate, PR #29.)
-  var MD_SCAN_CAP = 4096;   // max label/url span we'll consider part of one link
+  // Linear, bounded Markdown link/image stripper — NO regex backtracking and
+  // NO unbounded scans. Scans once left-to-right. On '[' (or '![') it searches
+  // for the matching ']( ... )' ONLY within a bounded MD_SCAN_CAP window (via a
+  // capped slice, so each search inspects at most MD_SCAN_CAP chars regardless of
+  // total input length); if the structure isn't found in-window it emits the '['
+  // literally and advances by one. This keeps the whole pass O(n): a crafted
+  // string of N bare '[' or unterminated '[x](' openers can't cause superlinear
+  // work — each opener does at most an O(MD_SCAN_CAP) capped probe. (Codex gate, PR #29.)
+  var MD_SCAN_CAP = 4096;   // max label+url span we'll consider part of one link
   function stripMarkdownLinks(t) {
     var out = '';
     var i = 0, n = t.length;
@@ -108,19 +110,19 @@
       var isImg = (c === '!' && t.charAt(i + 1) === '[');
       if (c === '[' || isImg) {
         var lb = i + (isImg ? 2 : 1);        // first char of label
-        var close = t.indexOf(']', lb);
-        // label must close in-bounds and the very next char must begin '(' url
-        if (close !== -1 && close - lb <= MD_SCAN_CAP && t.charAt(close + 1) === '(') {
-          var urlStart = close + 2;
-          var urlEnd = t.indexOf(')', urlStart);
-          if (urlEnd !== -1 && urlEnd - urlStart <= MD_SCAN_CAP) {
-            if (!isImg) out += t.slice(lb, close);   // link -> keep label
+        // Bounded probe: only look inside a MD_SCAN_CAP-char window from lb.
+        var win = t.slice(lb, lb + MD_SCAN_CAP);
+        var close = win.indexOf(']');
+        if (close !== -1 && win.charAt(close + 1) === '(') {
+          var urlRel = win.indexOf(')', close + 2);
+          if (urlRel !== -1) {
+            if (!isImg) out += win.slice(0, close);   // link -> keep label
             // image -> drop entirely
-            i = urlEnd + 1;
+            i = lb + urlRel + 1;                        // resume just past ')'
             continue;
           }
         }
-        // not a well-formed link/image in-bounds: emit this char literally
+        // not a well-formed link/image within the window: emit '[' literally
         out += c; i += 1; continue;
       }
       out += c; i += 1;
