@@ -8,12 +8,15 @@ Hermes WebUI core code.
 
 ## Status
 
-This repository is intentionally early. The WebUI extension APIs and backend
-support are still evolving, so the conventions here should be treated as a
-foundation for review rather than a locked marketplace contract.
+This repository is young but the core loop is live: the registry, CI safety
+gates, and the one-click install/uninstall UI in WebUI (Settings → Extensions)
+have all shipped. The WebUI extension APIs are still growing, so the conventions
+here are a maintained foundation rather than a locked marketplace contract.
 
-For the current WebUI-side loading contract, see `docs/EXTENSIONS.md` in the
-main Hermes WebUI repository.
+For the current WebUI-side loading contract, see
+[`docs/EXTENSIONS.md`](https://github.com/nesquena/hermes-webui/blob/main/docs/EXTENSIONS.md)
+in the main Hermes WebUI repository. For authoring an entry in this repo, see
+[`docs/extension-entry.md`](docs/extension-entry.md).
 
 ## What Belongs Here
 
@@ -99,16 +102,23 @@ node scripts/generate-registry.mjs --out dist/registry.json
 Pull requests run the same validator and safety scan in CI. Pushes to `main`
 generate the registry and per-extension zip artifacts for GitHub Pages. The
 registry entry includes a `download` URL and artifact-level `sha256` for each
-extension so the future WebUI install client can fetch and verify reviewed
-bytes before extracting them. The core-side install client, safe extraction,
-rollback, and uninstall flow are tracked in the main Hermes WebUI repo.
+extension so the WebUI install client fetches and verifies reviewed bytes before
+extracting them. The core-side install client — safe extraction, sha256
+verification, and uninstall — has shipped in the main Hermes WebUI repo
+(Settings → Extensions).
 
 ## Current Entries
 
-- `extensions/desktop-companion/`: trusted local Desktop Companion entry and
-  first sidecar-class extension candidate.
+The live entry list is maintained in
+[`extensions/README.md`](extensions/README.md), and the published, installable set
+is the generated registry
+([`registry.json`](https://hermes-webui.github.io/hermes-webui-extensions/registry.json)).
+See those rather than a hardcoded list here, which drifts on every merge.
 
-This repository does not yet add an extension registry UI, install flow, or
-backend proxy. Entries should continue to document their current manual install
-and lifecycle behavior explicitly until the core WebUI gallery/install client
-ships.
+The one-click **install flow and registry UI shipped in core** (Settings →
+Extensions: browse the registry, review permissions, install/uninstall with
+sha256 verification). Merged entries here are validated + safety-scanned in CI,
+published to the registry, and become one-click-installable from inside WebUI.
+The Tier-A loopback sidecar proxy remains future/demand-driven; sidecar-class
+entries currently reach their local backend directly under the loopback CSP
+allowance and should document their manual install + lifecycle explicitly.
