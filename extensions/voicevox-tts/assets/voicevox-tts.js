@@ -84,6 +84,108 @@
     return Number.isFinite(v) && v >= 0 ? v : 1;
   }
 
+  // ── Long-text handling (Frank, PR #29) ───────────────────────────────────
+  // VOICEVOX /audio_query 500s on very long / Markdown-heavy input even with a
+  // valid speaker. The user path — click Listen on a long final answer — hits
+  // exactly that. So before synthesis we (1) strip Markdown/code/URL noise that
+  // shouldn't be read aloud anyway, then (2) split into bounded chunks on
+  // sentence boundaries, synthesize each sequentially, and (3) concatenate the
+  // returned WAVs into one buffer core can play.
+  const MAX_CHUNK_CHARS = 1800;   // well under the ~4k+ where /audio_query starts 500ing
+
+  // Flatten Markdown to speakable plain text: drop fenced code blocks, inline
+  // code backticks, images, link URLs (keep the label), headings/emphasis/list
+  // markers, blockquote markers, and collapse whitespace. Best-effort + safe:
+  // anything unmatched passes through unchanged.
+  function normalizeForSpeech(text) {
+    var t = String(text == null ? '' : text);
+    t = t.replace(/```[\s\S]*?```/g, ' ');            // fenced code blocks
+    t = t.replace(/~~~[\s\S]*?~~~/g, ' ');            // fenced (tilde) code blocks
+    t = t.replace(/`([^`]*)`/g, '$1');                // inline code -> its text
+    t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');      // images -> drop
+    t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');    // links -> keep label
+    t = t.replace(/<https?:\/\/[^>\s]+>/g, ' ');      // autolinks
+    t = t.replace(/\bhttps?:\/\/[^\s)]+/g, ' ');      // bare URLs
+    t = t.replace(/^\s{0,3}#{1,6}\s+/gm, '');         // ATX headings
+    t = t.replace(/^\s{0,3}>\s?/gm, '');              // blockquote markers
+    t = t.replace(/^\s{0,3}([-*+]|\d+\.)\s+/gm, '');  // list markers
+    t = t.replace(/(\*\*|__|\*|_|~~)/g, '');          // emphasis markers
+    t = t.replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n').trim();
+    return t;
+  }
+
+  // Split into <= MAX_CHUNK_CHARS pieces, preferring sentence/newline boundaries
+  // (CJK 。！？ + ASCII .!? + newline), never breaking mid-token when avoidable.
+  // A single oversized token is hard-split so we never emit a chunk over the cap.
+  function chunkText(text) {
+    var chunks = [];
+    var parts = String(text).split(/(?<=[。．！？!?\n])/);
+    var buf = '';
+    function pushBuf() { var s = buf.trim(); if (s) chunks.push(s); buf = ''; }
+    parts.forEach(function (p) {
+      if (!p) return;
+      if (p.length > MAX_CHUNK_CHARS) {          // pathological single sentence
+        pushBuf();
+        for (var i = 0; i < p.length; i += MAX_CHUNK_CHARS) {
+          var slice = p.slice(i, i + MAX_CHUNK_CHARS).trim();
+          if (slice) chunks.push(slice);
+        }
+        return;
+      }
+      if ((buf + p).length > MAX_CHUNK_CHARS) pushBuf();
+      buf += p;
+    });
+    pushBuf();
+    return chunks.length ? chunks : [String(text).trim()].filter(Boolean);
+  }
+
+  // Concatenate multiple RIFF/WAVE ArrayBuffers that share a format (same speaker
+  // + engine ⇒ identical fmt) into one WAV: keep the first header, append each
+  // one's `data` chunk payload, and rewrite the RIFF + data sizes. Falls back to
+  // the first buffer if a header looks unexpected (defensive; still plays).
+  function concatWavs(buffers) {
+    buffers = buffers.filter(function (b) { return b && b.byteLength > 44; });
+    if (buffers.length === 0) return new ArrayBuffer(0);
+    if (buffers.length === 1) return buffers[0];
+
+    function findDataChunk(view) {
+      // RIFF(0..3) size(4..7) WAVE(8..11) then sub-chunks: id(4) size(4) body.
+      if (view.getUint32(0, false) !== 0x52494646) return null; // 'RIFF'
+      if (view.getUint32(8, false) !== 0x57415645) return null; // 'WAVE'
+      var off = 12;
+      while (off + 8 <= view.byteLength) {
+        var id = view.getUint32(off, false);
+        var sz = view.getUint32(off + 4, true);
+        if (id === 0x64617461) return { start: off + 8, size: Math.min(sz, view.byteLength - off - 8) }; // 'data'
+        off += 8 + sz + (sz & 1); // chunks are word-aligned
+      }
+      return null;
+    }
+
+    var first = new DataView(buffers[0]);
+    var firstData = findDataChunk(first);
+    if (!firstData) return buffers[0];               // unexpected header — play chunk 1
+    var headerEnd = firstData.start;                 // bytes 0..headerEnd = header incl 'data' id+size
+    var payloads = [];
+    var total = 0;
+    for (var i = 0; i < buffers.length; i++) {
+      var dv = new DataView(buffers[i]);
+      var dc = findDataChunk(dv);
+      if (!dc) continue;
+      var bytes = new Uint8Array(buffers[i], dc.start, dc.size);
+      payloads.push(bytes); total += dc.size;
+    }
+    var out = new Uint8Array(headerEnd + total);
+    out.set(new Uint8Array(buffers[0], 0, headerEnd), 0);   // header from first WAV
+    var pos = headerEnd;
+    payloads.forEach(function (p) { out.set(p, pos); pos += p.length; });
+    var ov = new DataView(out.buffer);
+    ov.setUint32(4, out.byteLength - 8, true);              // RIFF chunk size
+    ov.setUint32(headerEnd - 4, total, true);               // data chunk size
+    return out.buffer;
+  }
+
+
   // ── Voice list ───────────────────────────────────────────────────
   var _voiceCache = null, _voiceCacheTs = 0, _voiceCacheBase = null;
 
@@ -138,18 +240,20 @@
     });
   }
 
-  // One VOICEVOX synthesis pass for a concrete speaker id. Two calls:
+  // One VOICEVOX synthesis pass for a concrete speaker id + a (already chunked,
+  // already normalized) text slice. Two calls:
   //   1) POST /audio_query?text=...&speaker=N  -> a query JSON
   //   2) POST /synthesis?speaker=N  (body: the query JSON)  -> WAV audio bytes
   // credentials:'omit' — never send ambient cookies to the (possibly same-origin
-  // proxy) VOICEVOX endpoint. (Codex gate, PR #29.) The error text includes the
-  // rejected speaker id so a 500 is diagnosable. (Frank, PR #29.)
+  // proxy) VOICEVOX endpoint. (Codex gate, PR #29.) Errors carry the speaker id
+  // AND the text length so a 500 is diagnosable as invalid-speaker vs too-long. (Frank, PR #29.)
   function synthOnce(base, text, speaker, opts) {
     const q = base + '/audio_query?text=' + encodeURIComponent(text) +
       '&speaker=' + encodeURIComponent(speaker);
     return fetch(q, { method: 'POST', credentials: 'omit' })
       .then(function (r) {
-        if (!r.ok) throw new Error('VOICEVOX audio_query failed: ' + r.status + ' (speaker ' + speaker + ')');
+        if (!r.ok) throw new Error('VOICEVOX audio_query failed: ' + r.status +
+          ' (speaker ' + speaker + ', ' + text.length + ' chars)');
         return r.json();
       })
       .then(function (query) {
@@ -171,22 +275,57 @@
       });
   }
 
-  function synthesize(text, opts) {
-    const base = baseUrl();
-    return pickSpeaker(opts).then(function (sel) {
-      return synthOnce(base, text, sel.speaker, opts).catch(function (err) {
-        // If we used the candidate id (not already a fallback) and audio_query
-        // rejected it with a 500 (the invalid-speaker failure class), retry once
-        // with a known-valid speaker rather than surfacing a dead Listen button.
-        var invalidSpeaker = err && /audio_query failed: 500/.test(err.message || '');
-        if (!sel.fallback && invalidSpeaker && sel.first != null && sel.first !== sel.speaker) {
+  // Synthesize one text slice, retrying ONCE with a known-valid speaker if
+  // audio_query 500s specifically on an invalid speaker (not a length failure).
+  // On success returns {buf, speaker} so the caller can lock the corrected
+  // speaker in for the remaining chunks. (Frank, PR #29.)
+  function synthSliceWithSpeakerFix(base, text, sel, opts) {
+    return synthOnce(base, text, sel.speaker, opts)
+      .then(function (buf) { return { buf: buf, speaker: sel.speaker }; })
+      .catch(function (err) {
+        var msg = (err && err.message) || '';
+        var is500 = /audio_query failed: 500/.test(msg);
+        // A 500 on SHORT text ⇒ invalid speaker (long text 500s are a different
+        // class we've already avoided by chunking). Only retry the speaker fix
+        // when this slice is short enough that length can't be the cause.
+        var lengthCouldBeCause = text.length > 800;
+        if (is500 && !lengthCouldBeCause && !sel.fallback &&
+            sel.first != null && sel.first !== sel.speaker) {
           try {
             if (asId(localStorage.getItem(CORE_VOICE_KEY)) === sel.speaker) localStorage.removeItem(CORE_VOICE_KEY);
             if (asId(localStorage.getItem(SPEAKER_KEY)) === sel.speaker) localStorage.removeItem(SPEAKER_KEY);
           } catch (_) {}
-          return synthOnce(base, text, sel.first, opts);
+          return synthOnce(base, text, sel.first, opts)
+            .then(function (buf) { return { buf: buf, speaker: sel.first }; });
         }
         throw err;
+      });
+  }
+
+  // Public entry point core calls. Normalize Markdown/URLs out, chunk long text,
+  // synthesize each chunk sequentially (locking in a corrected speaker after the
+  // first), and concatenate the WAVs so a single long assistant answer plays as
+  // one clip instead of 500ing. (Frank, PR #29.)
+  function synthesize(text, opts) {
+    const base = baseUrl();
+    const speak = normalizeForSpeech(text);
+    if (!speak) return Promise.reject(new Error('VOICEVOX: nothing speakable after normalization'));
+    const chunks = chunkText(speak);
+    return pickSpeaker(opts).then(function (sel) {
+      var buffers = [];
+      // Sequential reduce: first chunk may correct the speaker; the rest reuse it.
+      return chunks.reduce(function (chain, chunk, idx) {
+        return chain.then(function (lockedSel) {
+          return synthSliceWithSpeakerFix(base, chunk, lockedSel, opts)
+            .then(function (res) {
+              buffers.push(res.buf);
+              // After the first slice, treat the (possibly corrected) speaker as
+              // fixed so we don't re-attempt the fallback on every chunk.
+              return { speaker: res.speaker, first: lockedSel.first, fallback: true };
+            });
+        });
+      }, Promise.resolve(sel)).then(function () {
+        return concatWavs(buffers);
       });
     });
   }

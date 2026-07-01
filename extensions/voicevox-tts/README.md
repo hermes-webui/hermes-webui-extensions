@@ -15,6 +15,14 @@ server.
   `/synthesis`) and hands the WAV audio back to core, which plays it through the
   same `<audio>` lifecycle as the built-in Edge engine (including stop / re-listen
   in voice mode).
+- **Handles long / Markdown-heavy answers.** VOICEVOX's `/audio_query` returns a
+  500 on very long input (roughly 4k+ chars) even for a valid speaker, which is
+  exactly the "click Listen on a long final answer" path. Before synthesis the
+  extension normalizes the text (drops fenced/inline code, image/link URLs,
+  heading/list/emphasis markers — none of which should be read aloud), splits it
+  into ≤1800-char chunks on sentence boundaries, synthesizes each chunk
+  sequentially, and concatenates the returned WAVs into one clip. Errors
+  distinguish an invalid-speaker rejection from a text/length rejection.
 - The speaker id is configurable via `localStorage`
   (`hermes-ext-voicevox-speaker`, default 1); the user's saved rate nudges
   VOICEVOX's `speedScale`.
