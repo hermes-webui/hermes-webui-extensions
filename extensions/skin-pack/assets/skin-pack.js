@@ -9,8 +9,13 @@
   // curated; this is the "long tail of editor themes" the extension system is
   // for.
   //
-  // DEPENDENCY: requires the core registerHermesSkin capability
-  // (nesquena/hermes-webui PR #5100). On an older WebUI it no-ops gracefully.
+  // DEPENDENCY: requires the core registerHermesSkin capability with the
+  // `scheme` option (nesquena/hermes-webui PR #5271, built on #5100). On an
+  // older WebUI it no-ops gracefully. Every theme here is a DARK editor palette,
+  // so each declares `scheme: 'dark'` — core then forces a dark base theme while
+  // the skin is active, so core's own dark-base values for the code/chat tokens
+  // NOT on the registerHermesSkin allowlist (--strong / --code-inline-bg /
+  // --pre-text / --input-bg) apply automatically. No per-skin stylesheet needed.
 
   if (window.__hermesSkinPackLoaded) return;
   window.__hermesSkinPackLoaded = true;
@@ -20,6 +25,7 @@
   const SKINS = [
     {
       name: 'Dracula', value: 'dracula',
+      scheme: 'dark',
       colors: ['#bd93f9', '#ff79c6', '#50fa7b'],
       tokens: {
         '--bg': '#282a36', '--surface': '#2b2e3b', '--surface2': '#343746',
@@ -36,6 +42,7 @@
     },
     {
       name: 'Gruvbox', value: 'gruvbox',
+      scheme: 'dark',
       colors: ['#fabd2f', '#fe8019', '#b8bb26'],
       tokens: {
         '--bg': '#282828', '--surface': '#32302f', '--surface2': '#3c3836',
@@ -52,6 +59,7 @@
     },
     {
       name: 'One Dark', value: 'one-dark',
+      scheme: 'dark',
       colors: ['#61afef', '#c678dd', '#98c379'],
       tokens: {
         '--bg': '#282c34', '--surface': '#2c313a', '--surface2': '#353b45',
@@ -68,6 +76,7 @@
     },
     {
       name: 'Tokyo Night', value: 'tokyo-night',
+      scheme: 'dark',
       colors: ['#7aa2f7', '#bb9af7', '#9ece6a'],
       tokens: {
         '--bg': '#1a1b26', '--surface': '#1f2335', '--surface2': '#24283b',
@@ -84,6 +93,7 @@
     },
     {
       name: 'Rosé Pine', value: 'rose-pine',
+      scheme: 'dark',
       colors: ['#ebbcba', '#c4a7e7', '#9ccfd8'],
       tokens: {
         '--bg': '#191724', '--surface': '#1f1d2e', '--surface2': '#26233a',
@@ -100,6 +110,7 @@
     },
     {
       name: 'Solarized Dark', value: 'solarized-dark',
+      scheme: 'dark',
       colors: ['#268bd2', '#2aa198', '#859900'],
       tokens: {
         '--bg': '#002b36', '--surface': '#073642', '--surface2': '#0a4250',

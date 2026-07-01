@@ -8,9 +8,7 @@
     "scripts": [
       "assets/skin-pack.js"
     ],
-    "stylesheets": [
-      "assets/skin-pack.css"
-    ]
+    "stylesheets": []
   },
   "capabilities": [
     "manifest-bundle"

@@ -29,7 +29,7 @@ sidebar, bubbles), not just an accent tint.
 ## Dependency
 
 This extension requires the core **theme-registration capability**
-(`window.registerHermesSkin`), added in `nesquena/hermes-webui` **PR #5100**. On
+(`window.registerHermesSkin`) with the **`scheme` option** — base capability in `nesquena/hermes-webui` **PR #5100**, `scheme` in **PR #5271**. On
 an older WebUI without it, the extension **no-ops gracefully** (the themes are
 simply unavailable; nothing errors).
 
@@ -87,19 +87,20 @@ tokens.
 ## Compatibility
 
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
-- the core theme-registration capability (`window.registerHermesSkin`, PR #5100)
+- the core theme-registration capability with the `scheme` option (`window.registerHermesSkin`, PR #5100 + #5271)
 
 ## Code / chat surface coverage
 
-All six skins are dark editor palettes. The core `registerHermesSkin()` API only
-accepts allowlisted tokens and emits a single `:root[data-skin="..."]` rule with
-no dark-mode variant, and a few code/chat-surface tokens core uses (`--strong`,
-`--code-inline-bg`, `--pre-text`, `--input-bg`) are not on that allowlist. On a
-Light / System-Default-light base theme those keep their light base values
-against the dark skin surfaces, so assistant inline code and code blocks render
-nearly invisible. The bundled `assets/skin-pack.css` pins those tokens to each
-skin's own dark palette under both `:root[data-skin]` and `:root.dark[data-skin]`,
-so every skin stays readable in Light, Dark, and System Default base modes.
+All six skins are dark editor palettes. A few code/chat-surface tokens core uses
+(`--strong`, `--code-inline-bg`, `--pre-text`, `--input-bg`) are not on the
+`registerHermesSkin` token allowlist. On a Light / System-Default-light base
+theme those would keep their light base values against the dark skin surfaces, so
+assistant inline code and code blocks would render nearly invisible. Rather than
+patch those tokens with a per-skin stylesheet, each skin declares
+**`scheme: 'dark'`** in its registration: core then forces a dark base theme while
+the skin is active, so core's own dark-base values for those tokens apply
+automatically and every skin stays readable in Light, Dark, and System Default
+base modes. No extension stylesheet is needed.
 
 ## Verification
 
@@ -112,7 +113,7 @@ python3 -m json.tool extensions/skin-pack/extension.json
 python3 -m json.tool extensions/skin-pack/manifest.json
 ```
 
-Manual verification (on a WebUI build with PR #5100):
+Manual verification (on a WebUI build with PR #5100 + #5271):
 
 - Settings → Appearance shows all six themes in the skin picker
 - selecting each applies its full palette across the app
@@ -121,7 +122,7 @@ Manual verification (on a WebUI build with PR #5100):
 
 ## Known Limitations
 
-- Requires the core theme-registration capability (PR #5100); no-ops without it.
+- Requires the core theme-registration capability with `scheme` (PR #5100 + #5271); no-ops without it.
 - The Hermes brand logo glyph keeps its gold gradient (a hardcoded inline-SVG
   gradient in core, driven by no theme token, so no skin recolors it).
 - All themes are dark palettes (the genre is editor dark themes); a light
