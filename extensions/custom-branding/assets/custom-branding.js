@@ -34,7 +34,6 @@
   const FAVICON_MAX_DIM = 64;          // downscale target for the favicon (px)
   const LOGO_MAX_BYTES = 512 * 1024;   // refuse logos that won't downscale small enough
   const FAVICON_MAX_BYTES = 128 * 1024;// refuse favicons that won't downscale small enough
-  const LOGO_APPLIED_FLAG = 'hwxBrandingLogo';
 
   // Titlebar logo container + empty-state hero logo container.
   const LOGO_CONTAINERS = [
@@ -46,6 +45,7 @@
 
   let observer = null;
   let picker = null;
+  let lastAnchor = null;
 
   // ── storage helpers ──────────────────────────────────────────────────────
   function getLogo() {
@@ -54,19 +54,36 @@
   function getFavicon() {
     try { return localStorage.getItem(FAVICON_KEY) || ''; } catch (_) { return ''; }
   }
+  // Returns true on success, false if the value was rejected or storage failed
+  // (e.g. quota exceeded) so the caller can show honest status instead of a
+  // false "Applied." Storage is gated by isDataImage() as defense-in-depth — the
+  // apply-time sinks already guard, but gating here keeps a bad value from ever
+  // being persisted (protects future refactors + the picker's Change/Remove state).
   function setLogo(dataUrl) {
+    let ok = true;
     try {
-      if (dataUrl) localStorage.setItem(LOGO_KEY, dataUrl);
-      else localStorage.removeItem(LOGO_KEY);
-    } catch (_) {}
+      if (dataUrl) {
+        if (!isDataImage(dataUrl)) return false;
+        localStorage.setItem(LOGO_KEY, dataUrl);
+      } else {
+        localStorage.removeItem(LOGO_KEY);
+      }
+    } catch (_) { ok = false; }
     applyLogos();
+    return ok;
   }
   function setFavicon(dataUrl) {
+    let ok = true;
     try {
-      if (dataUrl) localStorage.setItem(FAVICON_KEY, dataUrl);
-      else localStorage.removeItem(FAVICON_KEY);
-    } catch (_) {}
+      if (dataUrl) {
+        if (!isDataImage(dataUrl)) return false;
+        localStorage.setItem(FAVICON_KEY, dataUrl);
+      } else {
+        localStorage.removeItem(FAVICON_KEY);
+      }
+    } catch (_) { ok = false; }
     applyFavicon();
+    return ok;
   }
 
   // ── validation ───────────────────────────────────────────────────────────
@@ -89,7 +106,10 @@
     let img = container.querySelector(':scope > img.hwx-branding-logo-img');
 
     if (dataUrl && isDataImage(dataUrl)) {
-      if (container.dataset[LOGO_APPLIED_FLAG] !== dataUrl) {
+      // Compare against the live <img> src rather than stashing the full ≤512KB
+      // data-URL in a DOM dataset attribute (cheaper, and no giant attribute write
+      // on every rAF-coalesced re-render pass).
+      if (!img || img.getAttribute('src') !== dataUrl) {
         if (nativeSvg && nativeSvg.style.display !== 'none') nativeSvg.style.display = 'none';
         if (!img) {
           img = document.createElement('img');
@@ -99,13 +119,11 @@
         }
         img.src = dataUrl;
         container.classList.add('hwx-branding-logo-set');
-        container.dataset[LOGO_APPLIED_FLAG] = dataUrl;
       }
     } else {
       if (img) img.remove();
       if (nativeSvg && nativeSvg.style.display === 'none') nativeSvg.style.display = '';
       container.classList.remove('hwx-branding-logo-set');
-      delete container.dataset[LOGO_APPLIED_FLAG];
     }
     wireClick(container);
   }
@@ -206,6 +224,9 @@
     if (picker) { picker.remove(); picker = null; }
     document.removeEventListener('pointerdown', outside, true);
     document.removeEventListener('keydown', esc, true);
+    // restore focus to the trigger the picker was opened from (a11y)
+    if (lastAnchor && typeof lastAnchor.focus === 'function') { try { lastAnchor.focus(); } catch (_) {} }
+    lastAnchor = null;
   }
   function outside(ev) { if (picker && !picker.contains(ev.target)) closePicker(); }
   function esc(ev) { if (ev.key === 'Escape') closePicker(); }
@@ -219,6 +240,11 @@
     label.textContent = labelText;
     section.appendChild(label);
 
+    // Preview box + a "Default" label. The label is a SIBLING of the box (not a
+    // child) so the box's fixed size + overflow:hidden can't clip it — a 32px
+    // favicon box was clipping "Default" to "efaul".
+    const previewRow = document.createElement('div');
+    previewRow.className = 'hwx-branding-preview-row';
     const preview = document.createElement('div');
     preview.className = 'hwx-branding-preview hwx-branding-preview-' + kind;
     if (currentValue && isDataImage(currentValue)) {
@@ -226,13 +252,15 @@
       pimg.src = currentValue;
       pimg.alt = labelText + ' preview';
       preview.appendChild(pimg);
+      previewRow.appendChild(preview);
     } else {
+      previewRow.appendChild(preview);
       const none = document.createElement('span');
       none.className = 'hwx-branding-preview-none';
       none.textContent = 'Default';
-      preview.appendChild(none);
+      previewRow.appendChild(none);
     }
-    section.appendChild(preview);
+    section.appendChild(previewRow);
 
     const input = document.createElement('input');
     input.type = 'file';
@@ -251,8 +279,8 @@
       setStatus('Processing…');
       downscaleToDataUrl(f, maxDim, maxBytes, (dataUrl, err) => {
         if (err) { setStatus(err); return; }
-        if (kind === 'favicon') setFavicon(dataUrl); else setLogo(dataUrl);
-        setStatus('Applied.');
+        const ok = (kind === 'favicon') ? setFavicon(dataUrl) : setLogo(dataUrl);
+        setStatus(ok ? 'Applied.' : 'Couldn’t save — storage full.');
         rebuildPicker();
       });
     });
@@ -302,15 +330,21 @@
 
   function openPicker(anchor) {
     closePicker();
+    lastAnchor = anchor || null;
     picker = document.createElement('div');
     picker.className = 'hwx-branding-picker';
     picker.setAttribute('role', 'dialog');
+    picker.setAttribute('aria-modal', 'true');
     picker.setAttribute('aria-label', 'Custom Branding');
+    picker.setAttribute('tabindex', '-1');
     picker.appendChild(buildPickerBody());
     document.body.appendChild(picker);
     position(anchor);
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', esc, true);
+    // move focus into the dialog on open (first focusable, else the dialog)
+    const focusTarget = picker.querySelector('button, input, [tabindex]') || picker;
+    try { focusTarget.focus(); } catch (_) {}
   }
 
   function setStatus(msg) {
@@ -336,11 +370,23 @@
     if (!container || container.dataset.hwxBrandingWired) return;
     container.dataset.hwxBrandingWired = '1';
     container.style.cursor = 'pointer';
+    // The titlebar is a PWA drag region (core .app-titlebar sets
+    // -webkit-app-region:drag). Opt this control out — otherwise, in an installed
+    // desktop PWA, clicking the titlebar logo starts a window drag and the picker
+    // never opens (core does the same for its own titlebar buttons).
+    container.style.setProperty('-webkit-app-region', 'no-drag');
+    container.style.setProperty('app-region', 'no-drag');
     container.title = 'Click to set a custom logo / favicon';
-    container.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      openPicker(container);
+    // a11y: the core mark is aria-hidden with no keyboard role. Make our edit
+    // affordance reachable by keyboard + screen readers once we own the click.
+    container.removeAttribute('aria-hidden');
+    if (!container.hasAttribute('role')) container.setAttribute('role', 'button');
+    if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '0');
+    container.setAttribute('aria-label', 'Set a custom logo or favicon');
+    const open = (ev) => { ev.preventDefault(); ev.stopPropagation(); openPicker(container); };
+    container.addEventListener('click', open);
+    container.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') open(ev);
     });
   }
 
@@ -370,8 +416,10 @@
         version: '0.1.0',
         getLogo: getLogo,
         getFavicon: getFavicon,
-        setLogo: (dataUrl) => { if (isDataImage(dataUrl)) setLogo(dataUrl); return getLogo(); },
-        setFavicon: (dataUrl) => { if (isDataImage(dataUrl)) setFavicon(dataUrl); return getFavicon(); },
+        // setLogo/setFavicon gate the value internally (isDataImage) and return
+        // true on success / false if rejected or storage failed.
+        setLogo: (dataUrl) => setLogo(dataUrl),
+        setFavicon: (dataUrl) => setFavicon(dataUrl),
         clearLogo: () => setLogo(''),
         clearFavicon: () => setFavicon(''),
         refresh: applyAll

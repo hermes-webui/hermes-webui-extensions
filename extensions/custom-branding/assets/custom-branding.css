@@ -17,8 +17,13 @@
   height: 16px;
 }
 .hwx-branding-logo-hero {
-  width: 80px;
-  height: 80px;
+  width: 88px;
+  height: 88px;
+}
+/* Suppress core's Hermes-tinted glow behind a custom hero logo so it doesn't
+   tint the customer's mark (undercuts the white-label intent). */
+.empty-logo.hwx-branding-logo-set::before {
+  display: none;
 }
 
 /* Picker popover. */
@@ -82,6 +87,11 @@
 .hwx-branding-preview-favicon {
   width: 32px;
   height: 32px;
+}
+.hwx-branding-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .hwx-branding-preview-none {
   font-size: 11px;

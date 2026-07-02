@@ -141,3 +141,6 @@ Manual verification:
   core rename would need an update.
 - Uploads are rasterized to PNG/JPEG (no live SVG) and downscaled (logo ≤ 256px,
   favicon ≤ 64px) to keep localStorage small and avoid SVG-XSS.
+- Swapping the `apple-touch-icon` / favicon `<link>` changes the **browser-tab**
+  icon only. An **installed PWA / iOS home-screen** icon is read from the web app
+  manifest at install time, so it is not affected by this extension.
