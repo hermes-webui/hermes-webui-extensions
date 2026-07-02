@@ -1,7 +1,7 @@
 {
   "id": "external-app-tab",
   "name": "External App Tab",
-  "description": "Pin any self-hosted web app (Grafana, Vaultwarden, a personal dashboard) as a tab inside Hermes WebUI via an iframe. Adds a rail button that opens a full-area panel framing a configurable URL.",
+  "description": "Pin a compatible self-hosted web app (Grafana, a dashboard, or another framable tool) as a tab inside Hermes WebUI via an iframe. Adds a rail button that opens a full-area panel framing a configurable URL.",
   "version": "0.1.0",
   "author": "nesquena-hermes",
   "assets": {

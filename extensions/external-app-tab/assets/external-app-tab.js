@@ -2,9 +2,9 @@
   'use strict';
 
   // ── External App Tab extension for Hermes WebUI ──────────────────────────
-  // Pins any self-hosted web app (Grafana, Vaultwarden, a personal dashboard…)
-  // as a tab inside the WebUI via an <iframe>. Adds a rail button that opens a
-  // full-area overlay panel framing a user-configured URL.
+  // Pins a compatible self-hosted web app (Grafana, Vaultwarden, a personal
+  // dashboard) as a tab inside the WebUI via an <iframe>. Adds a rail button
+  // that opens a full-area overlay panel framing a user-configured URL.
   //
   // IMPORTANT — CSP dependency:
   //   The WebUI's Content-Security-Policy only allows framing same-origin
@@ -122,7 +122,7 @@
       empty.className = 'hwx-extapp-empty';
       empty.innerHTML =
         '<p>No app configured yet.</p>' +
-        '<p class="hwx-extapp-muted">Set a URL to embed a self-hosted web app as a tab.</p>' +
+        '<p class="hwx-extapp-muted">Set a URL to embed a compatible self-hosted web app as a tab.</p>' +
         '<button type="button" class="hwx-extapp-btn hwx-extapp-config-cta">Configure…</button>';
       empty.querySelector('.hwx-extapp-config-cta').addEventListener('click', () => openConfig());
       body.appendChild(empty);

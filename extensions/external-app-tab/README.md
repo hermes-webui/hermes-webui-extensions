@@ -1,9 +1,9 @@
 # External App Tab
 
 External App Tab is a trusted local Hermes WebUI extension that pins a
-self-hosted web app — Grafana, Vaultwarden, Linkwarden, a personal dashboard —
-as a tab inside the WebUI via an `<iframe>`. It adds a button to the left rail
-that opens a full-area panel framing a URL you configure.
+compatible self-hosted web app — Grafana, Vaultwarden, Linkwarden, a personal
+dashboard — as a tab inside the WebUI via an `<iframe>`. It adds a button to
+the left rail that opens a full-area panel framing a URL you configure.
 
 It works best for **framable dashboards, status pages, and local tools** that
 don't require a cross-origin cookie login. It provides an iframe slot — not a

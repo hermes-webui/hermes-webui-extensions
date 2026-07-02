@@ -3,7 +3,7 @@
     {
       "id": "external-app-tab",
       "name": "External App Tab",
-      "description": "Pin a self-hosted web app as a tab inside Hermes WebUI via an iframe.",
+      "description": "Pin a compatible self-hosted web app as a tab inside Hermes WebUI via an iframe.",
       "scripts": [
         "assets/external-app-tab.js"
       ],
