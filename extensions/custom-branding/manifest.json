@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "custom-branding",
+      "name": "Custom Branding",
+      "description": "White-label the Hermes WebUI chrome with your own logo and favicon.",
+      "scripts": [
+        "assets/custom-branding.js"
+      ],
+      "stylesheets": [
+        "assets/custom-branding.css"
+      ]
+    }
+  ]
+}

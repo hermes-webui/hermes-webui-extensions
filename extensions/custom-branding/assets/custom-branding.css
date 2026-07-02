@@ -1,0 +1,117 @@
+/* Custom Branding extension for Hermes WebUI.
+   Scoped to hwx-branding-* classes; uses core CSS variables for theme-fit. */
+
+/* Logo image fills the existing logo container, preserving its box size. */
+.app-titlebar-icon.hwx-branding-logo-set,
+.empty-logo.hwx-branding-logo-set {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.hwx-branding-logo-img {
+  display: block;
+  object-fit: contain;
+}
+.hwx-branding-logo-titlebar {
+  width: 16px;
+  height: 16px;
+}
+.hwx-branding-logo-hero {
+  width: 80px;
+  height: 80px;
+}
+
+/* Picker popover. */
+.hwx-branding-picker {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  max-width: 280px;
+  background: var(--surface, #fff);
+  color: var(--text, #111);
+  border: 1px solid var(--border, rgba(127, 127, 127, .3));
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hwx-branding-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #888);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.hwx-branding-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border2, rgba(127, 127, 127, .18));
+}
+.hwx-branding-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.hwx-branding-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text, #111);
+}
+.hwx-branding-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border2, rgba(127, 127, 127, .25));
+  border-radius: 8px;
+  background: var(--code-bg, rgba(127, 127, 127, .06));
+  overflow: hidden;
+}
+.hwx-branding-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.hwx-branding-preview-logo {
+  width: 64px;
+  height: 64px;
+}
+.hwx-branding-preview-favicon {
+  width: 32px;
+  height: 32px;
+}
+.hwx-branding-preview-none {
+  font-size: 11px;
+  color: var(--muted, #888);
+}
+.hwx-branding-btn {
+  appearance: none;
+  border: 1px solid var(--border2, rgba(127, 127, 127, .25));
+  background: var(--code-bg, rgba(127, 127, 127, .1));
+  color: var(--text, #111);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  transition: background .12s ease, border-color .12s ease;
+}
+.hwx-branding-btn:hover {
+  background: var(--hover-bg, rgba(127, 127, 127, .16));
+  border-color: var(--border, rgba(127, 127, 127, .4));
+}
+.hwx-branding-btn--clear {
+  color: var(--danger, #e5534b);
+}
+.hwx-branding-status {
+  font-size: 11px;
+  color: var(--muted, #888);
+  min-height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hwx-branding-btn { transition: none; }
+}
