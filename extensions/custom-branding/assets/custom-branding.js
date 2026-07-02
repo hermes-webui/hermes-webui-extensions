@@ -280,13 +280,10 @@
       downscaleToDataUrl(f, maxDim, maxBytes, (dataUrl, err) => {
         if (err) { setStatus(err); return; }
         const ok = (kind === 'favicon') ? setFavicon(dataUrl) : setLogo(dataUrl);
-        // rebuildPicker() wipes the popover body (incl. the status node), so set
-        // the message AFTER the rebuild — otherwise the honest quota-fail status
-        // is erased before the browser paints it. Re-focus the first control too,
-        // since the button the user activated was just destroyed by the rebuild.
+        // rebuildPicker() wipes the popover body (incl. the status node) and
+        // restores focus to the first control, so set the message AFTER it —
+        // otherwise the honest quota-fail status is erased before paint.
         rebuildPicker();
-        const firstBtn = picker && picker.querySelector('button');
-        if (firstBtn) { try { firstBtn.focus(); } catch (_) {} }
         setStatus(ok ? 'Applied.' : 'Couldn’t save — storage full.');
       });
     });
@@ -323,6 +320,9 @@
     const status = document.createElement('div');
     status.className = 'hwx-branding-status';
     status.id = 'hwxBrandingStatus';
+    // role="status" (implicit aria-live="polite") so the "Couldn't save — storage
+    // full." message is announced to screen-reader users, not just shown visually.
+    status.setAttribute('role', 'status');
     frag.appendChild(status);
 
     return frag;
@@ -332,6 +332,12 @@
     if (!picker) return;
     picker.textContent = '';
     picker.appendChild(buildPickerBody());
+    // Any rebuild destroys the control the user just activated (Upload/Remove),
+    // dropping keyboard focus to <body>. Restore it to the first control so a
+    // keyboard user stays inside the dialog. Centralized here so every call-site
+    // (upload + remove) is covered.
+    const firstBtn = picker.querySelector('button');
+    if (firstBtn) { try { firstBtn.focus(); } catch (_) {} }
   }
 
   function openPicker(anchor) {
