@@ -1,0 +1,50 @@
+{
+  "id": "custom-branding",
+  "name": "Custom Branding",
+  "description": "White-label the Hermes WebUI chrome with your own logo and favicon. Click the titlebar logo to upload a custom logo (swaps the titlebar + empty-state marks) and a custom favicon (swaps the browser tab icon). Images are downscaled and stored locally, and re-applied as the UI re-renders.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/custom-branding.js"
+    ],
+    "stylesheets": [
+      "assets/custom-branding.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-custom-branding-logo",
+        "hermes-ext-custom-branding-favicon"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}
