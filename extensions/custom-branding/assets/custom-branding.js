@@ -280,8 +280,14 @@
       downscaleToDataUrl(f, maxDim, maxBytes, (dataUrl, err) => {
         if (err) { setStatus(err); return; }
         const ok = (kind === 'favicon') ? setFavicon(dataUrl) : setLogo(dataUrl);
-        setStatus(ok ? 'Applied.' : 'Couldn’t save — storage full.');
+        // rebuildPicker() wipes the popover body (incl. the status node), so set
+        // the message AFTER the rebuild — otherwise the honest quota-fail status
+        // is erased before the browser paints it. Re-focus the first control too,
+        // since the button the user activated was just destroyed by the rebuild.
         rebuildPicker();
+        const firstBtn = picker && picker.querySelector('button');
+        if (firstBtn) { try { firstBtn.focus(); } catch (_) {} }
+        setStatus(ok ? 'Applied.' : 'Couldn’t save — storage full.');
       });
     });
 
@@ -334,7 +340,9 @@
     picker = document.createElement('div');
     picker.className = 'hwx-branding-picker';
     picker.setAttribute('role', 'dialog');
-    picker.setAttribute('aria-modal', 'true');
+    // Light-dismiss popover (outside-click / Esc closes it); we don't trap Tab,
+    // so don't claim aria-modal — that would tell a screen reader focus is
+    // trapped when it isn't.
     picker.setAttribute('aria-label', 'Custom Branding');
     picker.setAttribute('tabindex', '-1');
     picker.appendChild(buildPickerBody());

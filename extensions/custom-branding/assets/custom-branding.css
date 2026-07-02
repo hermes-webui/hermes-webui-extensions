@@ -114,7 +114,7 @@
   border-color: var(--border, rgba(127, 127, 127, .4));
 }
 .hwx-branding-btn--clear {
-  color: var(--danger, #e5534b);
+  color: var(--error, #e5534b);
 }
 .hwx-branding-status {
   font-size: 11px;
