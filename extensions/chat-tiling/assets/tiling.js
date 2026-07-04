@@ -124,6 +124,25 @@ function _extRenderMd(raw){
   return null;
 }
 function _extEscape(s){const d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML}
+// Neutralize off-origin resource loads in rendered markdown. Core renderMd()
+// permits https images (<img src=...>), which would fire off-origin requests on
+// EVERY tile render even though this extension declares network_external:false.
+// Strip src/srcset/poster on any element whose URL isn't same-origin or a data:
+// URI, matching the network_external:false disclosure. (Codex #42 finding.)
+function _extStripOffOrigin(root){
+  if(!root)return;
+  const loc=location.origin;
+  root.querySelectorAll('img,source,video,audio,track,iframe,embed,object').forEach(el=>{
+    ['src','poster','data'].forEach(attr=>{
+      const v=el.getAttribute&&el.getAttribute(attr);
+      if(!v)return;
+      if(v.startsWith('data:'))return;
+      let ok=false;try{ok=new URL(v,document.baseURI).origin===loc}catch(_){ok=false}
+      if(!ok)el.removeAttribute(attr);
+    });
+    if(el.hasAttribute&&el.hasAttribute('srcset'))el.removeAttribute('srcset');
+  });
+}
 function renderMsgs(t){
   const mi=t.el&&t.el.querySelector('.ext-tile-msg-inner');if(!mi)return;mi.innerHTML='';
   (t.messages||[]).forEach(msg=>{
@@ -133,7 +152,7 @@ function renderMsgs(t){
     row.className='ext-tile-msg ext-tile-msg--'+(msg.role==='user'?'user':'assistant');
     const body=document.createElement('div');body.className='ext-tile-msg-body';
     const html=_extRenderMd(content);
-    if(html!=null)body.innerHTML=html;else body.textContent=content;
+    if(html!=null){body.innerHTML=html;_extStripOffOrigin(body)}else body.textContent=content;
     row.appendChild(body);mi.appendChild(row);
   });
   mi.scrollTop!==undefined&&(mi.scrollTop=mi.scrollHeight);
@@ -157,8 +176,13 @@ function toggleMax(id){
 function closeTile(id){
   const idx=T.tiles.findIndex(t=>t.id===id);if(idx<0)return;
   const t=T.tiles[idx];
-  if(t.busy&&t.activeStreamId&&typeof cancelSessionStream=='function')cancelSessionStream(t.session);
-  if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){delete INFLIGHT[t.session.session_id];typeof clearInflightState=='function'&&clearInflightState(t.session.session_id)}
+  // Closing a tile is a LAYOUT action — it must not kill an in-flight agent run.
+  // Detach the live view (closeLiveStream marks INFLIGHT for reattach) instead of
+  // cancelling, and only clear INFLIGHT when the run is NOT busy. (Codex/Fable #42.)
+  if(t.session&&t.session.session_id){
+    if(t.busy&&typeof closeLiveStream=='function'){try{closeLiveStream(t.session.session_id)}catch(_){}}
+    else if(typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){delete INFLIGHT[t.session.session_id];typeof clearInflightState=='function'&&clearInflightState(t.session.session_id)}
+  }
   if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
   T.tiles.splice(idx,1);
   if(t.maximized){T.tiles.forEach(x=>{x.maximized=false;if(x.el){x.el.classList.remove('ext-tile--hidden','ext-tile--maximized');x.el.querySelector('.ext-tile-maximize-btn').hidden=false;x.el.querySelector('.ext-tile-unmaximize-btn').hidden=true}})}
@@ -185,9 +209,10 @@ function stopWatcher(){T._w&&(clearInterval(T._w),T._w=null)}
 // ── Sidebar badge ──
 function badge(sid,delta){
   if(!sid)return;T._tc[sid]=(T._tc[sid]||0)+delta;
-  const row=document.querySelector(`[data-session-id="${sid}"]`);if(!row)return;
+  const esc=(typeof CSS!=='undefined'&&CSS.escape)?CSS.escape:(x=>String(x).replace(/["\\\]]/g,'\\$&'));
+  const row=document.querySelector('.session-item[data-sid="'+esc(sid)+'"]')||document.querySelector('[data-sid="'+esc(sid)+'"]');if(!row)return;
   let b=row.querySelector('.ext-tile-sidebar-badge');
-  if(T._tc[sid]>0&&gs('show_sidebar_badges',true)){if(!b){b=document.createElement('span');b.className='ext-tile-sidebar-badge';(row.querySelector('.session-row-right')||row.querySelector('.session-meta')||row).appendChild(b)}b.textContent=T._tc[sid]>9?'9+':String(T._tc[sid])}
+  if(T._tc[sid]>0&&gs('show_sidebar_badges',true)){if(!b){b=document.createElement('span');b.className='ext-tile-sidebar-badge';(row.querySelector('.session-meta')||row.querySelector('.session-time')||row).appendChild(b)}b.textContent=T._tc[sid]>9?'9+':String(T._tc[sid])}
   else if(b)b.remove()
 }
 
@@ -212,40 +237,57 @@ function showGrid(cols,rows){
 }
 
 function hideGrid(){
+  // Guard: if tiling was never entered (no snapshot), do NOT restore — otherwise
+  // clicking the always-present Close button before entering tiling would clear
+  // the real WebUI session (S.session/messages/busy/activeStreamId). (Codex #42.)
+  if(!T.visible&&!T._saved){tbActive();return}
   T.visible=false;stopWatcher();
   document.querySelectorAll('.ext-tile-msg-inner[id="msgInner"]').forEach(el=>el.removeAttribute('id'));
   const o=document.querySelector('#messages>.messages-inner--idle');if(o){o.id='msgInner';o.classList.remove('messages-inner--idle')}
   document.body.classList.remove('ext-tiling-body');
   closeAll();
   T.grid.style.display='none';T.grid.classList.remove('ext-tile-grid--active');
-  const es=document.getElementById('emptyState');if(es)es.style.display='';
-  typeof checkEmptyState=='function'&&checkEmptyState();
   if(typeof S!=='undefined'){const s=T._saved;T._saved=null;S.session=s?s.session:null;S.messages=s?[...s.messages]:[];S.busy=s?!!s.busy:false;S.activeStreamId=s?s.activeStreamId||null:null}
-  typeof syncTopbar=='function'&&syncTopbar();tbActive();
+  // Re-render the restored session through the core path so the transcript (or a
+  // correct empty-state) is rebuilt, rather than force-showing the empty-state
+  // hero over a non-empty session. (Fable #42 empty-state-overlap finding.)
+  if(typeof renderMessages=='function')renderMessages();
+  else{const es=document.getElementById('emptyState');if(es&&(typeof S==='undefined'||!S.messages||!S.messages.length))es.style.display=''}
+  typeof syncTopbar=='function'&&syncTopbar();typeof syncModelChip=='function'&&syncModelChip();tbActive();
   try{localStorage.removeItem('hermes-ext-tiling-layout')}catch(_){}
 }
 
 function closeAll(){
-  [...T.tiles].forEach(t=>{if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}});
+  // Detach (don't kill) any live streams the tiles own before removing them, so a
+  // layout change never silently cancels an in-flight agent run. (Codex/Fable #42.)
+  [...T.tiles].forEach(t=>{
+    if(t.busy&&t.session&&t.session.session_id&&typeof closeLiveStream=='function'){try{closeLiveStream(t.session.session_id)}catch(_){}}
+    if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
+  });
   T.tiles=[];T.activeId=null;T._tc={};document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove())
 }
 
 // ── Sidebar click interception ──
 function initCapture(){
-  const obs=new MutationObserver(()=>{
-    const s=document.getElementById('sessionSidebar')||document.querySelector('.sidebar-session-list');
-    if(s&&!s.dataset.extTilingWired){s.dataset.extTilingWired='1';s.addEventListener('click',onSidebarClick,true)}
-  });obs.observe(document.body,{childList:true,subtree:true});
-  setTimeout(()=>{
-    const s=document.getElementById('sessionSidebar')||document.querySelector('.sidebar-session-list');
-    if(s&&!s.dataset.extTilingWired){s.dataset.extTilingWired='1';s.addEventListener('click',onSidebarClick,true)}
-  },1e3)
+  const wire=()=>{
+    // Core sidebar container is #sessionList / .session-list (NOT #sessionSidebar);
+    // rows are .session-item[data-sid] (NOT [data-session-id]).
+    const s=document.getElementById('sessionList')||document.querySelector('.session-list');
+    if(s&&!s.dataset.extTilingWired){s.dataset.extTilingWired='1';s.addEventListener('click',onSidebarClick,true);return true}
+    return false;
+  };
+  if(wire())return;
+  const obs=new MutationObserver(()=>{ if(wire())obs.disconnect(); });
+  obs.observe(document.body,{childList:true,subtree:true});
+  // Safety net: stop observing after 10s even if the container never appears,
+  // so we don't leave a permanent body-wide subtree observer running.
+  setTimeout(()=>{wire();obs.disconnect()},1e4);
 }
 
 function onSidebarClick(e){
   if(!T.visible)return;
-  const row=e.target.closest('[data-session-id]');if(!row)return;
-  const sid=row.dataset.sessionId;if(!sid)return;
+  const row=e.target.closest('.session-item[data-sid]')||e.target.closest('[data-sid]');if(!row)return;
+  const sid=row.dataset.sid;if(!sid)return;
   e.stopPropagation();e.preventDefault();
   (async()=>{try{openTile(sid,await window.api(`/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`))}catch(_){typeof showToast=='function'&&showToast('Failed to load session',3e3,'error')}})()
 }
