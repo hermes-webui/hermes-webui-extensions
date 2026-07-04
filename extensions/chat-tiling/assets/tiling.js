@@ -1,9 +1,9 @@
 // Chat Tiling — multi-session tile grid for Hermes WebUI
 // Install: copy to HERMES_WEBUI_EXTENSION_DIR, reload.
-// Usage: toolbar buttons (2-col, 2x2, 3x2) or Ctrl+Shift+T/2/4/6.
-// Click sidebar sessions to fill tiles. Each tile has independent
-// composer, model, messages, and streaming. Toggle maximize (corner
-// arrow) to fill the grid. Close cancels streaming gracefully.
+// Usage: toolbar buttons (2-col, 2x2, 3x2) or Ctrl+Alt+1/2/4/6.
+// Click sidebar sessions to fill tiles. The FOCUSED tile is wired to the shared
+// composer + model picker + live stream; other tiles show their transcript.
+// Toggle maximize (corner arrow) to fill the grid. Close cancels streaming.
 
 (()=>{
 if(document.getElementById('ext-tiling-toolbar'))return;
@@ -279,11 +279,20 @@ function initKeyboard(){
 window.openTileForSessionExt=openTile;window.focusTileExt=focusTile;window.closeTileExt=closeTile;window.maximizeTileExt=toggleMax;window.unmaximizeTileExt=toggleMax;
 
 // ── Init ──
+// default_layout: which grid the "auto-tile on load" restore opens (2 | 4 | 6).
+// auto_tile: when on, restore tiling on load — the last-used layout if one was
+//   saved, otherwise the configured default_layout. When off, load stays untiled.
+const _LAYOUTS={'2':[2,1],'4':[2,2],'6':[3,2]};
 function init(){
   T.grid=document.createElement('div');T.grid.id='ext-tile-grid';T.grid.className='ext-tile-grid';T.grid.style.display='none';
   const mi=document.getElementById('msgInner');if(mi&&mi.parentNode)mi.parentNode.appendChild(T.grid);
   createToolbar();tbActive();initCapture();initKeyboard();
-  try{const s=localStorage.getItem('hermes-ext-tiling-layout');if(s){const[c,r]=s.split('x').map(Number);if(c&&r&&c*r<=6)setTimeout(()=>showGrid(c,r),500)}}catch(_){}
+  if(gs('auto_tile',true)){
+    let cr=null;
+    try{const s=localStorage.getItem('hermes-ext-tiling-layout');if(s){const p=s.split('x').map(Number);if(p[0]&&p[1]&&p[0]*p[1]<=6)cr=p}}catch(_){}
+    if(!cr)cr=_LAYOUTS[String(gs('default_layout','4'))]||_LAYOUTS['4'];
+    if(cr)setTimeout(()=>showGrid(cr[0],cr[1]),500);
+  }
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();

@@ -61,7 +61,7 @@
         {
             "key": "auto_tile",
             "type": "boolean",
-            "label": "Restore last layout on load",
+            "label": "Enter tiling automatically on load",
             "default": true
         },
         {
