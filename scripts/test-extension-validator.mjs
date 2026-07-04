@@ -161,15 +161,16 @@ try {
   assert.equal(safetyScanFromScripts.status, 0, safetyScanFromScripts.stderr || safetyScanFromScripts.stdout);
   assert.match(safetyScanFromScripts.stdout, /safety scan passed for \d+ extension entr(?:y|ies)/);
 
+  const repoRoot = path.resolve(scriptsDir, '..');
+
   // Regression: an entry that writes localStorage and declares storage.owned === true
   // (the boolean form core REQUIRES to enable settings_schema) must PASS the safety scan.
   // Before the fix the scan crashed with "boolean true is not iterable"; the key-array
   // form must still be accepted, and an undeclared write must still fail closed.
-  const repoRoot = path.resolve(scriptsDir, '..');
-  const extDir = path.join(repoRoot, 'extensions', 'scan-owned-true-case');
+  const ownedTrueDir = path.join(repoRoot, 'extensions', 'scan-owned-true-case');
   try {
-    mkdirSync(path.join(extDir, 'assets'), { recursive: true });
-    writeJson(path.join(extDir, 'extension.json'), {
+    mkdirSync(path.join(ownedTrueDir, 'assets'), { recursive: true });
+    writeJson(path.join(ownedTrueDir, 'extension.json'), {
       id: 'scan-owned-true-case', name: 'Scan Case', description: 'temp test entry',
       version: '0.0.1', author: 'test',
       assets: { scripts: ['assets/x.js'], stylesheets: [] },
@@ -186,18 +187,81 @@ try {
       },
       settings_schema: [{ key: 'enabled', type: 'boolean', label: 'Enabled', default: true }]
     });
-    writeJson(path.join(extDir, 'manifest.json'), {
+    writeJson(path.join(ownedTrueDir, 'manifest.json'), {
       extensions: [{ id: 'scan-owned-true-case', name: 'Scan Case', description: 'temp test entry', scripts: ['assets/x.js'], stylesheets: [] }]
     });
-    writeFileSync(path.join(extDir, 'README.md'), '# Scan Case\n', 'utf8');
-    writeFileSync(path.join(extDir, 'assets', 'x.js'), "localStorage.setItem('k','v');\n", 'utf8');
+    writeFileSync(path.join(ownedTrueDir, 'README.md'), '# Scan Case\n', 'utf8');
+    writeFileSync(path.join(ownedTrueDir, 'assets', 'x.js'), "localStorage.setItem('k','v');\n", 'utf8');
     const scanOwnedTrue = spawnSync(process.execPath, ['scan-extension-safety.mjs'], {
       cwd: scriptsDir, encoding: 'utf8', timeout: 30000
     });
     assert.equal(scanOwnedTrue.status, 0,
       `storage.owned:true + localStorage write should pass the safety scan, got: ${scanOwnedTrue.stderr || scanOwnedTrue.stdout}`);
   } finally {
-    rmSync(extDir, { recursive: true, force: true });
+    rmSync(ownedTrueDir, { recursive: true, force: true });
+  }
+
+  function writeIframeClipboardCase({ id, readme }) {
+    const dir = path.join(repoRoot, 'extensions', id);
+    mkdirSync(path.join(dir, 'assets'), { recursive: true });
+    writeJson(path.join(dir, 'extension.json'), {
+      id, name: 'Scan Iframe Case', description: 'temp test entry',
+      version: '0.0.1', author: 'test',
+      assets: { scripts: ['assets/x.js'], stylesheets: [] },
+      capabilities: ['manifest-bundle'],
+      lifecycle: { webui_restart_required: false, sidecar_start_required: false, native_host_start_required: false, native_host_autostart: 'none' },
+      screenshots: [],
+      permissions: {
+        webui_api: { read: [], write: [] }, webui_navigation: false,
+        dom: { owned: true, mutates_core_views: false },
+        storage: { owned: [], shared_webui_keys: [] },
+        loopback_sidecar: true, native_host: false,
+        filesystem: { arbitrary: false, serves_bundled_assets: true },
+        network_external: false
+      }
+    });
+    writeJson(path.join(dir, 'manifest.json'), {
+      extensions: [{ id, name: 'Scan Iframe Case', description: 'temp test entry', scripts: ['assets/x.js'], stylesheets: [] }]
+    });
+    writeFileSync(path.join(dir, 'README.md'), readme, 'utf8');
+    writeFileSync(path.join(dir, 'assets', 'x.js'),
+      "const frame = document.createElement('iframe');\nframe.setAttribute('allow', 'clipboard-read; clipboard-write');\n",
+      'utf8');
+    return dir;
+  }
+
+  // Regression: iframe clipboard grants are user-visible browser capabilities.
+  // A gallery entry that enables clipboard-read / clipboard-write on an iframe must
+  // disclose that grant in its README trust section, otherwise one-click install
+  // cannot present an honest permission story.
+  let iframeCaseDir = writeIframeClipboardCase({
+    id: 'scan-iframe-clipboard-case',
+    readme: '# Scan Iframe Case\n\n## Trust Model\n\nUses a loopback iframe.\n'
+  });
+  try {
+    const scanIframe = spawnSync(process.execPath, ['scan-extension-safety.mjs'], {
+      cwd: scriptsDir, encoding: 'utf8', timeout: 30000
+    });
+    assert.notEqual(scanIframe.status, 0, 'iframe clipboard grant without README disclosure should fail the safety scan');
+    assert.match(scanIframe.stderr, /iframe clipboard permission/i);
+  } finally {
+    rmSync(iframeCaseDir, { recursive: true, force: true });
+  }
+
+  // Positive fixture: the gate should not block iframe extensions that honestly
+  // disclose the browser clipboard grant in the README trust model.
+  iframeCaseDir = writeIframeClipboardCase({
+    id: 'scan-iframe-clipboard-disclosed-case',
+    readme: '# Scan Iframe Case\n\n## Trust Model\n\nUses a loopback iframe and grants clipboard-read / clipboard-write permission to the frame.\n'
+  });
+  try {
+    const scanIframeDisclosed = spawnSync(process.execPath, ['scan-extension-safety.mjs'], {
+      cwd: scriptsDir, encoding: 'utf8', timeout: 30000
+    });
+    assert.equal(scanIframeDisclosed.status, 0,
+      `iframe clipboard grant with README disclosure should pass the safety scan, got: ${scanIframeDisclosed.stderr || scanIframeDisclosed.stdout}`);
+  } finally {
+    rmSync(iframeCaseDir, { recursive: true, force: true });
   }
 
   console.log('extension validator self-tests passed');

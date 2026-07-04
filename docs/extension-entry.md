@@ -112,8 +112,9 @@ where the backend has length limits.
 - **Sanitize any cloned/exported HTML** — strip off-origin `src`/`href`, `on*` handlers,
   script/style/iframe — so `network_external:false` stays honest.
 - **Declare every permission you actually use** (`webui_api.write`, `shared_webui_keys`,
-  `network_external`, `device_vibration`, sandbox attrs) — the README and `extension.json`
-  must match the code; the safety scan checks this.
+  `network_external`, `device_vibration`, iframe `allow` grants such as `clipboard-read` /
+  `clipboard-write`, sandbox attrs) — the README and `extension.json` must match the code;
+  the safety scan checks this.
 
 ## Sidecar Metadata
 

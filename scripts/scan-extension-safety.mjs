@@ -112,10 +112,24 @@ function scanJavaScriptFile(entry, file, text, errors) {
   }
 }
 
+function grantsIframeClipboard(text) {
+  return /\ballow\s*=\s*['"][^'"]*clipboard-(?:read|write)/i.test(text)
+    || /\.setAttribute\s*\(\s*['"]allow['"]\s*,\s*['"][^'"]*clipboard-(?:read|write)/i.test(text)
+    || /\.allow\s*=\s*['"][^'"]*clipboard-(?:read|write)/i.test(text);
+}
+
+function disclosesIframeClipboard(readmeText) {
+  return /clipboard-(?:read|write)/i.test(readmeText)
+    || /clipboard\s+(?:read|write|access|permission|grant)/i.test(readmeText);
+}
+
 function scanEntry(result) {
   const errors = [];
   const files = collectEntryFiles(result.root);
   if (!files.length) errors.push(`${result.id} has no files`);
+
+  let iframeClipboardGrant = false;
+  let readmeText = '';
 
   for (const file of files) {
     if (file.symlink) {
@@ -125,8 +139,14 @@ function scanEntry(result) {
     if (!isSafeRelativePath(file.rel)) errors.push(`${repoRelative(file.path)} has an unsafe relative path`);
     if (!isTextFile(file.path)) continue;
     const text = readFileSync(file.path, 'utf8');
+    if (file.rel === 'README.md') readmeText = text;
+    if (/\.(?:html|cjs|js|mjs)$/i.test(file.path) && grantsIframeClipboard(text)) iframeClipboardGrant = true;
     scanTextFile(file, text, errors);
     if (/\.(?:cjs|js|mjs)$/i.test(file.path)) scanJavaScriptFile(result.entry, file, text, errors);
+  }
+
+  if (iframeClipboardGrant && !disclosesIframeClipboard(readmeText)) {
+    errors.push(`${result.id} grants iframe clipboard permission without README trust disclosure`);
   }
 
   return errors;
