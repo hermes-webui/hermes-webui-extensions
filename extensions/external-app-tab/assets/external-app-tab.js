@@ -15,20 +15,21 @@
   //   change. If the configured URL is blocked by CSP, the browser refuses to
   //   load the frame; the extension shows a hint explaining the knob.
   //
-  // Pure DOM-injection + localStorage. No backend, no network calls of its own
-  // (it only sets an <iframe src>, which the browser loads under the page CSP).
+  // Pure DOM-injection + HermesExtensionSettings (with legacy localStorage fallback).
+  // No backend, no network calls of its own (it only sets an <iframe src>, which
+  // the browser loads under the page CSP).
 
   const EXT = 'external-app-tab';
   if (window.__hermesExternalAppTabLoaded) return;
   window.__hermesExternalAppTabLoaded = true;
 
-  const CFG_KEY = 'hermes-ext-external-app';   // { url, label }
+  const CFG_KEY = 'hermes-ext-external-app';   // legacy localStorage key (pre-settings_schema): { url, label }
   const RAIL_BTN_ID = 'hwxExtAppRailBtn';
   const OVERLAY_ID = 'hwxExtAppOverlay';
 
   let overlayOpen = false;
 
-  function loadCfg() {
+  function legacyLoadCfg() {
     try {
       const raw = localStorage.getItem(CFG_KEY);
       if (!raw) return { url: '', label: 'App' };
@@ -36,8 +37,47 @@
       return { url: typeof c.url === 'string' ? c.url : '', label: (c && c.label) || 'App' };
     } catch (_) { return { url: '', label: 'App' }; }
   }
+
+  function extSettings() {
+    try {
+      const api = window.HermesExtensionSettings;
+      if (api && typeof api.settingsForExtension === 'function') {
+        const s = api.settingsForExtension('external-app-tab');
+        if (s && s.supported) return s;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function loadCfg() {
+    const s = extSettings();
+    if (s) {
+      const legacy = legacyLoadCfg();
+      let url = s.get('url');
+      let label = s.get('label');
+      // One-time soft migration for users who configured the extension before
+      // settings_schema existed. Keep the legacy key as a harmless fallback for
+      // older core; writes go through HermesExtensionSettings once supported.
+      if (!url && validUrl(legacy.url)) {
+        try { s.set('url', legacy.url); } catch (_) {}
+        url = legacy.url;
+      }
+      if ((!label || label === 'App') && legacy.label && legacy.label !== 'App') {
+        try { s.set('label', legacy.label); } catch (_) {}
+        label = legacy.label;
+      }
+      return { url: typeof url === 'string' ? url : '', label: typeof label === 'string' && label ? label : 'App' };
+    }
+    return legacyLoadCfg();
+  }
+
   function saveCfg(cfg) {
-    try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (_) {}
+    const next = { url: cfg.url || '', label: cfg.label || 'App' };
+    const s = extSettings();
+    if (s) {
+      try { s.set('url', next.url); s.set('label', next.label); return; } catch (_) {}
+    }
+    try { localStorage.setItem(CFG_KEY, JSON.stringify(next)); } catch (_) {}
   }
 
   // Only http(s) absolute URLs are accepted (an iframe src must be http(s)).
