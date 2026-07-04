@@ -252,6 +252,14 @@ obvious secrets, symlinks or unsafe paths, blocked JavaScript execution patterns
 undeclared external network literals, localStorage writes without owned-key
 declarations, and generated artifact hash/size consistency.
 
+Treat the safety scan as a fast fail-closed heuristic, not as a full security
+proof. A green scan means the entry avoided the currently automated high-risk
+patterns; it does not clear adversarial JavaScript that hides behavior through
+split strings, aliased/computed `Function` or `import()`, `XMLHttpRequest`, or
+other semantic obfuscation. Those deeper malicious-code checks, broader
+browser-capability drift checks, and artifact-author provenance binding remain
+tracked under #8.
+
 Generate the registry locally with:
 
 ```bash
