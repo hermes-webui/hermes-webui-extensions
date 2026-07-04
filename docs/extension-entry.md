@@ -84,6 +84,19 @@ in **Settings → Extensions → [extension]** rather than building a bespoke pa
   key when running against older core without the settings system (see `mobile-haptics`
   for the reference pattern).
 
+Use `settings_schema` for **small user preferences and scalar configuration**: toggles,
+mode selectors, labels, URLs, numeric limits, and simple color strings. Do **not** force
+user content or collections into settings fields. Message pins, model favorites, pinned
+MCP tools, custom theme collections, uploaded/avatar image blobs, and generated artifacts
+belong in extension-owned storage (or future sanctioned storage APIs), not in the native
+settings form.
+
+When retrofitting existing entries, keep the slice reviewable: one extension per PR,
+preserve the legacy localStorage / owned-storage fallback when practical, softly migrate
+existing values instead of dropping user config, use `permissions.storage.owned === true`
+whenever `settings_schema` is present, and update the README trust / compatibility notes
+with the new storage behavior.
+
 ### Skins — `registerHermesSkin` with a base `scheme`
 
 Skin extensions call `window.registerHermesSkin({ name, value, tokens, ... })`. A skin
