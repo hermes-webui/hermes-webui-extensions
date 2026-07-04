@@ -3,6 +3,15 @@ import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { buildRegistryWithArtifacts, repoRelative, validateAllEntries } from './extension-registry-lib.mjs';
 
+// Fast fail-closed safety gate for obvious extension entry risks.
+//
+// This is intentionally a heuristic scan, not a complete malicious-code proof.
+// It catches review-proven high-risk shapes before registry generation, but it
+// should not be treated as an adversarial JavaScript analysis engine. Known
+// follow-up work remains tracked in #8: split-string URL construction,
+// aliased/computed Function/import/XMLHttpRequest patterns, broader DOM/network
+// capability drift, and artifact-author provenance binding.
+
 const TEXT_EXTENSIONS = new Set([
   '.css',
   '.html',
