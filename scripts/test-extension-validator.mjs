@@ -14,7 +14,20 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
-function validationErrors(scriptText) {
+function mergeDeep(base, overrides) {
+  const out = { ...base };
+  for (const [key, value] of Object.entries(overrides || {})) {
+    if (value && typeof value === 'object' && !Array.isArray(value)
+      && base[key] && typeof base[key] === 'object' && !Array.isArray(base[key])) {
+      out[key] = mergeDeep(base[key], value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+function validationErrors(scriptText, extensionOverrides = {}) {
   const id = `validator-case-${Math.random().toString(36).slice(2, 8)}`;
   const root = path.join(tmpRoot, id);
   const asset = 'assets/adapter.js';
@@ -31,7 +44,7 @@ function validationErrors(scriptText) {
       }
     ]
   });
-  writeJson(path.join(root, 'extension.json'), {
+  const extensionJson = mergeDeep({
     id,
     name: 'Validator Fixture',
     description: 'Temporary validator test fixture.',
@@ -71,7 +84,8 @@ function validationErrors(scriptText) {
       },
       network_external: false
     }
-  });
+  }, extensionOverrides);
+  writeJson(path.join(root, 'extension.json'), extensionJson);
   return validateEntry({
     idFromDir: id,
     root,
@@ -104,6 +118,19 @@ try {
 
   errors = validationErrors("fetch('http://[::1]:17787/health');\n");
   assert(!errors.includes('permissions.network_external is false but scripts appear to fetch an external origin'));
+
+  errors = validationErrors('', {
+    permissions: {
+      storage: {
+        owned: ['validator-case-settings'],
+        shared_webui_keys: []
+      }
+    },
+    settings_schema: [
+      { key: 'enabled', type: 'boolean', label: 'Enabled', default: true }
+    ]
+  });
+  assert(errors.includes('settings_schema requires permissions.storage.owned to be true'));
 
   const first = buildRegistryWithArtifacts({
     publishedAt: '2026-01-01T00:00:00.000Z',

@@ -452,6 +452,17 @@ function validateSidecar(entry, errors) {
   }
 }
 
+function validateSettingsSchema(entry, errors) {
+  if (entry.settings_schema === undefined) return;
+  if (!Array.isArray(entry.settings_schema)) {
+    errors.push('settings_schema must be an array');
+    return;
+  }
+  if (entry.permissions?.storage?.owned !== true) {
+    errors.push('settings_schema requires permissions.storage.owned to be true');
+  }
+}
+
 function validateCapabilities(entry, errors) {
   const capabilities = assertArray(entry.capabilities, 'capabilities', errors);
   for (const capability of capabilities) {
@@ -491,6 +502,7 @@ export function validateEntry(discovered) {
   validateLifecycle(entry, errors);
   validatePostInstall(entry, errors);
   validateSidecar(entry, errors);
+  validateSettingsSchema(entry, errors);
 
   const scriptText = assets.scripts
     .map((rel) => (existsSync(localFile(discovered.root, rel)) ? readFileSync(localFile(discovered.root, rel), 'utf8') : ''))

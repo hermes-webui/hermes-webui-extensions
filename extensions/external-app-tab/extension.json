@@ -33,9 +33,7 @@
       "mutates_core_views": true
     },
     "storage": {
-      "owned": [
-        "hermes-ext-external-app"
-      ],
+      "owned": true,
       "shared_webui_keys": []
     },
     "loopback_sidecar": false,
@@ -47,5 +45,19 @@
     "network_external": true,
     "embeds_iframe": true,
     "requires_csp_frame_extra": true
-  }
+  },
+  "settings_schema": [
+    {
+      "key": "url",
+      "type": "string",
+      "label": "App URL",
+      "default": ""
+    },
+    {
+      "key": "label",
+      "type": "string",
+      "label": "Rail label",
+      "default": "App"
+    }
+  ]
 }

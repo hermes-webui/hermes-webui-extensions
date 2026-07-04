@@ -15,7 +15,9 @@ Limitations** for the third-party-iframe auth/cookie caveats).
 - Adds a rail button (with the content tabs, above Settings).
 - Clicking it opens a full-area overlay with a top bar (title, **Configure**,
   **Open ↗**, **Close**) and the framed app below.
-- **Configure** dialog: set a label + an `http(s)` URL; stored locally.
+- **Configure** dialog: set a label + an `http(s)` URL; stored in the native
+  Settings → Extensions → External App Tab settings store when available, with a
+  legacy localStorage fallback on older core.
 - Falls back to a "no app configured" prompt until you set a URL.
 - Escape or the ✕ closes the overlay; the rail stays accessible.
 
@@ -43,7 +45,8 @@ Hermes WebUI page
   -> manifest-bundled extension assets
   -> /extensions/assets/external-app-tab.js + .css
   -> rail button -> full-area overlay -> <iframe src="<your URL>">
-  -> localStorage: hermes-ext-external-app  ({ url, label })
+  -> Settings → Extensions → External App Tab settings: { url, label }
+  -> legacy fallback: localStorage hermes-ext-external-app ({ url, label })
 ```
 
 This extension is `static-ui` / manifest-bundle only. It does not add backend
@@ -80,7 +83,9 @@ Also on `window.HermesExternalAppTabExtension`:
 
 Restart Hermes WebUI without `HERMES_WEBUI_EXTENSION_DIR` /
 `HERMES_WEBUI_EXTENSION_MANIFEST`, or remove the `extensions/external-app-tab/`
-directory. Config lives under the `hermes-ext-external-app` localStorage key.
+directory. Config lives in the native Settings → Extensions store on supported
+core builds; older builds use the legacy `hermes-ext-external-app` localStorage
+key.
 
 ## Trust And Permissions
 
@@ -91,7 +96,10 @@ This is trusted local code. Current disclosed behavior:
 - embeds a **user-configured external URL** in an `<iframe>`
   (`permissions.network_external: true`) — this is the whole point of the
   extension; the URL is whatever the operator sets and is subject to the page CSP
-- reads and writes `localStorage` under the single key `hermes-ext-external-app`
+- reads/writes `url` and `label` through the native
+  `HermesExtensionSettings` store (`permissions.storage.owned: true`), with a
+  legacy fallback to the single `hermes-ext-external-app` localStorage key on
+  older core builds
 - does NOT call WebUI HTTP APIs
 - does NOT access cookies, loopback sidecars, the filesystem, or native hosts
 - does NOT itself `fetch()` any remote resource — it only sets an iframe `src`
@@ -112,6 +120,8 @@ rendered.
 ## Compatibility
 
 - manifest-bundled extension assets + same-origin serving under `/extensions/`
+- native Settings → Extensions fields via `settings_schema` /
+  `HermesExtensionSettings`, with localStorage fallback on older core builds
 - the left rail (`.rail`) to host the button
 - for external origins: the core `HERMES_WEBUI_CSP_FRAME_EXTRA` knob (PR #5091)
 
@@ -128,6 +138,7 @@ python3 -m json.tool extensions/external-app-tab/manifest.json
 
 Manual verification:
 
+- Settings → Extensions → External App Tab exposes **App URL** and **Rail label**
 - the rail button appears; clicking it opens the overlay
 - with no URL set, the empty-state prompt + Configure appear
 - configuring a same-origin URL frames it immediately
