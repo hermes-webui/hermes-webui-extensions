@@ -29,6 +29,13 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-tile-btn:hover{background:var(--hover-bg);color:var(--text)}
 .ext-tile-body{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 .ext-tile-msg-inner{flex:1;min-height:0;overflow-y:auto;padding:0;scroll-behavior:smooth;display:flex;flex-direction:column}
+.ext-tile-msg{padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;line-height:1.5;color:var(--text)}
+.ext-tile-msg--user{background:var(--sidebar)}
+.ext-tile-msg--assistant{background:transparent}
+.ext-tile-msg-body{overflow-wrap:anywhere;word-break:break-word}
+.ext-tile-msg-body>:first-child{margin-top:0}
+.ext-tile-msg-body>:last-child{margin-bottom:0}
+.ext-tile-msg-body pre{overflow-x:auto;max-width:100%}
 .ext-tile-sidebar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent);color:#fff;font-size:10px;font-weight:700;line-height:1;margin-left:4px;vertical-align:middle}
 #ext-tiling-toolbar{display:none;flex-direction:row;align-items:center;gap:1px;margin-left:2px;padding:0 4px;height:28px;border-left:1px solid var(--border);position:relative}
 #ext-tiling-toolbar.ext-tiling-toolbar--visible{display:flex}
@@ -104,10 +111,31 @@ function openTile(sid,data){
 }
 
 // ── Render messages ──
+// Non-focused tiles can't use core renderMessages() (it only renders S.messages
+// into #msgInner). Core exposes no single-message-element builder, but it DOES
+// expose renderMd() — the same sanitized markdown renderer the main transcript
+// uses — so each tile row gets real formatting (bold/inline-code/code-blocks/
+// links) instead of raw markdown source. Falls back to escaped plain text only
+// if renderMd is unavailable. Roles map to core's own .msg-role classes so the
+// tile transcript inherits the active theme's user/assistant styling.
+function _extRenderMd(raw){
+  const md=(typeof renderMd==='function')?renderMd:(window.renderMd);
+  if(typeof md==='function'){try{return md(String(raw==null?'':raw))}catch(_){}}
+  return null;
+}
+function _extEscape(s){const d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML}
 function renderMsgs(t){
   const mi=t.el&&t.el.querySelector('.ext-tile-msg-inner');if(!mi)return;mi.innerHTML='';
-  const cr=window._createMessageElement;
-  (t.messages||[]).forEach(msg=>{if(!msg||!msg.role||msg.role==='tool')return;if(typeof cr==='function'){const el=cr(msg);if(el)mi.appendChild(el)}else{const d=document.createElement('div');d.textContent=typeof msg.content==='string'?msg.content.slice(0,500):'(content)';mi.appendChild(d)}});
+  (t.messages||[]).forEach(msg=>{
+    if(!msg||!msg.role||msg.role==='tool')return;
+    const content=typeof msg.content==='string'?msg.content:(msg.content==null?'':String(msg.content));
+    const row=document.createElement('div');
+    row.className='ext-tile-msg ext-tile-msg--'+(msg.role==='user'?'user':'assistant');
+    const body=document.createElement('div');body.className='ext-tile-msg-body';
+    const html=_extRenderMd(content);
+    if(html!=null)body.innerHTML=html;else body.textContent=content;
+    row.appendChild(body);mi.appendChild(row);
+  });
   mi.scrollTop!==undefined&&(mi.scrollTop=mi.scrollHeight);
 }
 
