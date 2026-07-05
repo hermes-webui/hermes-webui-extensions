@@ -1,0 +1,29 @@
+{
+  "id": "assistant-avatar",
+  "name": "Assistant Avatar",
+  "description": "2D animated companion character that reacts to AI state and follows your cursor. Pure Canvas 2D — zero dependencies, 100% MIT.",
+  "version": "0.4.0",
+  "author": "chonsong",
+  "assets": {
+    "scripts": ["assets/avatar.js"],
+    "stylesheets": ["assets/avatar.css"]
+  },
+  "capabilities": ["manifest-bundle"],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": { "read": [], "write": [] },
+    "webui_navigation": false,
+    "dom": { "owned": true, "mutates_core_views": false },
+    "storage": { "owned": [], "shared_webui_keys": [] },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
+    "network_external": false
+  }
+}
