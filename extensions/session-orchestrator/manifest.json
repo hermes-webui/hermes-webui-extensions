@@ -1,0 +1,42 @@
+{
+  "extensions": [
+    {
+      "id": "session-orchestrator",
+      "name": "Session Orchestrator",
+      "description": "Voice-commanded multi-session orchestration — manage concurrent agent sessions via speech or text commands.",
+      "scripts": [
+        "assets/orchestrator.js"
+      ],
+      "permissions": {
+        "dom": { "owned": true, "mutates_core_views": true },
+        "storage": { "owned": true },
+        "webui_api": { "read": ["session", "sessions"], "write": ["session/draft"] },
+        "webui_navigation": true,
+        "network_external": false,
+        "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
+        "loopback_sidecar": false,
+        "native_host": false
+      },
+      "settings_schema": [
+        {
+          "key": "auto_notify",
+          "type": "boolean",
+          "label": "Play chime on session completion",
+          "default": true
+        },
+        {
+          "key": "speak_notifications",
+          "type": "boolean",
+          "label": "Speak completion alerts via TTS",
+          "default": true
+        },
+        {
+          "key": "silence_command_ms",
+          "type": "integer",
+          "label": "Silence threshold before command dispatch (ms)",
+          "default": 1800
+        }
+      ]
+    }
+  ]
+}
