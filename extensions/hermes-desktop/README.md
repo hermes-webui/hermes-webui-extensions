@@ -1,79 +1,101 @@
-# Hermes Desktop
+# Hermes Desktop v0.2.0 — Computer Use Integration
 
-A full Linux desktop inside Hermes WebUI. Drive GUI applications (Blender,
-LibreOffice, Chromium, terminals) from your browser. The Hermes agent and
-you share the same desktop — the agent opens apps via `docker exec`, you
-watch and interact through a VNC panel.
+A full Linux desktop inside Hermes WebUI with **Computer Use** target selection.
+Choose which display the agent drives — the **host Xvfb framebuffer** or a
+**containerized XFCE desktop** — and watch it happen live via noVNC.
 
-## What It Does
-
-- Ships a Docker container running **XFCE4** with **TigerVNC**
-- Includes pre-installed desktop apps: Chromium, LibreOffice, Blender,
-  ImageMagick, xdotool, xclip
-- The agent drives the desktop through `docker exec` — no new agent tools
-  needed (just `terminal` + `vision_analyze`)
-- The WebUI extension adds a **🐧 sidebar button** that opens a desktop panel
-  with a live VNC viewport (noVNC via iframe)
-- A **Python sidecar** manages container lifecycle (start/stop/health) and
-  provides a stable localhost API
-
-## Who It Is For
-
-- Users who want to run desktop Linux apps from within their Hermes workflow
-- Developers who want the agent to visually iterate on GUI tasks (open
-  Blender, model an object, screenshot for feedback)
-- Anyone evaluating whether Hermes can match "Agent Zero"-style desktop
-  integration without a separate full-stack framework
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Browser (Hermes WebUI)                 │
-│  ┌─────────────────────┐  ┌───────────────────────────┐ │
-│  │      Chat Panel     │  │    Desktop Panel (ext)    │ │
-│  │                     │  │  ┌─────────────────────┐  │ │
-│  │  Agent runs         │  │  │  iframe → noVNC     │  │ │
-│  │  docker exec ...    │  │  │  (localhost:6080)   │  │ │
-│  └─────────────────────┘  │  └─────────────────────┘  │ │
-│                           └───────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
-                    │                     │
-                    │ docker exec         │ HTTP (iframe)
-                    ▼                     ▼
-┌─────────────────────────────────────────────────────────┐
-│  Host                                                    │
-│  ┌──────────────────┐  ┌──────────────────────────────┐ │
-│  │ Sidecar (Python) │  │ Docker container              │ │
-│  │ :17887           │  │ ┌──────────────────────────┐ │ │
-│  │ • lifecycle API  │  │ │ XFCE4 + TigerVNC         │ │ │
-│  │ • health check   │  │ │ noVNC on :6080           │ │ │
-│  └──────────────────┘  │ │ VNC on :5900             │ │ │
-│                         │ │ Chromium, Blender, etc   │ │ │
-│                         │ └──────────────────────────┘ │ │
-│                         └──────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        Browser (Hermes WebUI)                     │
+│  ┌─────────────────────┐  ┌──────────────────────────────────┐   │
+│  │      Chat Panel     │  │     Desktop Panel (Extension)     │   │
+│  │                     │  │  ┌────────────────────────────┐   │   │
+│  │  User <-> Agent     │  │  │  noVNC iframe              │   │   │
+│  │                     │  │  │  (live desktop viewport)   │   │   │
+│  │                     │  │  ├────────────────────────────┤   │   │
+│  │                     │  │  │  Mini Transcript            │   │   │
+│  │                     │  │  │  (renderTranscript hook)    │   │   │
+│  │                     │  │  ├────────────────────────────┤   │   │
+│  │                     │  │  │  Settings → Target Selector │   │   │
+│  │                     │  │  │  ● Host (Xvfb :0)          │   │   │
+│  │                     │  │  │  ○ Container (Xfce :1)     │   │   │
+│  └─────────────────────┘  │  └────────────────────────────┘   │   │
+│                           └──────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────┘
+         │                          │
+         │Terminal / computer_use    │ HTTP iframe
+         ▼                          ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                        Host Machine                               │
+│                                                                   │
+│  ┌──────────────────────┐  ┌────────────────────────────────┐    │
+│  │  cua-driver (Host)   │  │  Sidecar (Python) :17887        │    │
+│  │  DISPLAY=:0          │  │  ┌──────────────────────────┐  │    │
+│  │  Xvfb                │  │  │  /health                  │  │    │
+│  │  640×480             │  │  │  /container/start         │  │    │
+│  │  x11vnc :5901 → noVNC│  │  │  /container/stop         │  │    │
+│  │  :6081                │  │  │  /cua/status             │  │    │
+│  └──────────────────────┘  │  │  /cua/target              │  │    │
+│                            │  └──────────────────────────┘  │    │
+│  ┌──────────────────────┐  └────────────────────────────────┘    │
+│  │  Docker Container    │                                         │
+│  │  (hermes-desktop)    │                                         │
+│  │  Xfce4 on DISPLAY=:1 │                                         │
+│  │  TigerVNC :5900 →    │                                         │
+│  │  noVNC :6901          │                                         │
+│  │  Chromium, Blender,  │                                         │
+│  │  LibreOffice, xdotool│                                         │
+│  └──────────────────────┘                                         │
+│                                                                   │
+│  ┌──────────────────────┐                                         │
+│  │  cua-driver (Cont.)  │                                         │
+│  │  (inside container)  │                                         │
+│  │  DISPLAY=:1          │                                         │
+│  └──────────────────────┘                                         │
+│                                                                   │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+### How the agent interacts
+
+1. **You chat** in the main WebUI panel
+2. **Agent uses `computer_use` tool** — dispatches to the selected target's
+   cua-driver instance (host `:0` or container `:1`)
+3. **Desktop updates appear live** in the noVNC iframe in the extension panel
+4. **Agent transcript** renders alongside the desktop via `renderTranscript`
+   hook (requires PR #5508 in WebUI core)
+5. **You watch and steer** — the panel shows exactly what the agent sees
+
+### Two targets
+
+| Target | DISPLAY | Desktop | VNC | Use Case |
+|--------|---------|---------|-----|----------|
+| **Host (Xvfb :0)** | `:0` | Headless framebuffer | x11vnc → noVNC :6081 | Lightweight, no container overhead, fast screenshots |
+| **Container (Xfce :1)** | `:1` | Full XFCE4 | TigerVNC → noVNC :6901 | Real desktop apps (browser, office, 3D), RustDesk client |
+
+---
 
 ## Installation
 
 ### 1. Install the Extension
 
 In Hermes WebUI, open **Settings → Extensions → Gallery** and install
-**Hermes Desktop**. (Once the entry is merged into the curated library.)
+**Hermes Desktop**.
 
-For local testing before gallery install:
+For local development:
 
 ```bash
-cd hermes-desktop/extensions/hermes-desktop
-HERMES_WEBUI_EXTENSION_DIR=. \
+cd hermes-webui-extensions
+HERMES_WEBUI_EXTENSION_DIR=extensions/hermes-desktop \
 HERMES_WEBUI_EXTENSION_MANIFEST=manifest.json \
 ./start.sh
 ```
 
 ### 2. Clone the Companion Repo
-
-The Docker image and sidecar live in a companion repository:
 
 ```bash
 git clone https://github.com/ChonSong/hermes-desktop
@@ -87,7 +109,7 @@ docker compose -f docker/docker-compose.yml build
 ```
 
 First build pulls `ubuntu:24.04`, installs XFCE4, TigerVNC, noVNC, and
-desktop tools. Expect 1-2 minutes (image size ~2.5 GB).
+desktop tools. Expect 1-2 minutes (~2.5 GB image).
 
 ### 4. Start the Sidecar
 
@@ -95,174 +117,212 @@ desktop tools. Expect 1-2 minutes (image size ~2.5 GB).
 python3 sidecar/sidecar.py
 ```
 
-The sidecar binds to `127.0.0.1:17887`. It manages the container lifecycle
-via `docker compose` and provides:
+The sidecar binds to `127.0.0.1:17887` and provides the management API
+used by the extension.
 
-| Endpoint | Method | Purpose |
-|---|---|---|
+### 5. Install cua-driver (for Computer Use)
+
+```bash
+hermes computer-use install
+```
+
+This installs the `cua-driver` binary and enables the `computer_use` tool
+for the Hermes agent.
+
+For **container target** support, also install inside the container:
+
+```bash
+docker exec hermes-desktop hermes computer-use install
+```
+
+### 6. Open the Desktop
+
+Click the **🐧** button in the WebUI sidebar. The panel shows:
+- Container status (start/stop)
+- Target selector (Host vs Container)
+- Live noVNC viewport of the active target
+- Agent transcript (when open)
+- Computer Use status per target
+
+---
+
+## Usage Flow
+
+### Selecting a target
+
+Open the panel → click **⚙** → choose **Host (Xvfb :0)** or **Container (Xfce :1)**.
+The choice persists in localStorage.
+
+When you switch targets:
+- The noVNC iframe reloads to point at the new target's VNC port
+- The agent's subsequent `computer_use` calls route to the corresponding
+  cua-driver instance
+- The status badge updates to show the active target
+
+### Agent-driven desktop workflow
+
+1. Open the desktop panel and ensure the target is running
+2. Tell the agent: *"Open Chromium in the desktop and navigate to example.com"*
+3. The agent calls `computer_use` to click the app menu, type the URL, etc.
+4. Watch the desktop update live in the panel
+5. The mini transcript shows the agent's reasoning in parallel
+
+### Manual control via terminal
+
+```bash
+# Launch an app in the container
+docker exec hermes-desktop xfce4-terminal &
+
+# Type text
+docker exec hermes-desktop xdotool type "Hello from Hermes"
+
+# Click at coordinates
+docker exec hermes-desktop xdotool mousemove 400 300 click 1
+
+# Take a screenshot
+docker exec hermes-desktop import -window root /tmp/screenshot.png
+
+# Copy screenshot for vision analysis
+docker cp hermes-desktop:/tmp/screenshot.png /tmp/screenshot.png
+```
+
+---
+
+## Configuration Reference
+
+### Extension Settings
+
+| Setting | Key (localStorage) | Values | Default | Description |
+|---------|-------------------|--------|---------|-------------|
+| Target | `hermes-desktop:target` | `"host"` / `"container"` | `"container"` | Which display the agent drives |
+| Transcript | `hermes-desktop:transcript` | `true` / `false` | `false` | Show agent transcript in panel |
+
+### Sidecar API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
 | `/health` | GET | Sidecar + container status |
 | `/container/start` | POST | Start the desktop container |
 | `/container/stop` | POST | Stop the desktop container |
 | `/container/status` | GET | Container state detail |
+| `/cua/status` | GET | cua-driver health for each target (`{"host": "...", "container": "..."}`) |
+| `/cua/target` | GET | Current active target |
+| `/cua/target` | POST | Set active target (body: `{"target": "host"}`) |
 
-### 5. Open the Desktop
+### WebUI Core APIs (PR #5508)
 
-Click the **🐧** button in the WebUI sidebar. If the sidecar is running and
-the container is started, the panel shows a live VNC viewport of the XFCE
-desktop.
+| API | Purpose |
+|-----|---------|
+| `window.registerHermesSessionOpenHandler(fn)` | Hook into session navigation (used for transcript refresh) |
+| `window.renderTranscript(container, messages, opts)` | Render chat messages into any DOM container |
 
-## Agent-Driven Desktop Control
-
-Once the container is running, the agent can control the desktop through
-Hermes' existing `terminal` tool:
-
-```bash
-# Launch an app
-docker exec hermes-desktop xfce4-terminal &
-# Click at coordinates
-docker exec hermes-desktop xdotool mousemove 400 300 click 1
-# Type text
-docker exec hermes-desktop xdotool type "Hello from Hermes"
-# Take a screenshot
-docker exec hermes-desktop import -window root /tmp/screenshot.png
-# Copy screenshot back for vision analysis
-docker cp hermes-desktop:/tmp/screenshot.png /tmp/screenshot.png
-# The agent then runs vision_analyze(image_url="/tmp/screenshot.png")
-```
-
-No new Hermes tools are needed. The `terminal` + `vision_analyze` loop is
-the same pattern the agent already uses for browser automation.
+---
 
 ## Remote Access
 
-The VNC iframe loads from `localhost:6080`, which works when the browser
+The VNC iframe connects to `localhost` ports, which works when the browser
 runs on the same machine as Hermes. For remote access:
 
-1. **Cloudflare Tunnel** — tunnel port 6080 alongside the WebUI tunnel
-2. **SSH port forward** — `ssh -L 6080:localhost:6080 your-host`
-3. **RustDesk** — connect to the host desktop directly (bypasses the
-   WebUI panel but gives full desktop access)
-4. **Future** — a `sidecar-proxy` capability (planned for WebUI core)
-   would route VNC through the WebUI domain, making remote access
-   work automatically
+| Method | How |
+|--------|-----|
+| **Cloudflare Tunnel** | Tunnel ports 6081 (host) and 6901 (container) alongside WebUI |
+| **SSH forward** | `ssh -L 6081:localhost:6081 -L 6901:localhost:6901 your-host` |
+| **RustDesk** | Connect to the host desktop directly (bypasses WebUI) |
+| **Future** | `sidecar-proxy` capability routes VNC through the WebUI domain |
+
+---
+
+## Trust Model and Permissions
+
+Hermes Desktop is **trusted local code**. Summary:
+
+- Creates an **owned DOM panel** — does NOT mutate core WebUI views
+- Opens an **iframe to `http://127.0.0.1:6080`** or `:6901` (VNC viewport)
+- Fetches sidecar health/status via **`http://127.0.0.1:17887`**
+- Does NOT read authenticated WebUI APIs
+- Does NOT write to WebUI session/approval/clarify endpoints
+- Stores extension-owned preferences in **localStorage** under `hermes-desktop:` prefix
+- Does NOT access external networks
+- Does NOT write to arbitrary filesystem paths
+
+**The sidecar** manages Docker lifecycle and exposes cua-driver status.
+
+**The `computer_use` tool** runs via `hermes computer-use install` — it drives
+the desktop via accessibility (AT-SPI on Linux), not pixel scraping. See the
+[computer-use skill](https://github.com/nousresearch/hermes-agent) for details.
+
+---
+
+## Dependencies
+
+| Component | Required | Version |
+|-----------|----------|---------|
+| Docker | Yes | 24+ |
+| Python | Yes | 3.10+ |
+| cua-driver | For agent-driven control | Latest (`hermes computer-use install`) |
+| x11vnc | For host target visualization | Any |
+| noVNC | For host target (optional on container) | Included in container |
+| Hermes WebUI | Yes | v0.10+ with manifest-bundle support |
+
+---
+
+## Known Limitations
+
+- **Host target requires x11vnc + noVNC** — the extension expects noVNC on
+  port 6081 for the host framebuffer. Set up manually:
+  ```bash
+  x11vnc -display :0 -forever -nopw -shared -rfbport 5901 &
+  /usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 6081 &
+  ```
+- **cua-driver in container** — installing cua-driver inside the Docker
+  container requires the container to have `hermes` CLI available or the
+  binary installed manually.
+- **No clipboard sync** — bidirectional clipboard between browser and
+  desktop is not implemented.
+- **Audio not bridged** — PulseAudio bridge can be added as a follow-up.
+- **Multi-session not supported** — one container, one desktop.
+
+---
 
 ## Disable and Uninstall
 
 **Disable** (keep installed, stop injecting):
-1. Add `"hermes-desktop"` to `disabled_extensions` in
-   `~/.hermes/webui/extension-overrides.json`
-2. Restart WebUI: `systemctl --user restart hermes-webui.service`
+1. Add `"hermes-desktop"` to `disabled_extensions` in `extension-overrides.json`
+2. Restart WebUI
 
 **Stop the desktop container:**
 ```bash
 docker compose -f hermes-desktop/docker/docker-compose.yml down
 ```
 
-**Uninstall** (fully remove):
+**Uninstall:**
 1. Stop the container as above
 2. Remove the extension from `extension-install-manifest.json`
-3. Delete the extension directory:
-   `rm -rf ~/.hermes/webui/extensions/hermes-desktop/`
-4. Remove the Docker image: `docker rmi hermes-desktop`
+3. `rm -rf ~/.hermes/webui/extensions/hermes-desktop/`
+4. `docker rmi hermes-desktop`
 5. Restart WebUI
 
-## Trust Model and Permissions
-
-Hermes Desktop is **trusted local code**. The injected adapter runs in the
-Hermes WebUI browser origin and can use the logged-in browser session.
-
-**Current behavior:**
-- Creates an owned DOM panel (does NOT mutate core WebUI views)
-- Opens an iframe to `http://127.0.0.1:6080` (the container's noVNC page)
-- Fetches sidecar health/status via `http://127.0.0.1:17887`
-- Does NOT read authenticated WebUI APIs
-- Does NOT write to WebUI session/approval/clarify endpoints
-- Does NOT navigate WebUI sessions
-- Stores extension-owned preferences in localStorage under its own prefix
-- Does NOT access external networks
-- Does NOT write to arbitrary filesystem paths
-
-**The sidecar** (separate process, user-launched):
-- Starts/stops a Docker container via `docker compose`
-- Provides HTTP health + status responses on `127.0.0.1:17887`
-- Does NOT proxy authenticated WebUI calls
-- Does NOT serve WebSocket/VNC — noVNC runs inside the container
-
-**The Docker container:**
-- Binds VNC port 5900 to `127.0.0.1:5900` (host-only)
-- Binds noVNC port 6080 to `127.0.0.1:6080` (host-only)
-- Not reachable from the network — loopback only
-
-## Known Limitations
-
-- **Remote access requires manual port tunneling** — the VNC iframe
-  connects to localhost, which only works for local browsers. This is
-  the same constraint as Agent Zero's noVNC integration. Future
-  `sidecar-proxy` support in WebUI core would solve this.
-
-- **First container build is slow** — pulling Ubuntu 24.04 + installing
-  XFCE4 + Tools takes ~2 minutes on first build. Subsequent starts
-  are near-instant.
-
-- **Image size** — the built image is approximately 2.5 GB.
-
-- **Audio forwarding** — not included in v0.1. The desktop has no
-  audio output path to the browser. PulseAudio bridge can be added
-  in a future version.
-
-- **Clipboard sync** — noVNC provides basic clipboard but bidirectional
-  sync with Hermes' clipboard is not implemented.
-
-- **No multi-user / multi-session** — one container, one desktop.
-  Multiple concurrent users would need separate container instances.
-
-## Compatibility
-
-- **Hermes WebUI:** tested against WebUI with `manifest-bundle` and
-  `loopback-sidecar` capabilities
-- **Browser:** any browser that renders iframes and allows loopback
-  CSP (`http://127.0.0.1:*`)
-- **Host OS:** Linux with Docker 24+ and Python 3.10+
-- **Agent model:** any model that can use `terminal` + `vision_analyze`
-  tools (all Hermes models)
-
-## Verification
-
-After installation, verify each layer:
-
-```bash
-# 1. Sidecar health
-curl http://127.0.0.1:17887/health
-# → {"ok":true,"container":"stopped","message":"sidecar running"}
-
-# 2. Start container
-curl -X POST http://127.0.0.1:17887/container/start
-# → {"status":"started"}
-
-# 3. Container health
-curl http://127.0.0.1:17887/health
-# → {"ok":true,"container":"running","message":"sidecar running"}
-
-# 4. noVNC accessible
-curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:6080/health
-# → 200
-
-# 5. Desktop running
-docker exec hermes-desktop xdotool getdisplaygeometry
-# → 1280 720
-```
-
-In the WebUI:
-- The 🐧 button appears in the sidebar (or as a floating button if no sidebar nav found)
-- Clicking it opens the panel
-- Status shows "Desktop running" with a live VNC viewport
-- Clicking "Stop Desktop" shuts down the container cleanly
+---
 
 ## Related
 
-- **Companion repo** (Docker + sidecar):
-  [ChonSong/hermes-desktop](https://github.com/ChonSong/hermes-desktop)
-- **Agent Zero** (inspiration):
-  [agent0ai/agent-zero](https://github.com/agent0ai/agent-zero)
-- **Desktop Companion** (sidecar extension pattern):
-  [hermes-webui-extensions/desktop-companion](https://github.com/hermes-webui/hermes-webui-extensions/tree/main/extensions/desktop-companion)
+- **Companion repo** (Docker + sidecar): [ChonSong/hermes-desktop](https://github.com/ChonSong/hermes-desktop)
+- **Computer Use skill**: [computer-use](https://github.com/nousresearch/hermes-agent/skills/computer-use)
+- **WebUI core hooks** (PR #5508): `registerHermesSessionOpenHandler` + `renderTranscript`
+- **Desktop Companion** (original sidecar pattern): `hermes-webui-extensions/desktop-companion`
+- **Agent Zero** (inspiration): [agent0ai/agent-zero](https://github.com/agent0ai/agent-zero)
+
+---
+
+## Changelog
+
+### v0.2.0 (2026-07-06)
+- **Target selector**: Choose Host (Xvfb :0) or Container (Xfce :1)
+- **Computer Use integration**: cua-driver status indicators per target
+- **Mini transcript**: Agent messages rendered via `renderTranscript` hook
+- **Settings panel**: Persistent configuration via local storage
+- **Sidecar API**: `/cua/status` and `/cua/target` endpoints
+- **Documentation**: Architecture diagram, usage flow, configuration reference
+
+### v0.1.0 (2026-07-01)
+- Initial release: containerized XFCE desktop with noVNC panel

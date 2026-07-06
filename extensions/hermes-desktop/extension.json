@@ -1,8 +1,8 @@
 {
   "id": "hermes-desktop",
   "name": "Hermes Desktop",
-  "description": "A full Linux XFCE desktop inside Hermes WebUI. Drive GUI applications (Blender, LibreOffice, terminals) from your browser — the agent and you share the same desktop. Ships a Docker container, a loopback sidecar, and a WebUI panel.",
-  "version": "0.1.0",
+  "description": "A full Linux desktop inside Hermes WebUI with Computer Use integration. Choose between Host (Xvfb :0) or Container (Xfce :1) as the agent's GUI target. Watch the agent drive the desktop via noVNC while you chat — the same session is rendered in a mini transcript panel.",
+  "version": "0.2.0",
   "author": "ChonSong",
   "homepage": "https://github.com/ChonSong/hermes-desktop",
   "assets": {
@@ -15,7 +15,8 @@
   },
   "capabilities": [
     "manifest-bundle",
-    "loopback-sidecar"
+    "loopback-sidecar",
+    "transcript-render"
   ],
   "sidecar": {
     "type": "loopback",
@@ -29,7 +30,7 @@
     "native_host_autostart": "none"
   },
   "post_install": {
-    "summary": "Install enables the WebUI desktop panel. Clone the companion repo, build the Docker container, and start the sidecar to launch the Linux desktop.",
+    "summary": "Install enables the WebUI desktop panel. Clone the companion repo, build the Docker container, and start the sidecar to launch the Linux desktop. Optionally install cua-driver (hermes computer-use install) for native Computer Use agent control.",
     "docs_url": "https://github.com/ChonSong/hermes-desktop#after-gallery-install",
     "requires_local_app": true,
     "local_app_label": "Hermes Desktop sidecar"
