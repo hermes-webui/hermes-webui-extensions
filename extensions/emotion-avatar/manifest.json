@@ -1,0 +1,18 @@
+{
+  "extensions": [
+    {
+      "id": "emotion-avatar",
+      "name": "Emotion Avatar Bridge",
+      "description": "Bridges FAC emotional context, LLM response tags, and agent state to the assistant avatar expression system.",
+      "scripts": ["assets/emotion-bridge.js"],
+      "settings_schema": [
+        {
+          "key": "poll_ms",
+          "type": "integer",
+          "label": "Agent state poll interval (ms)",
+          "default": 300
+        }
+      ]
+    }
+  ]
+}
