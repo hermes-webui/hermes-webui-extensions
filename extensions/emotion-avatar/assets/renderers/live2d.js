@@ -156,6 +156,7 @@
 
       // Center and scale to fit
       var scale = Math.min(192 / model.width, 192 / model.height) * 0.85;
+      model.anchor.set(0.5, 0.5);
       model.scale.set(scale);
       model.x = 96;
       model.y = 96;
