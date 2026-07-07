@@ -35,7 +35,7 @@
   // relied upon at the CSP layer.
   function isLoopbackHost(host) {
     const h = String(host || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
-    if (h === 'localhost' || h === '::1' || h === '0.0.0.0') return true;
+    if (h === 'localhost' || h === '::1') return true;
     // 127.0.0.0/8
     const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
     if (m && Number(m[1]) === 127 && m.slice(1).every((o) => Number(o) >= 0 && Number(o) <= 255)) return true;
@@ -742,7 +742,13 @@
 
     addLog('Fun Audio Chat Connector loaded', 'system');
     addLog(`Default server: ws://${s.host}:${s.port}/chat`, 'system');
-    addLog('Click "Talk" to start speaking', 'system');
+    addLog('Click "Reconnect" to connect, then "Talk" to start speaking', 'system');
+
+    // Drive the initial status through setStatus() so the Reconnect button becomes
+    // visible and the Talk button's disabled state is set correctly. Without this,
+    // a fresh panel has NO usable connect affordance (Talk is disabled, Reconnect
+    // is only revealed by a setStatus() call that never fired) — a dead-end.
+    setStatus(STATE.DISCONNECTED, 'Disconnected');
   }
 
   // Wait for DOM
