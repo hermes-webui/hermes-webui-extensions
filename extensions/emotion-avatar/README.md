@@ -1,76 +1,67 @@
-# Emotion Bridge
+# Emotion Avatar
 
-Detects emotional context from agent state, LLM responses, and FAC voice interaction, then emits expression signals for any avatar renderer to consume.
+A complete animated companion avatar extension for Hermes WebUI. Renders a character in the bottom-right corner with emotional expressions driven by voice interaction (FAC), LLM response tags, and agent state.
 
-**Does not render anything. Does not depend on any specific avatar extension.**
+**All in one extension** — no separate emotion bridge needed.
 
-## Architecture
+## Features
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      EMOTION BRIDGE                              │
-│                                                                  │
-│  Source 1: Agent State              Source 2: LLM Response       │
-│  ┌───────────────────────┐         ┌──────────────────────────┐  │
-│  │ S.busy / speechSynth  │         │ Agent messages scanned   │  │
-│  │ → thinking / speaking │         │ for [happy] [thinking]   │  │
-│  └───────────┬───────────┘         │ tags via DOM observer    │  │
-│              │                      └──────────┬───────────────┘  │
-│              │                                 │                  │
-│  Source 3: FAC Voice                  Source 4: External         │
-│  ┌───────────────────────┐           ┌──────────────────────────┐│
-│  │ hermes:fac:emotion    │           │ __emotionBridge.emit()   ││
-│  │ custom event from FAC  │           │ hermes:avatar:emotion    ││
-│  │ S2S emotion detection │           │ other extensions         ││
-│  └───────────┬───────────┘           └──────────┬───────────────┘│
-│              │                                  │                │
-│              └──────────────┬───────────────────┘                │
-│                             ▼                                    │
-│                    ┌─────────────────┐                           │
-│                    │  emit(expr, src)│                           │
-│                    ├─────────────────┤                           │
-│                    │ window.__avatar │ ← polling consumers       │
-│                    │ Expression state│                           │
-│                    │                 │                           │
-│                    │ 'hermes:avatar: │ ← event-driven consumers  │
-│                    │ expression' evt │                           │
-│                    └────────┬────────┘                           │
-│                             │                                    │
-└─────────────────────────────┼────────────────────────────────────┘
-                              │
-            ┌─────────────────┼─────────────────┐
-            ▼                 ▼                   ▼
-   assistant-avatar    VRM 3D avatar      any custom renderer
-   (reads state or     (listens to        (listens to
-    listens to event)   event)             event)
-```
+- **5 characters** — Pixel, Neko, Yuki, Robot, Monster (SVG path-based, 192×192)
+- **Custom colors** — per-character color picker, saved to localStorage
+- **Mouse tracking** — eyes follow cursor, with curious float animation
+- **Avoid behavior** — mouse hover pushes character away; click makes it flee
+- **Settings panel** — double-click to open, gear icon in titlebar
+- **Expression system** — 5 expressions: idle, happy, speaking, thinking, surprised
 
-## No Dependencies
+## Emotion Sources (priority order)
 
-The bridge is **renderer-agnostic**. It has zero hard dependencies on other extensions. Any avatar extension can consume its signals:
+| Priority | Source | Expression Trigger |
+|----------|--------|-------------------|
+| 1 (highest) | FAC `hermes:fac:emotion` event | Voice-detected emotion from FAC pipeline |
+| 2 | External `hermes:avatar:emotion` event | Any extension can dispatch this |
+| 3 | LLM response tags | `[happy]`, `[surprised]`, `[thinking]` etc. scanned from latest message |
+| 4 | Agent state polling | `thinking` → thinking mouth, `speaking` → animated mouth, `idle` → idle |
+| 5 | Default | idle (with rare random happy) |
 
-### Event-driven (recommended)
+## Expression reference
+
+| Expression | Visual | Trigger sources |
+|------------|--------|-----------------|
+| `idle` | Rest mouth, normal eyes | Default idle state |
+| `happy` | Smiling mouth, cheek blush | LLM `[happy]`, random 1.5% |
+| `speaking` | Animated open/close mouth | `speechSynthesis.speaking` |
+| `thinking` | Puckered mouth | S.busy, active stream |
+| `surprised` | Open circle mouth | Mouse click, cursor proximity |
+
+## Integration: other extensions
+
+### Consuming (any extension can set the avatar expression)
 
 ```javascript
+// Option A: Use the public API
+window.HermesEmotionAvatar.setExpression('happy');
+
+// Option B: Emit the emotion event
+window.dispatchEvent(new CustomEvent('hermes:avatar:emotion', {
+  detail: { expression: 'surprised', source: 'my-ext' }
+}));
+```
+
+### Extending (any extension can read the current expression)
+
+```javascript
+// Poll the shared state
+window.__avatarExpression // → 'happy'
+
+// Or listen for events
 window.addEventListener('hermes:avatar:expression', function(e) {
-  var expr = e.detail.expression; // 'happy', 'thinking', 'speaking', etc.
-  var source = e.detail.source;   // 'agent', 'llm-tag', 'fac', 'external'
+  console.log('Avatar shows:', e.detail.expression, 'from', e.detail.source);
 });
 ```
 
-### Polling
+### FAC integration (Fun-Audio-Chat)
 
-```javascript
-if (window.__avatarExpression !== lastExpression) {
-  lastExpression = window.__avatarExpression;
-}
-```
-
-## Integration
-
-### With FAC (Fun-Audio-Chat)
-
-FAC's S2S pipeline detects emotion from voice. The FAC plugin should dispatch:
+The FAC plugin should emit `hermes:fac:emotion` events:
 
 ```javascript
 window.dispatchEvent(new CustomEvent('hermes:fac:emotion', {
@@ -78,58 +69,47 @@ window.dispatchEvent(new CustomEvent('hermes:fac:emotion', {
 }));
 ```
 
-The bridge listens and relays it as `hermes:avatar:expression` with `source: 'fac'`.
+When this fires, the avatar overrides its default state polling to show the FAC-detected emotion.
 
-### With LLM Responses
+### VTuber component reuse (reference)
 
-Your agent prompt can include:
-> End each response with an emotion tag: [happy], [thinking], [surprised], [confused], [excited]
+| Project | License | Component |
+|---------|---------|-----------|
+| [Open-LLM-VTuber](https://github.com/Snowfork/Open-LLM-VTuber) | MIT | Expression keywords in LLM responses → avatar expressions |
+| [Airi](https://github.com/moeru-ai/airi) | MIT | 2D/3D avatar rendering, eye tracking, lip sync |
+| [three-vrm](https://github.com/pixiv/three-vrm) | MIT | VRM avatar loader for Three.js (future 3D upgrade path) |
+| [face-api.js](https://github.com/justadudewhohacks/face-api.js) | MIT | Webcam emotion mirroring (future) |
 
-The bridge scans the most recent message for `[tag]` patterns and re-emits them.
-
-### With Other Extensions
-
-```javascript
-// Direct API
-window.__emotionBridge.emit('happy', 'my-extension');
-
-// Or custom event
-window.dispatchEvent(new CustomEvent('hermes:avatar:emotion', {
-  detail: { expression: 'surprised', source: 'my-extension' }
-}));
-```
-
-## Expression Signals
-
-| Signal | Source | When |
-|---|---|---|
-| `thinking` | agent | Agent is processing a response |
-| `speaking` | agent | TTS is playing audio |
-| `idle` | agent | Nothing happening |
-| `happy` | llm-tag / fac | LLM tag or FAC detects happy voice |
-| `surprised` | llm-tag / fac | Surprise emotion detected |
-| `confused` | llm-tag | LLM expresses uncertainty |
-
-These are suggestions — the bridge forwards whatever signals it receives without validation.
-
-## API Reference
+## Public API
 
 ```javascript
-window.__emotionBridge.status()     // 'connected'|'stopped'|'disabled'
-window.__emotionBridge.enabled()    // true|false
-window.__emotionBridge.current()    // 'happy'|'thinking'|null etc.
-window.__emotionBridge.emit('happy', 'my-source')  // Emit directly
-window.__emotionBridge.enable()                     // Start bridging
-window.__emotionBridge.disable()                    // Stop
+window.HermesEmotionAvatar = {
+  version: '0.5.0',
+  setExpression(expr),       // Force an expression
+  getExpression(),           // { current, target, tween }
+  hide(), show(),            // Toggle visibility
+  getConfig(),               // Current color config
+  setConfig(partial),        // Update color config
+  resetConfig(),             // Reset colors to defaults
+  openSettings(),            // Open settings panel
+  switchPreset(name),        // Switch character
+  setMouseTracking(bool),    // Enable/disable eye tracking
+  emotionBridge: {           // Direct emit access
+    emit(expr, source),
+    emitDirectly(expr, source)
+  },
+  destroy()                  // Clean up
+};
 ```
 
-## Roadmap
+## Files
 
-- [ ] FAC S2S plugin integration (hermes:fac:emotion event emitter)
-- [ ] Webcam emotion mirroring via face-api.js (MIT)
-- [ ] Configurable expression priority (agent state > LLM tags)
-- [ ] Expression debouncing / minimum hold time
-
-## License
-
-MIT
+```
+extensions/emotion-avatar/
+├── extension.json           # Extension metadata
+├── manifest.json            # Install manifest
+├── README.md                # This file
+└── assets/
+    ├── emotion-avatar.js    # Combined renderer + emotion bridge
+    └── emotion-avatar.css   # Styles
+```

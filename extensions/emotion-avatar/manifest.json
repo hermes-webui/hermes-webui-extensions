@@ -2,17 +2,12 @@
   "extensions": [
     {
       "id": "emotion-avatar",
-      "name": "Emotion Avatar Bridge",
-      "description": "Bridges FAC emotional context, LLM response tags, and agent state to the assistant avatar expression system.",
-      "scripts": ["assets/emotion-bridge.js"],
-      "settings_schema": [
-        {
-          "key": "poll_ms",
-          "type": "integer",
-          "label": "Agent state poll interval (ms)",
-          "default": 300
-        }
-      ]
+      "name": "Emotion Avatar",
+      "description": "Animated companion avatar with emotion detection from FAC voice, LLM response tags, and agent state. 5 character presets, mouse tracking, avoid mode, FAC emotion integration.",
+      "version": "0.5.0",
+      "author": "ChonSong",
+      "homepage": "https://github.com/ChonSong/hermes-webui-extensions/tree/main/extensions/emotion-avatar",
+      "repository": "https://github.com/ChonSong/hermes-webui-extensions"
     }
   ]
 }

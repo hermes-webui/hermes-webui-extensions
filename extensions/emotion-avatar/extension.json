@@ -1,29 +1,14 @@
 {
   "id": "emotion-avatar",
-  "name": "Emotion Avatar Bridge",
-  "description": "Bridges emotional context from FAC voice detection, LLM response tags, and agent state to animate the assistant avatar with expressive emotions.",
-  "version": "0.1.0",
-  "author": "chonsong",
-  "assets": {
-    "scripts": ["assets/emotion-bridge.js"],
-    "stylesheets": []
-  },
-  "capabilities": ["manifest-bundle"],
-  "lifecycle": {
-    "webui_restart_required": false,
-    "sidecar_start_required": false,
-    "native_host_start_required": false,
-    "native_host_autostart": "none"
-  },
-  "screenshots": [],
-  "permissions": {
-    "webui_api": { "read": [], "write": [] },
-    "webui_navigation": false,
-    "dom": { "owned": true, "mutates_core_views": false },
-    "storage": { "owned": true },
-    "loopback_sidecar": false,
-    "native_host": false,
-    "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
-    "network_external": false
-  }
+  "name": "Emotion Avatar",
+  "description": "Animated companion avatar with emotion detection from FAC voice, LLM response tags, and agent state",
+  "version": "0.5.0",
+  "author": "ChonSong",
+  "icon": "https://emojicdn.elk.sh/%F0%9F%91%8B",
+  "assets": [
+    "assets/emotion-avatar.js",
+    "assets/emotion-avatar.css"
+  ],
+  "dependencies": [],
+  "settings": {}
 }
