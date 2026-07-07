@@ -1,0 +1,11 @@
+{
+  "extensions": [
+    {
+      "id": "assistant-avatar",
+      "name": "Assistant Avatar",
+      "description": "Animated companion character that reacts to AI state and follows your mouse.",
+      "scripts": ["assets/avatar.js"],
+      "stylesheets": ["assets/avatar.css"]
+    }
+  ]
+}
