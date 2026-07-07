@@ -1,0 +1,16 @@
+{
+  "extensions": [
+    {
+      "id": "docker-tunnel-manager",
+      "name": "Docker & Tunnel Manager",
+      "description": "View and manage Docker containers, images, system usage; start/stop/restart containers; prune unused resources. Includes Cloudflare tunnel status and health checks for all ingress backends.",
+      "scripts": ["assets/docker-tunnel-manager.js"],
+      "stylesheets": ["assets/docker-tunnel-manager.css"],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17900",
+        "health_path": "/api/health"
+      }
+    }
+  ]
+}
