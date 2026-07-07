@@ -1,5 +1,8 @@
 # Hermes WebUI Extensions
 
+[![CI](https://github.com/hermes-webui/hermes-webui-extensions/actions/workflows/extensions.yml/badge.svg)](https://github.com/hermes-webui/hermes-webui-extensions/actions/workflows/extensions.yml)
+[![Pages](https://img.shields.io/github/deployments/hermes-webui/hermes-webui-extensions/github-pages?label=pages)](https://hermes-webui.github.io/hermes-webui-extensions/)
+
 This repository is the community extension library for Hermes WebUI.
 
 The goal is to give trusted local extensions a shared place to document,
