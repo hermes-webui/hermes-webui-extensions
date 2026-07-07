@@ -86,6 +86,10 @@
       return injectScript(L2D_CDN);
     }).then(function() {
       hideLoading();
+      // Expose Live2DModel globally (it's namespaced under PIXI.live2d in UMD build)
+      if (window.PIXI && window.PIXI.live2d && window.PIXI.live2d.Live2DModel) {
+        window.Live2DModel = window.PIXI.live2d.Live2DModel;
+      }
       _initialized = true;
     }).catch(function(err) {
       showError(err.message || 'Runtime load failed');
