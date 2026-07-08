@@ -202,9 +202,9 @@
       try {
         var a = _vrm.humanoid.getRawBoneNode('leftUpperArm');
         var b = _vrm.humanoid.getRawBoneNode('rightUpperArm');
-        // Rotate around Y to bring arms down from T-pose (~46°)
-        if (a) a.rotation.y = -0.8 + Math.sin(performance.now() / 1000 * 1.5) * 0.05;
-        if (b) b.rotation.y = 0.8 + Math.sin(performance.now() / 1000 * 1.5) * 0.05;
+        // Rotate around Z to bring arms down from T-pose (~11°)
+        if (a) a.rotation.z = -0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
+        if (b) b.rotation.z = 0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
       } catch(e) {}
     }
 
@@ -388,10 +388,17 @@
         hideLoading();
         var clip = fbx.animations && fbx.animations[0];
         if (!clip) { return; }
-        // Filter to only rotation tracks — FBX may contain position/scale/
-        // visibility that break the VRM rig. Keep .quaternion/.rotation only.
+        // Filter to only rotation tracks, excluding root bones that
+        // would rotate the entire model (Hips, Spine). Keep .quaternion/.rotation only.
+        var rootBones = ['Hips', 'Spine', 'Spine1', 'Spine2', 'Chest', 'Neck', 'Head'];
         var rotTracks = clip.tracks.filter(function(t) {
-          return t.name.indexOf('.quaternion') > 0 || t.name.indexOf('.rotation') > 0;
+          if (t.name.indexOf('.quaternion') < 0 && t.name.indexOf('.rotation') < 0) return false;
+          // Exclude root bone tracks (they rotate the whole model)
+          var boneName = t.name.split('.')[0];
+          for (var i = 0; i < rootBones.length; i++) {
+            if (boneName.indexOf(rootBones[i]) >= 0) return false;
+          }
+          return true;
         });
         if (rotTracks.length === 0) { return; }
         var filteredClip = new THREE.AnimationClip(clip.name, clip.duration, rotTracks);
