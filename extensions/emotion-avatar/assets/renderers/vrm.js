@@ -202,9 +202,9 @@
       try {
         var a = _vrm.humanoid.getRawBoneNode('leftUpperArm');
         var b = _vrm.humanoid.getRawBoneNode('rightUpperArm');
-        // Rotate around Z to bring arms down from T-pose (~23°)
-        if (a) a.rotation.z = 0.4 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
-        if (b) b.rotation.z = -0.4 - Math.sin(performance.now() / 1000 * 1.5) * 0.04;
+        // Rotate around Z to bring arms down from T-pose (~11°)
+        if (a) a.rotation.z = 0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
+        if (b) b.rotation.z = -0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
       } catch(e) {}
     }
 
