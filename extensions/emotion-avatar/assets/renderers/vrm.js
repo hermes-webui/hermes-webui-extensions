@@ -22,6 +22,7 @@
   var _THREE = null;
   var _controls = null;
   var _extUrl = null;
+  var _mixer = null;
 
   // CDN ESM URLs (/+esm resolves bare imports)
   // NOTE: All imports MUST use URLs that resolve to the same THREE module instance
@@ -31,6 +32,7 @@
   var GLTF_CDN = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/loaders/GLTFLoader.js/+esm';
   var VRM_CDN = 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.js/+esm';
   var ORBIT_CDN = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/controls/OrbitControls.js/+esm';
+  var FBX_CDN = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/loaders/FBXLoader.js/+esm';
 
   // Compute extension base URL from the script's own src
   // vrm.js is at:  /extensions/<id>/assets/renderers/vrm.js
@@ -81,16 +83,19 @@
         return Promise.all([
           import(GLTF_CDN),
           import(VRM_CDN),
-          import(ORBIT_CDN)
+          import(ORBIT_CDN),
+          import(FBX_CDN)
         ]);
       })
       .then(function(modules) {
         var GLTFLoader = modules[0].GLTFLoader;
         var VRMlib = modules[1];
         var OrbitControls = modules[2].OrbitControls;
+        var FBXLoader = modules[3].FBXLoader;
         window.__VRMLib = VRMlib;
         window.__GLTFLoader = GLTFLoader;
         window.__OrbitControls = OrbitControls;
+        window.__FBXLoader = FBXLoader;
         hideLoading();
         _initialized = true;
       })
@@ -195,6 +200,11 @@
         if (a) a.rotation.z = -0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
         if (b) b.rotation.z = 0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
       } catch(e) {}
+    }
+
+    // Update FBX animation mixer (bored idle)
+    if (_mixer) {
+      _mixer.update(delta);
     }
 
     if (_controls) {
@@ -346,12 +356,42 @@
       }
 
       hideLoading();
+      // Load FBX idle animation (Bored) onto the VRM skeleton
+      loadIdleAnimation();
       return vrm;
     })
     .catch(function(err) {
       showError('Model: ' + (err.message || '').slice(0, 50));
       throw err;
     });
+  }
+
+  // Load FBX idle animation onto the VRM rig
+  var BORED_FBX_URL = 'https://raw.githubusercontent.com/ToxSam/osa-gallery/main/public/animations/Bored.fbx';
+
+  function loadIdleAnimation() {
+    var FBXLoader = window.__FBXLoader;
+    var THREE = _THREE;
+    if (!FBXLoader || !THREE || !_vrmScene) return;
+
+    showLoading('Loading idle anim...');
+    var loader = new FBXLoader();
+    loader.load(BORED_FBX_URL,
+      function(fbx) {
+        hideLoading();
+        var clip = fbx.animations && fbx.animations[0];
+        if (!clip) { return; }
+        // Create mixer for the VRM scene (bones must share names with FBX tracks)
+        _mixer = new THREE.AnimationMixer(_vrmScene);
+        var action = _mixer.clipAction(clip);
+        action.play();
+      },
+      undefined,
+      function(err) {
+        hideLoading();
+        console.warn('[ea:vrm] Bored anim load failed:', err);
+      }
+    );
   }
 
   function setExpression(expr) {
@@ -396,6 +436,10 @@
       if (_controls) {
         _controls.dispose();
         _controls = null;
+      }
+      if (_mixer) {
+        _mixer.stopAllActions();
+        _mixer = null;
       }
       if (_vrm) {
         _vrm = null;
