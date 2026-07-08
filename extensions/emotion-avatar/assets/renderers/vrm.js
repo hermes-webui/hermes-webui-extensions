@@ -387,9 +387,16 @@
         hideLoading();
         var clip = fbx.animations && fbx.animations[0];
         if (!clip) { return; }
+        // Filter to only rotation tracks — FBX may contain position/scale/
+        // visibility that break the VRM rig. Keep .quaternion/.rotation only.
+        var rotTracks = clip.tracks.filter(function(t) {
+          return t.name.indexOf('.quaternion') > 0 || t.name.indexOf('.rotation') > 0;
+        });
+        if (rotTracks.length === 0) { return; }
+        var filteredClip = new THREE.AnimationClip(clip.name, clip.duration, rotTracks);
         // Create mixer for the VRM scene (bones must share names with FBX tracks)
         _mixer = new THREE.AnimationMixer(_vrmScene);
-        var action = _mixer.clipAction(clip);
+        var action = _mixer.clipAction(filteredClip);
         action.play();
       },
       undefined,
