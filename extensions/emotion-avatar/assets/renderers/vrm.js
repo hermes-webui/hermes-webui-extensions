@@ -174,7 +174,7 @@
       // Auto-blink
       VRMHelpers.autoBlink(_vrm);
 
-      // Idle animation: subtle breathing + sway
+      // Idle animation: subtle breathing + sway + arm relax
       if (_clock) {
         var t = performance.now() / 1000;
         // Gentle up/down bob (~1px at screen scale, ~0.5Hz)
@@ -186,6 +186,15 @@
 
       // three-vrm v3 requires update() each frame to apply expressions, lookAt, physics
       _vrm.update(delta);
+
+      // Relax T-pose to a natural A-pose (arms slightly down)
+      // Done after vrm.update() so it doesn't get overwritten by humanoid
+      try {
+        var a = _vrm.humanoid.getBoneNode('leftUpperArm');
+        var b = _vrm.humanoid.getBoneNode('rightUpperArm');
+        if (a) a.rotation.z = -0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
+        if (b) b.rotation.z = 0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
+      } catch(e) {}
     }
 
     if (_controls) {
