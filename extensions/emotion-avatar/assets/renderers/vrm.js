@@ -192,19 +192,19 @@
       // three-vrm v3 requires update() each frame to apply expressions, lookAt, physics
       _vrm.update(delta);
 
+      // Update FBX animation mixer (bored idle)
+      if (_mixer) {
+        _mixer.update(delta);
+      }
+
       // Relax T-pose to a natural A-pose (arms slightly down)
-      // Done after vrm.update() so it doesn't get overwritten by humanoid
+      // Done after vrm.update() AND mixer.update() so neither overwrites it
       try {
         var a = _vrm.humanoid.getRawBoneNode('leftUpperArm');
         var b = _vrm.humanoid.getRawBoneNode('rightUpperArm');
         if (a) a.rotation.z = -0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
         if (b) b.rotation.z = 0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
       } catch(e) {}
-    }
-
-    // Update FBX animation mixer (bored idle)
-    if (_mixer) {
-      _mixer.update(delta);
     }
 
     if (_controls) {
