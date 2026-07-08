@@ -13,6 +13,7 @@
         "assets/inputs/agent-state.js",
         "assets/inputs/llm-tags.js",
         "assets/inputs/fac-emotion.js",
+        "assets/inputs/agent-external.js",
         "assets/renderers/canvas-2d.js",
         "assets/renderers/live2d.js",
         "assets/renderers/spine.js",

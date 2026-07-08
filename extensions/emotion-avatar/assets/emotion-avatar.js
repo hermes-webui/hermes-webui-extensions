@@ -39,6 +39,7 @@
     if (__ea.inputAgent) __ea.inputAgent.start();
     if (__ea.inputLLM) __ea.inputLLM.start();
     if (__ea.inputFAC) __ea.inputFAC.start();
+    if (__ea.inputAgentExternal) __ea.inputAgentExternal.start();
     switchRenderer(__ea.modelManager.getActiveModel());
     ensureTitlebarButton();
   }
@@ -310,6 +311,7 @@
       if (__ea.inputAgent) __ea.inputAgent.stop();
       if (__ea.inputLLM) __ea.inputLLM.stop();
       if (__ea.inputFAC) __ea.inputFAC.stop();
+      if (__ea.inputAgentExternal) __ea.inputAgentExternal.stop();
       if (overlay&&overlay.parentNode) overlay.parentNode.removeChild(overlay);
       if (titlebarBtn&&titlebarBtn.parentNode) titlebarBtn.parentNode.removeChild(titlebarBtn);
       window.__hwxEmotionAvatarLoaded = false;
