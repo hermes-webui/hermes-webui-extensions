@@ -174,6 +174,16 @@
       // Auto-blink
       VRMHelpers.autoBlink(_vrm);
 
+      // Idle animation: subtle breathing + sway
+      if (_clock) {
+        var t = performance.now() / 1000;
+        // Gentle up/down bob (~1px at screen scale, ~0.5Hz)
+        _vrmScene.position.y = -0.3 + Math.sin(t * 2.0) * 0.008;
+        // Subtle body sway (~0.3deg at ~0.3Hz)
+        _vrmScene.rotation.z = Math.sin(t * 1.2) * 0.005;
+        _vrmScene.rotation.x = Math.sin(t * 0.8) * 0.003;
+      }
+
       // three-vrm v3 requires update() each frame to apply expressions, lookAt, physics
       _vrm.update(delta);
     }
