@@ -21,6 +21,7 @@
   var _size = 192;
   var _THREE = null;
   var _controls = null;
+  var _extUrl = null;
 
   // CDN ESM URLs (/+esm resolves bare imports)
   // NOTE: All imports MUST use URLs that resolve to the same THREE module instance
@@ -30,6 +31,18 @@
   var GLTF_CDN = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/loaders/GLTFLoader.js/+esm';
   var VRM_CDN = 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.js/+esm';
   var ORBIT_CDN = 'https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/controls/OrbitControls.js/+esm';
+
+  // Compute extension base URL from the script's own src
+  // vrm.js is at:  /extensions/<id>/assets/renderers/vrm.js
+  // ext base is:   /extensions/<id>/
+  try {
+    var _s = document.currentScript;
+    if (_s) {
+      var _p = _s.src.split('/');
+      _p.pop(); _p.pop(); _p.pop(); // remove vrm.js, renderers/, assets/
+      _extUrl = _p.join('/') + '/';
+    }
+  } catch(e) {}
 
   // UI helpers
   function showLoading(msg) {
@@ -254,7 +267,7 @@
 
     var modelUrl = url;
     if (!/^https?:\/\//.test(url) && !url.startsWith('blob:')) {
-      modelUrl = new URL(url, window.location.href).href;
+      modelUrl = new URL(url, _extUrl || window.location.href).href;
     }
 
     // Reset blend weights when loading a new model

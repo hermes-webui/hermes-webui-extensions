@@ -118,6 +118,7 @@
         if (m.type==='preset') label += ' ★';
         else if (m.type==='live2d') label += ' [Live2D]';
         else if (m.type==='spine') label += ' [Spine]';
+        else if (m.type==='vrm') label += ' [VRM]';
         o.textContent = label;
         if (m.id===activeId) o.selected = true;
       });
