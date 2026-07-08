@@ -388,6 +388,8 @@
         hideLoading();
         var clip = fbx.animations && fbx.animations[0];
         if (!clip) { return; }
+        // Debug: log clip tracks
+        console.log('[ea:vrm] Bored clip tracks:', clip.tracks.map(function(t){return t.name;}));
         // Filter to only rotation tracks, excluding root bones that
         // would rotate the entire model (Hips, Spine). Keep .quaternion/.rotation only.
         var rootBones = ['Hips', 'Spine', 'Spine1', 'Spine2', 'Chest', 'Neck', 'Head'];
