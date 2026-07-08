@@ -193,6 +193,7 @@
       _vrm.update(delta);
 
       // Update animation state machine (FBX animations, cross-fade, boredom)
+      // Runs after vrm.update() so mixer overwrites humanoid bones with animation
       if (_animManager) {
         _animManager.update(delta, _currentExpr);
       }
@@ -497,6 +498,7 @@
 
     if (newAction) {
       newAction.reset();
+      newAction.setEffectiveWeight(1); // action.stop() set weight=0; restore it
       newAction.play();
       if (oldAction) {
         oldAction.crossFadeTo(newAction, blendTime, false);
