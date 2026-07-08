@@ -192,20 +192,10 @@
       // three-vrm v3 requires update() each frame to apply expressions, lookAt, physics
       _vrm.update(delta);
 
-      // Update FBX animation mixer (bored idle)
+      // Update FBX animation mixer (bored idle, retargeted to VRM bones)
       if (_mixer) {
         _mixer.update(delta);
       }
-
-      // Relax T-pose to a natural A-pose (arms slightly down)
-      // Done after vrm.update() AND mixer.update() so neither overwrites it
-      try {
-        var a = _vrm.humanoid.getRawBoneNode('leftUpperArm');
-        var b = _vrm.humanoid.getRawBoneNode('rightUpperArm');
-        // Rotate around Z to bring arms down from T-pose (~11°)
-        if (a) a.rotation.z = 0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
-        if (b) b.rotation.z = -0.2 + Math.sin(performance.now() / 1000 * 1.5) * 0.04;
-      } catch(e) {}
     }
 
     if (_controls) {
@@ -369,13 +359,43 @@
     });
   }
 
-  // Load FBX idle animation onto the VRM rig
+  // Mixamo → VRM bone name mapping (from osa-gallery)
+  var mixamoVRMRigMap = {
+    mixamorigHips: 'hips', mixamorigSpine: 'spine', mixamorigSpine1: 'chest',
+    mixamorigSpine2: 'upperChest', mixamorigNeck: 'neck', mixamorigHead: 'head',
+    mixamorigLeftShoulder: 'leftShoulder', mixamorigLeftArm: 'leftUpperArm',
+    mixamorigLeftForeArm: 'leftLowerArm', mixamorigLeftHand: 'leftHand',
+    mixamorigLeftHandThumb1: 'leftThumbMetacarpal', mixamorigLeftHandThumb2: 'leftThumbProximal',
+    mixamorigLeftHandThumb3: 'leftThumbDistal', mixamorigLeftHandIndex1: 'leftIndexProximal',
+    mixamorigLeftHandIndex2: 'leftIndexIntermediate', mixamorigLeftHandIndex3: 'leftIndexDistal',
+    mixamorigLeftHandMiddle1: 'leftMiddleProximal', mixamorigLeftHandMiddle2: 'leftMiddleIntermediate',
+    mixamorigLeftHandMiddle3: 'leftMiddleDistal', mixamorigLeftHandRing1: 'leftRingProximal',
+    mixamorigLeftHandRing2: 'leftRingIntermediate', mixamorigLeftHandRing3: 'leftRingDistal',
+    mixamorigLeftHandPinky1: 'leftLittleProximal', mixamorigLeftHandPinky2: 'leftLittleIntermediate',
+    mixamorigLeftHandPinky3: 'leftLittleDistal', mixamorigRightShoulder: 'rightShoulder',
+    mixamorigRightArm: 'rightUpperArm', mixamorigRightForeArm: 'rightLowerArm',
+    mixamorigRightHand: 'rightHand', mixamorigRightHandPinky1: 'rightLittleProximal',
+    mixamorigRightHandPinky2: 'rightLittleIntermediate', mixamorigRightHandPinky3: 'rightLittleDistal',
+    mixamorigRightHandRing1: 'rightRingProximal', mixamorigRightHandRing2: 'rightRingIntermediate',
+    mixamorigRightHandRing3: 'rightRingDistal', mixamorigRightHandMiddle1: 'rightMiddleProximal',
+    mixamorigRightHandMiddle2: 'rightMiddleIntermediate', mixamorigRightHandMiddle3: 'rightMiddleDistal',
+    mixamorigRightHandIndex1: 'rightIndexProximal', mixamorigRightHandIndex2: 'rightIndexIntermediate',
+    mixamorigRightHandIndex3: 'rightIndexDistal', mixamorigRightHandThumb1: 'rightThumbMetacarpal',
+    mixamorigRightHandThumb2: 'rightThumbProximal', mixamorigRightHandThumb3: 'rightThumbDistal',
+    mixamorigLeftUpLeg: 'leftUpperLeg', mixamorigLeftLeg: 'leftLowerLeg',
+    mixamorigLeftFoot: 'leftFoot', mixamorigLeftToeBase: 'leftToes',
+    mixamorigRightUpLeg: 'rightUpperLeg', mixamorigRightLeg: 'rightLowerLeg',
+    mixamorigRightFoot: 'rightFoot', mixamorigRightToeBase: 'rightToes',
+  };
+
+  // Load FBX idle animation with Mixamo→VRM retargeting (from osa-gallery)
   var BORED_FBX_URL = 'assets/animations/Bored.fbx';
 
   function loadIdleAnimation() {
     var FBXLoader = window.__FBXLoader;
     var THREE = _THREE;
-    if (!FBXLoader || !THREE || !_vrmScene) return;
+    var vrm = _vrm;
+    if (!FBXLoader || !THREE || !vrm || !vrm.humanoid) return;
 
     // Resolve relative URL using extension base
     var fbxUrl = BORED_FBX_URL;
@@ -388,26 +408,71 @@
     loader.load(fbxUrl,
       function(fbx) {
         hideLoading();
-        var clip = fbx.animations && fbx.animations[0];
+        var clip = THREE.AnimationClip.findByName(fbx.animations, 'mixamo.com');
         if (!clip) { return; }
-        // Filter to only rotation tracks, excluding root bones that
-        // would rotate the entire model (Hips, Spine). Keep .quaternion/.rotation only.
-        var rootBones = ['Hips', 'Spine', 'Spine1', 'Spine2', 'Chest', 'Neck', 'Head'];
-        var rotTracks = clip.tracks.filter(function(t) {
-          if (t.name.indexOf('.quaternion') < 0 && t.name.indexOf('.rotation') < 0) return false;
-          // Exclude root bone tracks (they rotate the whole model)
-          var boneName = t.name.split('.')[0];
-          for (var i = 0; i < rootBones.length; i++) {
-            if (boneName.indexOf(rootBones[i]) >= 0) return false;
+
+        var tracks = [];
+        var restRotationInverse = new THREE.Quaternion();
+        var parentRestWorldRotation = new THREE.Quaternion();
+        var _quatA = new THREE.Quaternion();
+        var _vec3 = new THREE.Vector3();
+
+        // Process each track: map Mixamo names → VRM bone names, convert coords
+        clip.tracks.forEach(function(track) {
+          var splitted = track.name.split('.');
+          var mixamoName = splitted[0];
+          var vrmBoneName = mixamoVRMRigMap[mixamoName];
+          // Use normalized bone node to get the actual scene node name
+          var vrmNode = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
+          var vrmNodeName = vrmNode ? vrmNode.name : null;
+          if (!vrmNodeName) return;
+
+          var prop = splitted[1];
+          var isVrm0 = vrm.meta && vrm.meta.metaVersion === '0';
+          var isQuat = track instanceof THREE.QuaternionKeyframeTrack;
+
+          if (isQuat) {
+            // Transform quaternion from Mixamo space to VRM space
+            var rigNode = fbx.getObjectByName(mixamoName);
+            if (!rigNode || !rigNode.parent) return;
+            rigNode.getWorldQuaternion(restRotationInverse).invert();
+            rigNode.parent.getWorldQuaternion(parentRestWorldRotation);
+            for (var i = 0; i < track.values.length; i += 4) {
+              _quatA.fromArray(track.values, i);
+              _quatA.premultiply(parentRestWorldRotation).multiply(restRotationInverse);
+              _quatA.toArray(track.values, i);
+            }
+            // VRM 0.x needs Y and W sign flipped
+            var newValues = track.values.slice();
+            if (isVrm0) {
+              for (var k = 0; k < newValues.length; k++) {
+                if (k % 4 === 1 || k % 4 === 3) newValues[k] = -newValues[k];
+              }
+            }
+            tracks.push(new THREE.QuaternionKeyframeTrack(
+              vrmNodeName + '.' + prop, track.times, newValues
+            ));
+          } else if (track instanceof THREE.VectorKeyframeTrack) {
+            // Scale position tracks by hip height ratio, flip signs for VRM 0.x
+            var value = track.values.slice();
+            if (isVrm0) {
+              for (var k = 0; k < value.length; k += 3) {
+                value[k] = -value[k];      // flip X
+                value[k + 2] = -value[k + 2]; // flip Z
+              }
+            }
+            tracks.push(new THREE.VectorKeyframeTrack(
+              vrmNodeName + '.' + prop, track.times, value
+            ));
           }
-          return true;
         });
-        if (rotTracks.length === 0) { return; }
-        var filteredClip = new THREE.AnimationClip(clip.name, clip.duration, rotTracks);
-        // Create mixer for the VRM scene (bones must share names with FBX tracks)
+
+        if (tracks.length === 0) return;
+        var retargetedClip = new THREE.AnimationClip('vrmAnimation', clip.duration, tracks);
         _mixer = new THREE.AnimationMixer(_vrmScene);
-        var action = _mixer.clipAction(filteredClip);
+        var action = _mixer.clipAction(retargetedClip);
         action.play();
+        console.log('[ea:vrm] Bored anim retargeted:', tracks.length, 'tracks');
       },
       undefined,
       function(err) {
