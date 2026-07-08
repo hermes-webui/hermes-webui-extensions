@@ -25,7 +25,32 @@
       "assets/emotion-avatar.css"
     ]
   },
-  "dependencies": [],
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
   "settings_schema": [],
-  "screenshots": []
+  "screenshots": [],
+  "permissions": {
+    "storage": {
+      "owned": true
+    },
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "network_external": false,
+    "embeds_iframe": false
+  },
+  "dependencies": []
 }
