@@ -5,21 +5,27 @@
   "version": "0.8.0",
   "author": "ChonSong",
   "icon": "https://emojicdn.elk.sh/%F0%9F%91%8B",
-  "assets": [
-    "assets/core/presets.js",
-    "assets/core/visemes.js",
-    "assets/core/pipeline.js",
-    "assets/core/model-store.js",
-    "assets/inputs/agent-state.js",
-    "assets/inputs/llm-tags.js",
-    "assets/inputs/fac-emotion.js",
-    "assets/renderers/canvas-2d.js",
-    "assets/renderers/live2d.js",
-    "assets/renderers/spine.js",
-    "assets/renderers/model-manager.js",
-    "assets/emotion-avatar.js",
-    "assets/emotion-avatar.css"
-  ],
+  "assets": {
+    "scripts": [
+      "assets/core/presets.js",
+      "assets/core/visemes.js",
+      "assets/core/pipeline.js",
+      "assets/core/model-store.js",
+      "assets/inputs/agent-state.js",
+      "assets/inputs/llm-tags.js",
+      "assets/inputs/fac-emotion.js",
+      "assets/renderers/canvas-2d.js",
+      "assets/renderers/live2d.js",
+      "assets/renderers/spine.js",
+      "assets/renderers/vrm.js",
+      "assets/renderers/model-manager.js",
+      "assets/emotion-avatar.js"
+    ],
+    "stylesheets": [
+      "assets/emotion-avatar.css"
+    ]
+  },
   "dependencies": [],
-  "settings": {}
+  "settings_schema": [],
+  "screenshots": []
 }
