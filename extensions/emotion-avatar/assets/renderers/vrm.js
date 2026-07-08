@@ -22,7 +22,7 @@
   var _THREE = null;
   var _controls = null;
   var _extUrl = null;
-  var _mixer = null;
+  var _animManager = null;
 
   // CDN ESM URLs (/+esm resolves bare imports)
   // NOTE: All imports MUST use URLs that resolve to the same THREE module instance
@@ -192,9 +192,9 @@
       // three-vrm v3 requires update() each frame to apply expressions, lookAt, physics
       _vrm.update(delta);
 
-      // Update FBX animation mixer (bored idle, retargeted to VRM bones)
-      if (_mixer) {
-        _mixer.update(delta);
+      // Update animation state machine (FBX animations, cross-fade, boredom)
+      if (_animManager) {
+        _animManager.update(delta, _currentExpr);
       }
     }
 
@@ -349,8 +349,10 @@
       }
 
       hideLoading();
-      // Load FBX idle animation (Bored) onto the VRM skeleton
-      loadIdleAnimation();
+      // Initialise animation state machine (loads idle FBX animations)
+      if (_THREE && _vrmScene) {
+        _animManager = new AnimManager(_THREE, _vrmScene, _vrm, _extUrl);
+      }
       return vrm;
     })
     .catch(function(err) {
@@ -358,6 +360,10 @@
       throw err;
     });
   }
+
+  // ── Animation State Machine ──────────────────────────────────────────
+  // Pre-loads FBX idle animations from osa-gallery, retargets Mixamo→VRM bones,
+  // and cross-fades between states based on expression + boredom timer.
 
   // Mixamo → VRM bone name mapping (from osa-gallery)
   var mixamoVRMRigMap = {
@@ -388,99 +394,246 @@
     mixamorigRightFoot: 'rightFoot', mixamorigRightToeBase: 'rightToes',
   };
 
-  // Load FBX idle animation with Mixamo→VRM retargeting (from osa-gallery)
-  var BORED_FBX_URL = 'assets/animations/Bored.fbx';
+  // Animation definitions — name → FBX filename + mood tag
+  var ANIM_DEFS = {
+    bored:   { file: 'Bored.fbx',             weight: 1 },
+    looking: { file: 'LookingAround.fbx',     weight: 1 },
+    active:  { file: 'OffensiveIdle.fbx',     weight: 1 },
+  };
 
-  function loadIdleAnimation() {
-    var FBXLoader = window.__FBXLoader;
-    var THREE = _THREE;
-    var vrm = _vrm;
-    if (!FBXLoader || !THREE || !vrm || !vrm.humanoid) return;
+  // Expression → animation state mapping
+  var EXPR_TO_STATE = {
+    idle:      'idle',
+    happy:     'active',
+    angry:     'active',
+    excited:   'active',
+    thinking:  'looking',
+    surprised: 'looking',
+    sad:       'idle',
+    confused:  'idle',
+    worried:   'idle',
+    speaking:  'idle',
+  };
 
-    // Resolve relative URL using extension base
-    var fbxUrl = BORED_FBX_URL;
-    if (!/^https?:/.test(fbxUrl) && !fbxUrl.startsWith('blob:')) {
-      fbxUrl = new URL(fbxUrl, _extUrl || window.location.href).href;
+  var ANIM_BASE_URL = 'https://raw.githubusercontent.com/ToxSam/osa-gallery/main/public/animations/';
+
+  // ── AnimManager constructor ────────────────────────────────────────
+  function AnimManager(THREE, root, vrm, extUrl) {
+    this.THREE = THREE;
+    this.root = root;        // _vrmScene
+    this.vrm = vrm;
+    this.extUrl = extUrl;
+    this.mixer = new THREE.AnimationMixer(root);
+    this.clips = {};         // name → retargeted AnimationClip
+    this.actions = {};       // name → AnimationAction
+    this.currentState = 'idle';
+    this.prevState = null;
+    this._loading = {};      // name → true  (dedup)
+    this._boredomTimer = 0;
+    this._crossFading = null; // {from, to, duration, elapsed}
+    this._exprTime = 0;      // seconds since last expression change
+    this._activeExpr = 'idle';
+    this.FBXLoader = window.__FBXLoader;
+
+    // Load first idle anim immediately, queue others
+    this._loadAnim('bored').then(function(mgr) {
+      // After bored loads, try idle → bored transition after timer
+    }.bind(this));
+    this._loadAnim('looking');
+    this._loadAnim('active');
+  }
+
+  // ── Load + retarget a single FBX animation ─────────────────────────
+  AnimManager.prototype._loadAnim = function(name) {
+    var def = ANIM_DEFS[name];
+    if (!def || this._loading[name]) return;
+    this._loading[name] = true;
+
+    var self = this;
+    var THREE = this.THREE;
+    var FBXLoader = this.FBXLoader;
+    var loader = new FBXLoader();
+    var url = ANIM_BASE_URL + def.file;
+
+    return new Promise(function(resolve) {
+      loader.load(url,
+        function(fbx) {
+          var clip = THREE.AnimationClip.findByName(fbx.animations, 'mixamo.com');
+          if (!clip) { resolve(); return; }
+
+          var tracks = [];
+          var restRotationInverse = new THREE.Quaternion();
+          var parentRestWorldRotation = new THREE.Quaternion();
+          var _quatA = new THREE.Quaternion();
+
+          var isVrm0 = self.vrm.meta && self.vrm.meta.metaVersion === '0';
+
+          clip.tracks.forEach(function(track) {
+            var splitted = track.name.split('.');
+            var mixamoName = splitted[0];
+            var vrmBoneName = mixamoVRMRigMap[mixamoName];
+            if (!vrmBoneName) return;
+            var vrmNode = self.vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
+            var vrmNodeName = vrmNode ? vrmNode.name : null;
+            if (!vrmNodeName) return;
+
+            var prop = splitted[1];
+            var isQuat = track instanceof THREE.QuaternionKeyframeTrack;
+
+            if (isQuat) {
+              var rigNode = fbx.getObjectByName(mixamoName);
+              if (!rigNode || !rigNode.parent) return;
+              rigNode.getWorldQuaternion(restRotationInverse).invert();
+              rigNode.parent.getWorldQuaternion(parentRestWorldRotation);
+              for (var i = 0; i < track.values.length; i += 4) {
+                _quatA.fromArray(track.values, i);
+                _quatA.premultiply(parentRestWorldRotation).multiply(restRotationInverse);
+                _quatA.toArray(track.values, i);
+              }
+              var newValues = track.values.slice();
+              if (isVrm0) {
+                for (var k = 0; k < newValues.length; k++) {
+                  if (k % 4 === 1 || k % 4 === 3) newValues[k] = -newValues[k];
+                }
+              }
+              tracks.push(new THREE.QuaternionKeyframeTrack(
+                vrmNodeName + '.' + prop, track.times, newValues
+              ));
+            } else if (track instanceof THREE.VectorKeyframeTrack) {
+              var value = track.values.slice();
+              if (isVrm0) {
+                for (var k = 0; k < value.length; k += 3) {
+                  value[k] = -value[k];
+                  value[k + 2] = -value[k + 2];
+                }
+              }
+              tracks.push(new THREE.VectorKeyframeTrack(
+                vrmNodeName + '.' + prop, track.times, value
+              ));
+            }
+          });
+
+          if (tracks.length === 0) { resolve(); return; }
+          var retargetedClip = new THREE.AnimationClip('anim_' + name, clip.duration, tracks);
+          self.clips[name] = retargetedClip;
+          // Create action (stopped — will play on transition)
+          var action = self.mixer.clipAction(retargetedClip);
+          action.stop();
+          self.actions[name] = action;
+          console.log('[ea:vrm] Loaded & retargeted "' + name + '" (' + tracks.length + ' tracks)');
+          resolve(self);
+        },
+        undefined,
+        function(err) {
+          console.warn('[ea:vrm] Failed to load anim "' + name + '":', err);
+          resolve();
+        }
+      );
+    });
+  };
+
+  // ── Transition to a named state with cross-fade ────────────────────
+  AnimManager.prototype.transitionTo = function(state, blendTime) {
+    if (state === this.currentState) return;
+    blendTime = blendTime || 0.35;
+
+    var prev = this.currentState;
+    this.currentState = state;
+    this.prevState = prev;
+
+    // Stop old action, start new one with cross-fade
+    var oldAction = this.actions[prev];
+    var newAction = this.actions[state];
+
+    if (newAction) {
+      newAction.reset();
+      newAction.play();
+      if (oldAction) {
+        oldAction.crossFadeTo(newAction, blendTime, false);
+        setTimeout(function() { oldAction.stop(); }, blendTime * 1000 + 100);
+      }
+    } else if (oldAction) {
+      // No clip for the new state — stop playing (procedural idle)
+      oldAction.crossFadeTo(null, blendTime);
+      setTimeout(function() { oldAction.stop(); }, blendTime * 1000 + 100);
     }
 
-    showLoading('Loading idle anim...');
-    var loader = new FBXLoader();
-    loader.load(fbxUrl,
-      function(fbx) {
-        hideLoading();
-        var clip = THREE.AnimationClip.findByName(fbx.animations, 'mixamo.com');
-        if (!clip) { return; }
+    // Stop all non-target actions that might be lingering
+    this._stopOtherActions(state);
+  };
 
-        var tracks = [];
-        var restRotationInverse = new THREE.Quaternion();
-        var parentRestWorldRotation = new THREE.Quaternion();
-        var _quatA = new THREE.Quaternion();
-        var _vec3 = new THREE.Vector3();
-
-        // Process each track: map Mixamo names → VRM bone names, convert coords
-        clip.tracks.forEach(function(track) {
-          var splitted = track.name.split('.');
-          var mixamoName = splitted[0];
-          var vrmBoneName = mixamoVRMRigMap[mixamoName];
-          // Use normalized bone node to get the actual scene node name
-          var vrmNode = vrm.humanoid.getNormalizedBoneNode(vrmBoneName);
-          var vrmNodeName = vrmNode ? vrmNode.name : null;
-          if (!vrmNodeName) return;
-
-          var prop = splitted[1];
-          var isVrm0 = vrm.meta && vrm.meta.metaVersion === '0';
-          var isQuat = track instanceof THREE.QuaternionKeyframeTrack;
-
-          if (isQuat) {
-            // Transform quaternion from Mixamo space to VRM space
-            var rigNode = fbx.getObjectByName(mixamoName);
-            if (!rigNode || !rigNode.parent) return;
-            rigNode.getWorldQuaternion(restRotationInverse).invert();
-            rigNode.parent.getWorldQuaternion(parentRestWorldRotation);
-            for (var i = 0; i < track.values.length; i += 4) {
-              _quatA.fromArray(track.values, i);
-              _quatA.premultiply(parentRestWorldRotation).multiply(restRotationInverse);
-              _quatA.toArray(track.values, i);
-            }
-            // VRM 0.x needs Y and W sign flipped
-            var newValues = track.values.slice();
-            if (isVrm0) {
-              for (var k = 0; k < newValues.length; k++) {
-                if (k % 4 === 1 || k % 4 === 3) newValues[k] = -newValues[k];
-              }
-            }
-            tracks.push(new THREE.QuaternionKeyframeTrack(
-              vrmNodeName + '.' + prop, track.times, newValues
-            ));
-          } else if (track instanceof THREE.VectorKeyframeTrack) {
-            // Scale position tracks by hip height ratio, flip signs for VRM 0.x
-            var value = track.values.slice();
-            if (isVrm0) {
-              for (var k = 0; k < value.length; k += 3) {
-                value[k] = -value[k];      // flip X
-                value[k + 2] = -value[k + 2]; // flip Z
-              }
-            }
-            tracks.push(new THREE.VectorKeyframeTrack(
-              vrmNodeName + '.' + prop, track.times, value
-            ));
-          }
-        });
-
-        if (tracks.length === 0) return;
-        var retargetedClip = new THREE.AnimationClip('vrmAnimation', clip.duration, tracks);
-        _mixer = new THREE.AnimationMixer(_vrmScene);
-        var action = _mixer.clipAction(retargetedClip);
-        action.play();
-        console.log('[ea:vrm] Bored anim retargeted:', tracks.length, 'tracks');
-      },
-      undefined,
-      function(err) {
-        hideLoading();
-        console.warn('[ea:vrm] Bored anim load failed:', err);
+  AnimManager.prototype._stopOtherActions = function(keep) {
+    for (var name in this.actions) {
+      if (name !== keep && this.actions[name].isRunning()) {
+        this.actions[name].stop();
       }
-    );
-  }
+    }
+  };
+
+  // ── Main per-frame update — called from animate() ──────────────────
+  AnimManager.prototype.update = function(delta, expr) {
+    // Track expression state
+    if (expr !== this._activeExpr) {
+      this._activeExpr = expr;
+      this._exprTime = 0;
+      this._boredomTimer = 0;
+    } else {
+      this._exprTime += delta;
+    }
+
+    // Determine target state from expression
+    var targetState = EXPR_TO_STATE[expr] || 'idle';
+
+    // Active emotion → override to active anim
+    if (targetState !== 'idle') {
+      if (this.clips[targetState] && this.currentState !== targetState) {
+        this.transitionTo(targetState, 0.3);
+      }
+      this._boredomTimer = 0;
+    } else {
+      // Idle expression — check boredom timer for random idle anims
+      if (this.currentState !== 'idle' && this.currentState !== 'bored' && this.currentState !== 'looking') {
+        // Came back to idle from active — reset to procedural
+        this._idleProcedural();
+      }
+
+      if (this._exprTime > 6 && this.currentState === 'idle') {
+        // After 6s of idle expression, try bored
+        if (this.clips['bored'] && this.currentState !== 'bored') {
+          this.transitionTo('bored', 0.5);
+        }
+      }
+      if (this._exprTime > 12 && this.currentState === 'bored') {
+        // After 12s total idle, alternate
+        if (this.clips['looking'] && Math.random() < 0.01) {
+          this.transitionTo('looking', 0.4);
+        }
+      }
+      if (this._exprTime > 18 && this.currentState === 'looking') {
+        // Back to bored
+        if (this.clips['bored']) {
+          this.transitionTo('bored', 0.4);
+        }
+      }
+    }
+
+    // Update mixer
+    this.mixer.update(delta);
+  };
+
+  // Return to procedural idle (no FBX)
+  AnimManager.prototype._idleProcedural = function() {
+    this.currentState = 'idle';
+    this._stopOtherActions(null);
+  };
+
+  // ── Cleanup ────────────────────────────────────────────────────────
+  AnimManager.prototype.destroy = function() {
+    this.mixer.stopAllActions();
+    this.clips = {};
+    this.actions = {};
+    this.mixer = null;
+  };
 
   function setExpression(expr) {
     _currentExpr = expr;
@@ -525,9 +678,9 @@
         _controls.dispose();
         _controls = null;
       }
-      if (_mixer) {
-        _mixer.stopAllActions();
-        _mixer = null;
+      if (_animManager) {
+        _animManager.destroy();
+        _animManager = null;
       }
       if (_vrm) {
         _vrm = null;
