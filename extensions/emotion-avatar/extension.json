@@ -42,6 +42,10 @@
     },
     "loopback_sidecar": false,
     "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
     "webui_api": {
       "read": [],
       "write": []
