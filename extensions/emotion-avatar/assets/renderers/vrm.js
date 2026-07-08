@@ -329,6 +329,25 @@
       // Initialise animation state machine (loads idle FBX animations)
       if (_THREE && _vrmScene) {
         _animManager = new AnimManager(_THREE, _vrmScene, _vrm, _extUrl);
+
+        // DEBUG: force bored clip to play immediately after loading
+        (function checkAnim() {
+          var am = _animManager;
+          if (!am) return;
+          if (am.clips['bored']) {
+            var clip = am.clips['bored'];
+            var mixer = am.mixer;
+            if (mixer) {
+              var action = mixer.clipAction(clip);
+              action.reset();
+              action.setEffectiveWeight(1);
+              action.play();
+              console.log('[ea:vrm] DEBUG: direct clip play');
+            }
+          } else {
+            setTimeout(checkAnim, 500);
+          }
+        })();
       }
       return vrm;
     })
