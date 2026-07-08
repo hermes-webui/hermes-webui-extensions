@@ -30,9 +30,9 @@
   },
   "post_install": {
     "summary": "Install the Docker & Tunnel Manager sidecar as a systemd user service, then refresh the WebUI to use it.",
-    "docs_url": "#",
+    "docs_url": "https://github.com/ChonSong/hermes-webui-extensions/blob/add-docker-tunnel-manager/extensions/docker-tunnel-manager/README.md",
     "requires_local_app": false,
-    "local_app_label": ""
+    "local_app_label": "Docker & Tunnel Manager sidecar"
   },
   "screenshots": [],
   "permissions": {
