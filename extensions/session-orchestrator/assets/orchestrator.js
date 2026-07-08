@@ -652,6 +652,7 @@
     O.enabled = true;
     hijackVoiceSend();
     wireNotifications();
+    registerEvents(); // wire cross-extension listeners (init starts enabled)
 
     console.log('[Orch] Session Orchestrator initialized. ' +
       Object.keys(O.aliases).length + ' aliases restored. Ctrl+Shift+O to toggle.');
