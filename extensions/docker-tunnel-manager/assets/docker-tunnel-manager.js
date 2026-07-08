@@ -41,17 +41,6 @@
         }
       }
     } catch (_) {}
-    // Legacy localStorage fallback
-    try {
-      const raw = localStorage.getItem('hermes-ext-dtm-cfg');
-      if (raw) {
-        const c = JSON.parse(raw);
-        return {
-          autoRefresh: c.autoRefresh !== false,
-          refreshInterval: parseInt(c.refreshInterval || '15', 10) || 15,
-        };
-      }
-    } catch (_) {}
     return { autoRefresh: true, refreshInterval: 15 };
   }
 
@@ -428,17 +417,13 @@
       let html = '';
       for (const proj of data.projects) {
         const projectName = proj.project || 'unknown';
-        html += `<div class="hwx-dtm-compose-card" style="margin-bottom:16px;border:1px solid var(--border,#333);border-radius:8px;overflow:hidden">`;
-        html += `<div style="background:var(--surface2,#1e1e2e);padding:10px 14px;font-size:13px;font-weight:600;color:var(--text,#fff);border-bottom:1px solid var(--border,#333)">📋 ${t(projectName)}</div>`;
-        html += `<div style="padding:10px 14px;display:flex;gap:16px;font-size:12px;color:var(--muted,#888);flex-wrap:wrap">`;
-        html += `<span>Containers: <b style="color:var(--text)">${proj.running_count || 0}/${proj.container_count || 0}</b></span>`;
-        if (proj.services && proj.services.length) {
-          html += `<span>Services: <b style="color:var(--text)">${t(proj.services.join(', '))}</b></span>`;
-        } else {
-          html += `<span>Services: <b style="color:var(--text)">—</b></span>`;
-        }
-        html += `</div>`;
-        html += `</div>`;
+        html += `<div class="hwx-dtm-compose-card">
+          <div class="hwx-dtm-compose-header">📋 ${t(projectName)}</div>
+          <div class="hwx-dtm-compose-body">
+            <span>Containers: <b>${proj.running_count || 0}/${proj.container_count || 0}</b></span>
+            <span>Services: <b>${proj.services && proj.services.length ? t(proj.services.join(', ')) : '—'}</b></span>
+          </div>
+        </div>`;
       }
       container.innerHTML = html;
     } catch (e) {

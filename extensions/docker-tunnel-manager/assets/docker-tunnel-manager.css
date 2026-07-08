@@ -274,9 +274,6 @@
   color: var(--muted, #999);
 }
 
-.hwx-dtm-connector-ok  { color: #2da44e; }
-.hwx-dtm-connector-off { color: #e5534b; }
-
 /* ── Empty state ──────────────────────────────────────────────────── */
 
 .hwx-dtm-empty {
@@ -379,84 +376,29 @@
 
 /* ── Compose project cards ─────────────────────────────────────────── */
 
-.hwx-dtm-compose-project {
-  background: var(--surface, #1a1d27);
-  border: 1px solid var(--border2, rgba(127,127,127,.15));
+.hwx-dtm-compose-card {
+  margin-bottom: 16px;
+  border: 1px solid var(--border, #333);
   border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 12px;
+  overflow: hidden;
 }
-
 .hwx-dtm-compose-header {
+  background: var(--surface2, #1e1e2e);
+  padding: 10px 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text, #fff);
-  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border, #333);
 }
-
-.hwx-dtm-compose-stats {
-  font-size: 11px;
-  color: var(--muted, #888);
-}
-
-/* ── Log viewer toolbar ────────────────────────────────────────────── */
-
-.hwx-dtm-log-toolbar {
+.hwx-dtm-compose-body {
+  padding: 10px 14px;
   display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  align-items: center;
-}
-
-.hwx-dtm-log-select {
-  background: var(--code-bg, rgba(127,127,127,.1));
-  color: var(--text, #fff);
-  border: 1px solid var(--border2, rgba(127,127,127,.25));
-  border-radius: 6px;
-  padding: 5px 8px;
+  gap: 16px;
   font-size: 12px;
-  cursor: pointer;
+  color: var(--muted, #888);
+  flex-wrap: wrap;
 }
-
-.hwx-dtm-log-follow {
-  appearance: none;
-  border: 1px solid var(--border2, rgba(127,127,127,.25));
-  background: var(--code-bg, rgba(127,127,127,.1));
-  color: var(--text, #fff);
-  border-radius: 7px;
-  padding: 3px 8px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: background .12s ease, border-color .12s ease;
-  white-space: nowrap;
-}
-
-.hwx-dtm-log-follow:hover {
-  background: var(--hover-bg, rgba(127,127,127,.16));
-  border-color: var(--border, rgba(127,127,127,.4));
-}
-
-.hwx-dtm-log-follow.active {
-  background: var(--accent, #6366f1);
-  border-color: var(--accent, #6366f1);
-  color: #fff;
-}
-
-/* ── Log viewer (extended logs area) ───────────────────────────────── */
-
-.hwx-dtm-log-viewer {
-  font-family: var(--font-mono, 'SF Mono', monospace);
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--muted, #aaa);
-  white-space: pre-wrap;
-  background: var(--code-bg, rgba(127,127,127,.06));
-  border: 1px solid var(--border2, rgba(127,127,127,.1));
-  border-radius: 6px;
-  padding: 10px;
-  min-height: 300px;
-  max-height: 500px;
-  overflow-y: auto;
-}
+.hwx-dtm-compose-body b { color: var(--text); }
 
 /* ── Reduce motion ────────────────────────────────────────────────── */
 

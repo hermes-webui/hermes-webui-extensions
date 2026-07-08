@@ -23,12 +23,135 @@ except ImportError:
     print("ERROR: docker-py not installed. Run: pip3 install docker")
     sys.exit(1)
 
-# ── Tunnel adapter (pluggable) ──────────────────────────────────────
+import concurrent.futures
 
-try:
-    from .tunnel_adapter import CloudflareAdapter
-except ImportError:
-    from tunnel_adapter import CloudflareAdapter  # fallback for direct invocation
+# ── CloudflareAdapter (inlined — was tunnel_adapter.py) ───────────────
+
+class CloudflareAdapter:
+    """Wraps the cloudflared CLI for tunnel list/health/logs."""
+
+    def __init__(self, config_path="~/.cloudflared/config.yml",
+                 tunnel_name="codeovertcp",
+                 log_service="gto-wizard-tunnel.service"):
+        self.config_path = os.path.expanduser(config_path)
+        self.tunnel_name = tunnel_name
+        self.log_service = log_service
+
+    def _parse_ingress(self):
+        ingress = []
+        if not os.path.exists(self.config_path):
+            return ingress
+        with open(self.config_path) as f:
+            in_ing = False
+            for line in f:
+                s = line.strip()
+                if s == "ingress:":
+                    in_ing = True
+                    continue
+                if in_ing:
+                    if s.startswith("- hostname:"):
+                        ingress.append({"hostname": s.split(":", 1)[-1].strip(), "service": "?"})
+                    elif s.startswith("service:") and ingress:
+                        ingress[-1]["service"] = s.split(":", 1)[-1].strip()
+                    elif not s.startswith("- ") and not s.startswith("  "):
+                        break
+        return ingress
+
+    def _run_tunnel_info(self):
+        try:
+            r = subprocess.run(
+                ["cloudflared", "tunnel", "info", self.tunnel_name],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            return None
+        info = {"name": self.tunnel_name, "id": "", "connectors": [],
+                "ingress": self._parse_ingress()}
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if "ID:" in line and "CONNECTOR" not in line:
+                info["id"] = line.split("ID:")[-1].strip()
+            elif line.startswith(" ") and len(line) > 40:
+                parts = line.split()
+                if len(parts) >= 6:
+                    info["connectors"].append({
+                        "id": parts[0], "age": parts[2],
+                        "origin": parts[-2],
+                    })
+        return info
+
+    def _get_connector_count(self):
+        try:
+            r = subprocess.run(
+                ["cloudflared", "tunnel", "list"],
+                capture_output=True, text=True, timeout=10,
+            )
+            m = re.search(r'(\\d+)\\s+connector', r.stdout)
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+        return None
+
+    def list_tunnels(self):
+        if not os.path.exists(self.config_path):
+            return []
+        info = self._run_tunnel_info()
+        if info is None:
+            return []
+        cc = self._get_connector_count()
+        info["connector_count"] = cc if cc is not None else len(info.get("connectors", []))
+        return [info]
+
+    def tunnel_health(self, tunnel_name):
+        info = self._run_tunnel_info()
+        if info is None:
+            return []
+        ingress = info.get("ingress", [])
+
+        def check(ing):
+            hostname = ing.get("hostname", "")
+            url = f"https://{hostname}/"
+            start = time.time()
+            try:
+                r = subprocess.run(
+                    ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                     "--connect-timeout", "3", "--max-time", "6", url],
+                    capture_output=True, text=True, timeout=8,
+                )
+                latency = round(time.time() - start, 2)
+                code = r.stdout.strip()
+                if code in ("401", "403"):
+                    status = "authed"
+                elif code in ("502", "503", "000", ""):
+                    status = "error"
+                elif code in ("301", "302", "307", "308"):
+                    status = "redirect"
+                else:
+                    status = "ok"
+                return {"hostname": hostname, "service": ing.get("service", ""),
+                        "status": status, "http_code": code, "latency": latency}
+            except subprocess.TimeoutExpired:
+                return {"hostname": hostname, "service": ing.get("service", ""),
+                        "status": "timeout", "http_code": "", "latency": 6.0}
+            except Exception:
+                return {"hostname": hostname, "service": ing.get("service", ""),
+                        "status": "error", "http_code": "", "latency": 0}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            return list(ex.map(check, ingress))
+
+    def tunnel_logs(self, tunnel_name, lines=50):
+        try:
+            r = subprocess.run(
+                ["journalctl", "--user", "-u", self.log_service,
+                 "--no-pager", "-n", str(lines)],
+                capture_output=True, text=True, timeout=10,
+            )
+            return r.stdout
+        except Exception as e:
+            return f"journalctl failed: {e}"
+
 
 SIDECAR_PORT = int(os.environ.get("DTM_SIDECAR_PORT", "17900"))
 CLOUDFLARED_CONFIG = os.path.expanduser("~/.cloudflared/config.yml")
@@ -145,6 +268,23 @@ class DockerTunnelHandler(BaseHTTPRequestHandler):
     def _handle_containers(self):
         dc = self._docker()
         result = []
+        # Stats via docker CLI — single call instead of per-container docker-py
+        stats_map = {}
+        try:
+            out = subprocess.check_output(
+                ["docker", "stats", "--no-stream", "--format", "{{json .}}"],
+                timeout=10, stderr=subprocess.DEVNULL, text=True,
+            )
+            for line in out.strip().split("\n"):
+                if line.startswith("{"):
+                    try:
+                        s = json.loads(line)
+                        stats_map[s.get("Container", "")] = s
+                    except json.JSONDecodeError:
+                        pass
+        except Exception:
+            pass
+
         for c in dc.containers.list(all=True):
             ports = []
             if c.ports:
@@ -163,20 +303,20 @@ class DockerTunnelHandler(BaseHTTPRequestHandler):
                 "ports": ", ".join(ports) if ports else "",
             }
             if c.status == "running":
-                try:
-                    s = c.stats(stream=False)
-                    cd = s["cpu_stats"]["cpu_usage"]["total_usage"] - s["precpu_stats"]["cpu_usage"]["total_usage"]
-                    sd = s["cpu_stats"]["system_cpu_usage"] - s["precpu_stats"]["system_cpu_usage"]
-                    nc = s["cpu_stats"]["online_cpus"] or 1
-                    info["cpu_pct"] = round((cd / sd) * nc * 100, 1) if sd > 0 else 0
-                    mu = s["memory_stats"].get("usage", 0)
-                    ml = s["memory_stats"].get("limit", 1)
-                    info["mem_human"] = fmt_size(mu)
-                    info["mem_pct"] = round(mu / ml * 100, 1) if ml else 0
-                except Exception:
-                    info["cpu_pct"] = None
-                    info["mem_pct"] = None
-                    info["mem_human"] = ""
+                raw = stats_map.get(c.short_id) or stats_map.get(c.name)
+                if raw:
+                    try:
+                        cp = raw.get("CPUPerc", "0%").replace("%", "")
+                        info["cpu_pct"] = round(float(cp), 1)
+                        mu = raw.get("MemUsage", "0B / 0B").split(" / ")[0].strip()
+                        info["mem_human"] = mu
+                        ml = raw.get("MemPerc", "0%").replace("%", "0")
+                        info["mem_pct"] = round(float(ml), 1) if ml else 0
+                    except (ValueError, IndexError):
+                        pass
+                info.setdefault("cpu_pct", None)
+                info.setdefault("mem_human", "")
+                info.setdefault("mem_pct", None)
             result.append(info)
         self._json({"containers": result, "count": len(result)})
 
