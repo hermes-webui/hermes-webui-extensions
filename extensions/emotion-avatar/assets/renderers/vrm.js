@@ -390,6 +390,7 @@
     confused:  'idle',
     worried:   'idle',
     speaking:  'idle',
+    bored:     'bored',
   };
 
   var ANIM_BASE_URL = 'https://cdn.jsdelivr.net/gh/ToxSam/osa-gallery@main/public/animations/';
