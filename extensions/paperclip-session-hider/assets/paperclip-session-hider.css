@@ -1,0 +1,5 @@
+.session-item.hwx-psh-hidden,
+.session-child-session.hwx-psh-hidden,
+.session-date-group.hwx-psh-date-group-hidden {
+  display: none !important;
+}
