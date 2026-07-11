@@ -7,7 +7,7 @@
 .hwx-tc-warn{font-size:12px;color:var(--warning,#d98f3a);background:var(--code-bg,rgba(127,127,127,.1));border:1px solid var(--border2,rgba(127,127,127,.25));border-radius:8px;padding:8px 10px;margin-bottom:12px}
 .hwx-tc-section-title{font-weight:650;font-size:13px;margin:8px 0;color:var(--muted,#9aa0b5)}
 .hwx-tc-namerow,.hwx-tc-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px}
-.hwx-tc-namerow>span,.hwx-tc-row>span:first-child{flex:0 0 150px;color:var(--text2,#ddd)}
+.hwx-tc-namerow>span,.hwx-tc-row>span:first-child{flex:0 0 150px;color:var(--muted,#ddd)}
 .hwx-tc-name,.hwx-tc-hex{appearance:none;border:1px solid var(--border2,rgba(127,127,127,.3));background:var(--bg,#0d0d1a);color:var(--text,#fff);border-radius:7px;padding:7px 9px;font-size:13px}
 .hwx-tc-name{flex:1}
 .hwx-tc-swatchwrap{display:flex;align-items:center;gap:8px;flex:1}
@@ -18,12 +18,12 @@
 .hwx-tc-bg-row{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:13px}
 .hwx-tc-filelabel{position:relative;cursor:pointer;display:inline-flex;align-items:center}
 .hwx-tc-fileinput{position:absolute;inset:0;opacity:0;cursor:pointer;z-index:1}
-.hwx-tc-filelabel-text{display:inline-block;border:1px solid var(--border2,rgba(127,127,127,.3));background:var(--code-bg,rgba(127,127,127,.12));color:var(--text2,#ddd);border-radius:8px;padding:6px 12px;font-size:12px;transition:background .12s,border-color .12s}
+.hwx-tc-filelabel-text{display:inline-block;border:1px solid var(--border2,rgba(127,127,127,.3));background:var(--code-bg,rgba(127,127,127,.12));color:var(--muted,#ddd);border-radius:8px;padding:6px 12px;font-size:12px;transition:background .12s,border-color .12s}
 .hwx-tc-filelabel:hover .hwx-tc-filelabel-text{background:var(--hover-bg,rgba(127,127,127,.18));border-color:var(--border,rgba(127,127,127,.4))}
 .hwx-tc-bg-none{color:var(--muted,#888);font-size:12px;font-style:italic}
 .hwx-tc-bg-preview-wrap{display:inline-flex;align-items:center;gap:8px}
 .hwx-tc-bg-preview{width:48px;height:32px;object-fit:cover;border-radius:6px;border:1px solid var(--border2,rgba(127,127,127,.3));background:var(--border2,rgba(127,127,127,.3))}
-.hwx-tc-remove-img{font-size:11px;color:var(--danger,#e5534b)}
+.hwx-tc-remove-img{font-size:11px;color:var(--error,#e5534b)}
 .hwx-tc-glass-section,.hwx-tc-blur-section{margin-top:12px}
 .hwx-tc-glass-row,.hwx-tc-blur-row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
 .hwx-tc-glass-slider,.hwx-tc-blur-slider{flex:1;-webkit-appearance:none;appearance:none;height:4px;background:var(--border2,rgba(127,127,127,.3));border-radius:2px;outline:none;cursor:pointer}
@@ -38,7 +38,7 @@
 .hwx-tc-btn{appearance:none;border:1px solid var(--border2,rgba(127,127,127,.3));background:var(--code-bg,rgba(127,127,127,.12));color:var(--text,#fff);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:background .12s,border-color .12s}
 .hwx-tc-btn:hover{background:var(--hover-bg,rgba(127,127,127,.18));border-color:var(--border,rgba(127,127,127,.4))}
 .hwx-tc-save{background:var(--accent-bg,rgba(99,102,241,.15));border-color:var(--accent,#6366f1);color:var(--accent-text,var(--text))}
-.hwx-tc-err{font-size:12px;color:var(--danger,#e5534b);margin-top:8px}
+.hwx-tc-err{font-size:12px;color:var(--error,#e5534b);margin-top:8px}
 .hwx-tc-saved{margin-top:18px;border-top:1px solid var(--border2,rgba(127,127,127,.2));padding-top:10px}
 .hwx-tc-muted{font-size:12px;color:var(--muted,#888)}
 .hwx-tc-saved-row{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px}
@@ -47,6 +47,6 @@
 .hwx-tc-saved-name{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hwx-tc-link{appearance:none;border:none;background:transparent;color:var(--accent-text,var(--accent,#6366f1));cursor:pointer;font-size:12px;padding:3px 6px;border-radius:6px}
 .hwx-tc-link:hover{background:var(--hover-bg,rgba(127,127,127,.15))}
-.hwx-tc-del{color:var(--danger,#e5534b)}
+.hwx-tc-del{color:var(--error,#e5534b)}
 @media(prefers-reduced-motion:reduce){.hwx-tc-btn{transition:none}}
 @media(max-width:560px){.hwx-tc-namerow>span,.hwx-tc-row>span:first-child{flex-basis:110px}}
