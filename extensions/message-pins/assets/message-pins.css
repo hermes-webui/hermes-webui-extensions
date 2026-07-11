@@ -35,11 +35,11 @@
    (Frank, PR #19: active feedback was too subtle). Keep the size stable so the
    hit target doesn't shift between pin/unpin. */
 .hwx-pin-btn--active {
-  color: var(--accent-text, #fff);
+  color: var(--accent-contrast, #fff);
   background: var(--accent, #3b82f6);
   border-radius: 6px;
 }
-.hwx-pin-btn--active:hover { color: var(--accent-text, #fff); opacity: .9; }
+.hwx-pin-btn--active:hover { color: var(--accent-contrast, #fff); opacity: .9; }
 .hwx-pin-btn--inline.hwx-pin-btn--active { padding: 0; }
 
 /* Floating fallback button (when a row has no .msg-actions bar). */
