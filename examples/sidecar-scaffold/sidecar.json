@@ -1,0 +1,5 @@
+{
+  "id": "sidecar-scaffold-example",
+  "port": 17790,
+  "proxy_auth": "token-v1"
+}

@@ -49,6 +49,12 @@ jobs:
       - name: Scan extension safety gates
         run: node scripts/scan-extension-safety.mjs
 
+      - name: Check sidecar scaffold is in sync
+        run: node scripts/sync-sidecar-base.mjs --check
+
+      - name: Check sidecar usage (no rogue servers / correct ExecStart)
+        run: node scripts/check-sidecar-usage.mjs
+
       - name: Generate registry
         run: node scripts/generate-registry.mjs --out dist/registry.json
 
