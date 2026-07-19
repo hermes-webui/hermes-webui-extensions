@@ -27,7 +27,9 @@ from shim import parse_multipart
 
 _AVATARS_DB = STATE_DIR / "avatars.db"
 _ALLOWED_MIMES = {"image/png", "image/jpeg", "image/webp"}
-_MAX_BYTES = 1 * 1024 * 1024
+# 512 KiB matches the core sidecar-proxy's hard response cap; a larger avatar
+# would store fine but 502 on read, so reject it at upload.
+_MAX_BYTES = 512 * 1024
 
 
 def _ensure_db() -> None:

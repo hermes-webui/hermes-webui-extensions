@@ -64,9 +64,10 @@
   width: 100%; height: 100%; object-fit: cover; display: block;
 }
 
-/* ── Session sidebar: owner avatar on other-profile rows ──────
-   Lives at the start of .session-title-row (a flex row), like the native
-   pin / worktree indicators. */
+/* ── Session sidebar: owning-profile avatar on each row ──────
+   Only applied when ≥2 profiles exist (a single-profile fleet gets no bubble,
+   since it would be identical on every row). Lives at the start of
+   .session-title-row (a flex row), like the native pin / worktree indicators. */
 .pa-session-avatar {
   flex: 0 0 16px;
   width: 16px; height: 16px;

@@ -203,7 +203,9 @@
     var now = Date.now();
     if (!force && now - _sessProfAt < _SESS_TTL) return Promise.resolve();
     if (_sessProfInflight) return _sessProfInflight;
-    _sessProfInflight = fetch('/api/sessions?all_profiles=1&limit=500', { credentials: 'same-origin' })
+    // core /api/sessions honours only ?all_profiles=1 (limit/offset/archived
+    // params are ignored — verified in source), so we don't send them.
+    _sessProfInflight = fetch('/api/sessions?all_profiles=1', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         var arr = (d && Array.isArray(d.sessions)) ? d.sessions : [];
@@ -220,12 +222,18 @@
   }
 
   function _decorateSessionRows() {
+    // "Which agent owns this chat" is only meaningful with ≥2 profiles; with a
+    // single profile every row would get an identical, information-free bubble
+    // on the session list — so skip decoration entirely in that case.
+    var multiProfile = Object.keys(_byProfile).length >= 2;
     document.querySelectorAll('.session-item[data-sid]').forEach(function (row) {
       var sid = row.dataset.sid;
-      // Every row shows its owning profile's avatar; rows the map doesn't
-      // know yet (e.g. a just-created chat) are assumed to be the active
-      // profile's and corrected on the next map refresh if not.
-      var p = _sessProf[sid] || _activeName;
+      // Only decorate rows whose owning profile the map actually knows. Never
+      // fall back to the active profile for an unknown sid: core's /api/sessions
+      // exposes no archived/pagination params (verified in source), so archived
+      // and other rows can be absent from the map, and guessing "active" would
+      // mis-stamp them with the wrong avatar.
+      var p = multiProfile ? _sessProf[sid] : null;
       var titleRow = row.querySelector('.session-title-row');
       var slot = row.querySelector('.pa-session-avatar');
       if (p && _byProfile[p] && titleRow) {
@@ -383,8 +391,15 @@
       renderInto(slot, p.name, { size: 'lg' });
       var meta = document.createElement('div');
       meta.className = 'pa-m-meta';
-      meta.innerHTML = '<div class="pa-m-name">' + (p.label || p.name) + '</div>' +
-        '<div class="pa-m-sub">' + (p.url ? 'custom image' : 'initial only') + '</div>';
+      // Build with textContent — p.label can be the user-set bot name (arbitrary
+      // text), so it must never flow through innerHTML.
+      var nm = document.createElement('div');
+      nm.className = 'pa-m-name';
+      nm.textContent = p.label || p.name;
+      var sub = document.createElement('div');
+      sub.className = 'pa-m-sub';
+      sub.textContent = p.url ? 'custom image' : 'initial only';
+      meta.appendChild(nm); meta.appendChild(sub);
       var actions = document.createElement('div');
       actions.className = 'pa-m-actions';
       var up = document.createElement('button');
@@ -410,7 +425,9 @@
     inp.onchange = function () {
       var f = inp.files && inp.files[0];
       if (!f) return;
-      if (f.size > 1024 * 1024) { alert('Image too large (max 1 MiB). Resize to 256–512px first.'); return; }
+      // 512 KiB matches the core sidecar-proxy's hard response cap — anything
+      // larger uploads "ok" then 502s on read, so reject it up front.
+      if (f.size > 512 * 1024) { alert('Image too large (max 512 KiB). Resize to 256–512px first.'); return; }
       upload(name, f).catch(function (e) { alert(e.message); });
     };
     inp.click();
@@ -425,7 +442,7 @@
       '<div class="pa-m-card" role="dialog" aria-label="Profile avatars">' +
         '<div class="pa-m-topbar"><span class="pa-m-brand">Profile avatars</span>' +
           '<button type="button" class="pa-m-close" id="paAvatarClose" aria-label="Close">&times;</button></div>' +
-        '<div class="pa-m-hint">PNG / JPEG / WebP, ≤ 1 MiB. 256–512px square looks best.</div>' +
+        '<div class="pa-m-hint">PNG / JPEG / WebP, ≤ 512 KiB. 256–512px square looks best.</div>' +
         '<div class="pa-m-list" id="paAvatarManagerList"></div>' +
       '</div>';
     document.body.appendChild(ov);

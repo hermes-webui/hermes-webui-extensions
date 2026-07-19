@@ -25,7 +25,7 @@
   "post_install": {
     "requires_local_app": true,
     "local_app_label": "Profile Avatars sidecar",
-    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17798, then approve the sidecar proxy in Settings \u2192 Extensions."
+    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17798, then approve the sidecar proxy in Settings → Extensions."
   },
   "screenshots": [],
   "permissions": {
@@ -33,10 +33,12 @@
       "read": [
         "/api/profiles",
         "/api/sessions",
-        "sessions"
+        "/api/extensions/status",
+        "/api/extensions/profile-avatars/sidecar/api/avatars",
+        "/api/extensions/profile-avatars/sidecar/api/avatars/{profile}"
       ],
       "write": [
-        "/api/extensions/sidecar-proxy-consent"
+        "/api/extensions/profile-avatars/sidecar/api/avatars/{profile}"
       ]
     },
     "webui_navigation": false,
@@ -55,10 +57,5 @@
       "serves_bundled_assets": true
     },
     "network_external": false
-  },
-  "sidecar": {
-    "type": "loopback",
-    "origin": "http://127.0.0.1:17798",
-    "health_path": "/health"
   }
 }

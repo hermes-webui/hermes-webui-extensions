@@ -19,7 +19,7 @@ load** into a shared in-memory object URL. Nothing is written to
   to the title, so with "Show N from other profiles" you can see at a glance
   which agent each chat belongs to. Re-renders live when you switch profiles.
 - **Manager modal** — a button at the top of the **Profiles** tab opens an upload / replace / remove
-  panel for every profile. PNG / JPEG / WebP, up to 1 MiB, magic-byte sniffed
+  panel for every profile. PNG / JPEG / WebP, up to 512 KiB, magic-byte sniffed
   server-side.
 - **Colored-initial fallback** — profiles without an image get a deterministic
   colored initial bubble.
@@ -30,7 +30,7 @@ load** into a shared in-memory object URL. Nothing is written to
 |---|---|---|
 | Sync across devices | ✗ per-browser | ✓ one upload, every device |
 | Browser storage used | data-URLs eat the quota | none — in-memory only |
-| Image quality | heavily downscaled | up to 1 MiB, full quality |
+| Image quality | heavily downscaled | up to 512 KiB, full quality |
 | Scope | one assistant image | one avatar **per profile** |
 | Downloads per render | re-read every render | once per page load (shared blob) |
 
@@ -115,7 +115,7 @@ consented proxy path is what actually serves traffic.
   session-authenticated) to know the roster and which profile owns each session.
 - Talks to its loopback sidecar only through the WebUI's consented proxy path.
 - Uploads go to the sidecar; images never leave the machine. The sidecar
-  validates type by magic bytes and caps size at 1 MiB.
+  validates type by magic bytes and caps size at 512 KiB (matching the core sidecar-proxy response cap).
 - No localStorage, no cookies read, no external network access, no native host.
 
 ## Manual verification
@@ -129,7 +129,7 @@ consented proxy path is what actually serves traffic.
 4. Switch profiles via the native chip → chip, badges, and session-row
    decorations update within ~1s without a reload.
 5. Remove the avatar → everything reverts to the colored initial / native glyph.
-6. Upload a >1 MiB file or a non-image → rejected with a message, nothing applied.
+6. Upload a >512 KiB file or a non-image → rejected with a message, nothing applied.
 
 ## Future CI checks
 
