@@ -1,15 +1,23 @@
 // Chat Tiling — multi-session tile grid for Hermes WebUI
-// Install: copy to HERMES_WEBUI_EXTENSION_DIR, reload.
-// Usage: toolbar buttons (2-col, 2x2, 3x2) or Ctrl+Shift+T/2/4/6.
-// Click sidebar sessions to fill tiles. Each tile has independent
-// composer, model, messages, and streaming. Toggle maximize (corner
-// arrow) to fill the grid. Close cancels streaming gracefully.
+// Stable API consumer: registerHermesSessionOpenHandler + renderTranscript
+// Requires WebUI >= 2026-07.18 (the release that shipped these hooks)
 
 (()=>{
-if(document.getElementById('ext-tiling-toolbar'))return;
+'use strict';
+
+// ── Feature detection (Breakage #7) ──
+// All three must exist before we inject any UI. If msgInner isn't in the DOM
+// yet, defer to DOMContentLoaded and re-check.
+function hasStableApi(){
+  return !!document.getElementById('msgInner')
+    && typeof window.registerHermesSessionOpenHandler==='function'
+    && typeof window.renderTranscript==='function';
+}
 
 // ── CSS (inlined) ──
-document.head.appendChild(Object.assign(document.createElement('style'),{textContent:`
+function injectCss(){
+  if(document.getElementById('ext-tiling-css'))return;
+  document.head.appendChild(Object.assign(document.createElement('style'),{id:'ext-tiling-css',textContent:`
 #ext-tile-grid{position:relative;overflow:hidden;display:none;flex:1 1 0%;min-height:0;min-width:0;gap:4px;padding:4px;background:var(--bg)}
 #ext-tile-grid.ext-tile-grid--active{display:grid;align-items:normal;justify-content:normal;border-top:2px solid var(--accent)}
 body.ext-tiling-body #messages>:not(#ext-tile-grid){display:none!important}
@@ -39,15 +47,25 @@ body.ext-tiling-body #messages{overflow:hidden}
 .ext-toolbar-divider{width:1px;height:16px;margin:0 3px;background:var(--border);flex-shrink:0}
 .ext-toolbar-btn[data-tooltip]:hover::after{content:attr(data-tooltip);position:absolute;top:100%;margin-top:4px;padding:4px 8px;border-radius:6px;background:var(--text);color:var(--bg);font-size:11px;white-space:nowrap;pointer-events:none;z-index:10000}
 `}));
+}
 
 // ── State ──
-const T={tiles:[],activeId:null,nextId:1,grid:null,tb:null,visible:false,_w:null,_tc:{}};
+const T={tiles:[],activeId:null,nextId:1,grid:null,tb:null,visible:false,_w:null,_tc:{},_saved:null,pendingTile:null,pendingTimer:null};
 const tid=i=>T.tiles.find(t=>t.id===i),bySid=s=>T.tiles.find(t=>t.sid===s),at=()=>tid(T.activeId);
 const gs=(k,d)=>{try{const w=window.HermesExtensionSettings;if(w){const x=w.settingsForExtension('chat-tiling');return x.get(k)!=null?x.get(k):d}}catch(_){}return d};
 
 // ── Composer save/restore ──
 function sc(t){if(!t)return;const m=document.getElementById('msg');if(m)t.cv=m.value;const ms=document.getElementById('modelSelect');if(ms)t.mv=ms.value}
-function rc(t){if(!t)return;const m=document.getElementById('msg');if(m&&t.cv)m.value=t.cv;typeof triggerMsgh=='function'&&triggerMsgh();const ms=document.getElementById('modelSelect');if(ms&&t.mv&&t.mv!==ms.value){ms.value=t.mv;typeof _onModelSelectChange=='function'&&_onModelSelectChange()}}
+function rc(t){
+  if(!t)return;
+  const m=document.getElementById('msg');
+  // Breakage #6: always clear composer, even when empty
+  if(m)m.value=t.cv||'';
+  // Breakage #6: use real resize path instead of nonexistent triggerMsgh
+  if(typeof autoResize==='function')autoResize();
+  const ms=document.getElementById('modelSelect');
+  if(ms&&t.mv&&t.mv!==ms.value){ms.value=t.mv;typeof _onModelSelectChange==='function'&&_onModelSelectChange()}
+}
 
 // ── SVG icons ──
 const Svg={
@@ -82,22 +100,44 @@ function updateHeader(t){
 }
 
 // ── Focus switching ──
-function focusTile(id){
+function focusTile(id,opts){
+  opts=opts||{};
   const tile=tid(id);if(!tile)return;
+  // Save outgoing tile state
   if(T.activeId&&T.activeId!==id){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
+  // Swap msgInner ID
   const cur=document.getElementById('msgInner');if(cur)cur.removeAttribute('id');
   T.activeId=id;
   T.tiles.forEach(t=>{if(t.el)t.el.classList.toggle('ext-tile--focused',t.id===id)});
   const ni=tile.el&&tile.el.querySelector('.ext-tile-msg-inner');if(ni)ni.id='msgInner';
-  if(typeof S!=='undefined'){S.session=tile.session;S.messages=tile.messages||[];S.busy=tile.busy||false;S.activeStreamId=tile.activeStreamId||null}
-  rc(tile);typeof syncTopbar=='function'&&syncTopbar();typeof syncModelChip=='function'&&syncModelChip();
+  // Restore incoming tile
+  if(!opts.alreadyLoaded){
+    // Breakage #3: use loadSession for full hydration instead of manual S.* swap
+    if(tile.sid&&typeof window.loadSession==='function'){
+      window.loadSession(tile.sid,{skipExtHooks:true}).then(()=>{
+        if(typeof S!=='undefined'){tile.messages=[...(S.messages||[])];tile.busy=!!S.busy;tile.activeStreamId=S.activeStreamId||null;tile.session=S.session}
+        renderMsgs(tile);updateHeader(tile);
+      }).catch(()=>{restoreFromTile(tile)});
+    } else {
+      restoreFromTile(tile);
+    }
+  }
+  rc(tile);
+  if(typeof syncTopbar==='function')syncTopbar();
+  if(typeof syncModelChip==='function')syncModelChip();
   updateHeader(tile);startWatcher();
+}
+
+// Breakage #3 fallback: manual S.* swap when loadSession is unavailable
+function restoreFromTile(tile){
+  if(typeof S!=='undefined'){S.session=tile.session;S.messages=[...(tile.messages||[])];S.busy=!!tile.busy;S.activeStreamId=tile.activeStreamId||null}
+  if(typeof renderMessages==='function')renderMessages();
 }
 
 // ── Open session in tile ──
 function openTile(sid,data){
   if(!sid)return;const e=bySid(sid);if(e){focusTile(e.id);return}
-  const t=T.tiles.find(t=>!t.sid);if(!t){typeof showToast=='function'&&showToast('All tiles in use. Close one first.',3e3,'error');return}
+  const t=T.tiles.find(t=>!t.sid);if(!t){typeof showToast==='function'&&showToast('All tiles in use. Close one first.',3e3,'error');return}
   t.sid=sid;t.session=data||null;t.messages=(data&&data.messages)||[];t.cv='';t.mv=null;
   updateHeader(t);badge(sid,1);renderMsgs(t);focusTile(t.id);
   if(!t.messages.length&&sid){(async()=>{try{const f=await window.api(`/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`);if(f&&f.messages){t.messages=f.messages||[];t.session=f;if(T.activeId===t.id&&typeof S!=='undefined'){S.messages=t.messages;S.session=t.session}renderMsgs(t);updateHeader(t)}}catch(_){}})()}
@@ -106,18 +146,17 @@ function openTile(sid,data){
 // ── Render messages ──
 function renderMsgs(t){
   const mi=t.el&&t.el.querySelector('.ext-tile-msg-inner');if(!mi)return;
-  // Uses core renderTranscript hook (stable API, sanitized markdown pipeline).
-  window.renderTranscript(mi, t.messages||[], {skipEmpty:false});
+  window.renderTranscript(mi,t.messages||[],{skipEmpty:false});
   mi.scrollTop!==undefined&&(mi.scrollTop=mi.scrollHeight);
 }
 
 // ── Maximize / Unmaximize ──
 function toggleMax(id){
   const t=tid(id);if(!t)return;
-  if(t.maximized){ // unmaximize
+  if(t.maximized){
     t.maximized=false;if(t.el){t.el.classList.remove('ext-tile--maximized');t.el.querySelector('.ext-tile-maximize-btn').hidden=false;t.el.querySelector('.ext-tile-unmaximize-btn').hidden=true}
     T.tiles.forEach(x=>{if(x.el)x.el.classList.remove('ext-tile--hidden')})
-  } else { // maximize
+  } else {
     T.tiles.filter(x=>x.maximized).forEach(x=>{x.maximized=false;if(x.el){x.el.classList.remove('ext-tile--maximized','ext-tile--hidden');x.el.querySelector('.ext-tile-maximize-btn').hidden=false;x.el.querySelector('.ext-tile-unmaximize-btn').hidden=true}})
     t.maximized=true;if(t.el){t.el.classList.add('ext-tile--maximized');t.el.querySelector('.ext-tile-maximize-btn').hidden=true;t.el.querySelector('.ext-tile-unmaximize-btn').hidden=false}
     T.tiles.forEach(x=>{if(x.el)x.el.classList.toggle('ext-tile--hidden',!x.maximized)})
@@ -129,8 +168,8 @@ function toggleMax(id){
 function closeTile(id){
   const idx=T.tiles.findIndex(t=>t.id===id);if(idx<0)return;
   const t=T.tiles[idx];
-  if(t.busy&&t.activeStreamId&&typeof cancelSessionStream=='function')cancelSessionStream(t.session);
-  if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){delete INFLIGHT[t.session.session_id];typeof clearInflightState=='function'&&clearInflightState(t.session.session_id)}
+  if(t.busy&&t.activeStreamId&&typeof cancelSessionStream==='function')cancelSessionStream(t.session);
+  if(t.session&&typeof INFLIGHT!=='undefined'&&INFLIGHT[t.session.session_id]){delete INFLIGHT[t.session.session_id];typeof clearInflightState==='function'&&clearInflightState(t.session.session_id)}
   if(t.el){const mi=t.el.querySelector('.ext-tile-msg-inner');if(mi&&mi.id==='msgInner')mi.removeAttribute('id');t.el.remove()}
   T.tiles.splice(idx,1);
   if(t.maximized){T.tiles.forEach(x=>{x.maximized=false;if(x.el){x.el.classList.remove('ext-tile--hidden','ext-tile--maximized');x.el.querySelector('.ext-tile-maximize-btn').hidden=false;x.el.querySelector('.ext-tile-unmaximize-btn').hidden=true}})}
@@ -156,20 +195,40 @@ function stopWatcher(){T._w&&(clearInterval(T._w),T._w=null)}
 
 // ── Sidebar badge ──
 function badge(sid,delta){
-  if(!sid)return;T._tc[sid]=(T._tc[sid]||0)+delta;
-  var safeId=(typeof CSS!=='undefined'&&CSS.escape)?CSS.escape(sid):sid.replace(/[^a-zA-Z0-9_-]/g,'');
-  const row=document.querySelector('[data-session-id="'+safeId+'"]');if(!row)return;
-  let b=row.querySelector('.ext-tile-sidebar-badge');
-  if(T._tc[sid]>0&&gs('show_sidebar_badges',true)){if(!b){b=document.createElement('span');b.className='ext-tile-sidebar-badge';(row.querySelector('.session-row-right')||row.querySelector('.session-meta')||row).appendChild(b)}b.textContent=T._tc[sid]>9?'9+':String(T._tc[sid])}
-  else if(b)b.remove()
+  if(!sid)return;
+  T._tc[sid]=(T._tc[sid]||0)+delta;
+  applyBadges();
+}
+
+function applyBadges(){
+  // Breakage #4: use [data-sid] selector (core sidebar rows are .session-item[data-sid])
+  document.querySelectorAll('.ext-tile-sidebar-badge').forEach(b=>b.remove());
+  Object.entries(T._tc).forEach(([sid,count])=>{
+    if(count<=0)return;
+    if(!gs('show_sidebar_badges',true))return;
+    const safeId=(typeof CSS!=='undefined'&&CSS.escape)?CSS.escape(sid):sid.replace(/[^a-zA-Z0-9_-]/g,'');
+    const row=document.querySelector(`.session-item[data-sid="${safeId}"]`);
+    if(!row)return;
+    const b=document.createElement('span');
+    b.className='ext-tile-sidebar-badge';
+    b.textContent=count>9?'9+':String(count);
+    (row.querySelector('.session-row-right')||row.querySelector('.session-meta')||row).appendChild(b);
+  });
+}
+
+// Breakage #4: reapply badges after core rebuilds the sidebar
+function initBadgeObserver(){
+  const sidebar=document.querySelector('.session-list')||document.querySelector('[data-session-list]');
+  if(!sidebar)return;
+  const obs=new MutationObserver(()=>applyBadges());
+  obs.observe(sidebar,{childList:true,subtree:true});
 }
 
 // ── Show / Hide grid ──
 function showGrid(cols,rows){
   if(T.visible&&T._cols===cols&&T._rows===rows)return;
-  if(T.visible){closeAll()}
+  if(T.visible)closeAll();
   T._cols=cols;T._rows=rows;T.visible=true;
-  // Snapshot current session state before entering tiling (only on first entry)
   if(typeof S!=='undefined'&&!T._saved){T._saved={session:S.session,messages:[...(S.messages||[])],busy:!!S.busy,activeStreamId:S.activeStreamId||null}}
   const o=document.getElementById('msgInner');if(o){o.removeAttribute('id');o.classList.add('messages-inner--idle')}
   document.body.classList.add('ext-tiling-body');
@@ -192,10 +251,10 @@ function hideGrid(){
   document.body.classList.remove('ext-tiling-body');
   closeAll();
   T.grid.style.display='none';T.grid.classList.remove('ext-tile-grid--active');
-  const es=document.getElementById('emptyState');if(es)es.style.display='';
-  typeof checkEmptyState=='function'&&checkEmptyState();
+  // Breakage #5: don't force emptyState display; call core renderMessages() after restoring S
   if(typeof S!=='undefined'){const s=T._saved;T._saved=null;S.session=s?s.session:null;S.messages=s?[...s.messages]:[];S.busy=s?!!s.busy:false;S.activeStreamId=s?s.activeStreamId||null:null}
-  typeof syncTopbar=='function'&&syncTopbar();tbActive();
+  if(typeof renderMessages==='function')renderMessages();
+  if(typeof syncTopbar==='function')syncTopbar();tbActive();
   try{localStorage.removeItem('hermes-ext-tiling-layout')}catch(_){}
 }
 
@@ -205,17 +264,34 @@ function closeAll(){
 }
 
 function initCapture(){
-  // Routes sidebar session clicks to empty tiles when the grid is active.
-  // Requires the registerHermesSessionOpenHandler hook (WebUI >= 2026.07.18).
-  window.registerHermesSessionOpenHandler(function(sid, data, opts){
-    if(!T.visible) return {};
-    if(opts&&opts.loaded&&sid){
+  // Breakage #2: handle {preload:true} phase to snapshot outgoing tile and
+  // bind destination BEFORE core loads the new session.
+  window.registerHermesSessionOpenHandler(function(sid,data,opts){
+    if(!T.visible)return {};
+    if(opts&&opts.preload&&sid){
+      // Breakage #8: respect auto_tile setting
+      if(!gs('auto_tile',true))return {};
       const t=T.tiles.find(t=>!t.sid);
+      if(t&&!T.tiles.some(x=>x.sid===sid)){
+        // Snapshot outgoing tile before core swaps S
+        if(T.activeId){const o=at();if(o){sc(o);if(typeof S!=='undefined'){o.messages=[...(S.messages||[])];o.busy=!!S.busy;o.activeStreamId=S.activeStreamId||null;o.session=S.session}}}
+        T.pendingTile=t;
+        // Safety: clear pending if loaded never fires
+        clearTimeout(T.pendingTimer);
+        T.pendingTimer=setTimeout(()=>{T.pendingTile=null},5000);
+      }
+    }
+    if(opts&&opts.loaded&&sid){
+      const t=T.pendingTile||T.tiles.find(t=>!t.sid);
+      T.pendingTile=null;clearTimeout(T.pendingTimer);
       if(t&&data){
-        if(T.tiles.some(x=>x.sid===sid&&x!==t)) return {};
-        t.sid=sid;t.session=data;t.messages=(data.messages)||[];t.cv='';t.mv=null;
-        updateHeader(t);badge(sid,1);renderMsgs(t);focusTile(t.id);
-        if(!t.messages.length&&sid){(async()=>{try{const f=await window.api(`/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`);if(f&&f.messages){t.messages=f.messages||[];t.session=f;if(T.activeId===t.id&&typeof S!=='undefined'){S.messages=t.messages;S.session=t.session}renderMsgs(t);updateHeader(t)}}catch(_){}})()}
+        if(T.tiles.some(x=>x.sid===sid&&x!==t))return {};
+        // Breakage #1: unwrap session/messages from handler data
+        t.sid=sid;t.session=data.session||data;t.messages=(data.session?data.session.messages:data.messages)||[];t.cv='';t.mv=null;
+        updateHeader(t);badge(sid,1);renderMsgs(t);
+        focusTile(t.id,{alreadyLoaded:true});
+        // Breakage #1: unwrap f.session.messages from /api/session response
+        if(!t.messages.length&&sid){(async()=>{try{const f=await window.api(`/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`);if(f){const msgs=(f.session&&f.session.messages)||f.messages||[];t.messages=msgs;t.session=f.session||f;if(T.activeId===t.id&&typeof S!=='undefined'){S.messages=t.messages;S.session=t.session}renderMsgs(t);updateHeader(t)}}catch(_){}})()}
       }
     }
     return {};
@@ -252,10 +328,17 @@ window.openTileForSessionExt=openTile;window.focusTileExt=focusTile;window.close
 
 // ── Init ──
 function init(){
+  if(!hasStableApi()){
+    // Breakage #7: quietly no-op if stable API unavailable
+    console.debug('[chat-tiling] stable API unavailable, skipping init');
+    return;
+  }
+  injectCss();
   T.grid=document.createElement('div');T.grid.id='ext-tile-grid';T.grid.className='ext-tile-grid';T.grid.style.display='none';
   const mi=document.getElementById('msgInner');if(mi&&mi.parentNode)mi.parentNode.appendChild(T.grid);
-  createToolbar();tbActive();initCapture();initKeyboard();
-  try{const s=localStorage.getItem('hermes-ext-tiling-layout');if(s){const[c,r]=s.split('x').map(Number);if(c&&r&&c*r<=6)setTimeout(()=>showGrid(c,r),500)}}catch(_){}
+  createToolbar();tbActive();initCapture();initKeyboard();initBadgeObserver();
+  // Breakage #8: use default_layout setting for initial restore
+  try{const s=localStorage.getItem('hermes-ext-tiling-layout');if(s){const[c,r]=s.split('x').map(Number);if(c&&r&&c*r<=6)setTimeout(()=>showGrid(c,r),500)}else{const defLayout=gs('default_layout','4');const layoutMap={'2':[2,1],'4':[2,2],'6':[3,2]};const lr=layoutMap[defLayout];if(lr)setTimeout(()=>showGrid(lr[0],lr[1]),500)}}catch(_){}
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 })();

@@ -1,7 +1,7 @@
 {
   "id": "chat-tiling",
   "name": "Chat Tiling",
-  "description": "Multi-session tiling layouts for Hermes WebUI — split into 2, 4 corners, or 3×2 grid. Each tile runs an independent session with its own composer, model, messages, and streaming. Click sidebar sessions to fill tiles, maximize to focus, or close to collapse.",
+  "description": "Multi-session tiling layouts for Hermes WebUI — split into 2, 4 corners, or 3×2 grid. Each tile runs an independent session context; only the focused tile uses the shared composer and live model context. Click sidebar sessions to fill tiles, maximize to focus, or close to collapse.",
   "version": "1.0.0",
   "author": "ChonSong",
   "assets": {
@@ -23,16 +23,16 @@
   "permissions": {
     "webui_api": {
       "read": ["session", "sessions"],
-      "write": []
+      "write": ["chat/cancel"]
     },
-    "webui_navigation": false,
+    "webui_navigation": true,
     "dom": {
       "owned": true,
       "mutates_core_views": true
     },
     "storage": {
       "owned": ["hermes-ext-tiling-layout"],
-      "shared_webui_keys": []
+      "shared_webui_keys": ["hermes-webui-inflight-state"]
     },
     "loopback_sidecar": false,
     "native_host": false,

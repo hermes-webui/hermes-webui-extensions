@@ -1,18 +1,18 @@
 # Chat Tiling
 
 Multi-session tiling layouts for Hermes WebUI — split your chat panel into a
-grid of independent sessions. Each tile has its own composer, model selector,
-message transcript, and streaming state. Great for comparing agent outputs,
-monitoring multiple sessions side-by-side, or keeping a reference conversation
-visible while you work elsewhere.
+grid of independent sessions. Each tile holds its own session context (messages, model,
+streaming state); only the focused tile uses the shared composer and live model
+context. Great for comparing agent outputs, monitoring multiple sessions side-by-side,
+or keeping a reference conversation visible while you work elsewhere.
 
 ## What It Does
 
 - **Layouts** — 2-column (horizontal split), 4-corner (2×2 grid), 6-tile (3×2 grid)
-- **Independent tiles** — each tile is a full session: composer, model chip, messages
+- **Independent tiles** — each tile is a full session: model chip, messages, streaming state
 - **Maximize** — expand one tile to fill the entire grid; restore with one click
 - **Focus switching** — click any tile to make it the active composer/model context
-- **Session restore** — click any sidebar session to load it into the next empty tile
+- **Session restore** — click any sidebar session to load it into the next empty tile (when auto-tile is enabled)
 - **Graceful close** — cancels in-flight streaming before removing the tile
 
 ## Keyboard Shortcuts
@@ -29,9 +29,11 @@ Press the same chord while the grid is active to dismiss it.
 ## How It Works
 
 ```
-Sidebar click → registerHermesSessionOpenHandler
+Sidebar click → registerHermesSessionOpenHandler (preload phase: snapshot outgoing tile)
+                                        (loaded phase: fill tile with session data)
   → tiling extension fills next empty tile
   → tile gets its own session context (sid/messages/model)
+  → only the focused tile drives the shared composer
 
 Toolbar button → showGrid(cols, rows)
   → snapshot current session
@@ -69,7 +71,7 @@ Or register in your dev state dir's `extension-install-manifest.json` and restar
 
 Hermes WebUI **≥ 2026.07.18** (the release that shipped
 `registerHermesSessionOpenHandler` and `renderTranscript` as public APIs).
-Older versions will not load this extension.
+The extension loads and safely no-ops on older versions (feature-detected).
 
 ## Capabilities
 

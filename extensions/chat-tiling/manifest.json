@@ -12,8 +12,9 @@
       "capabilities": ["manifest-bundle"],
       "permissions": {
         "dom": { "owned": true, "mutates_core_views": true },
-        "storage": { "owned": true },
-        "webui_api": { "read": ["session", "sessions"], "write": [] },
+        "storage": { "owned": true, "shared_webui_keys": ["hermes-webui-inflight-state"] },
+        "webui_api": { "read": ["session", "sessions"], "write": ["chat/cancel"] },
+        "webui_navigation": true,
         "network_external": false,
         "filesystem": { "arbitrary": false, "serves_bundled_assets": true },
         "loopback_sidecar": false,
