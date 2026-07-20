@@ -1,9 +1,10 @@
 """Canonical loopback-sidecar scaffold for Hermes WebUI extensions.
 
-    SIDECAR_BASE_VERSION = 1
+    SIDECAR_BASE_VERSION = 2
 
 DO NOT EDIT per-extension. This file is vendored byte-identical into every
-sidecar extension and verified by CI (`scripts/sync-sidecar-base.mjs --check`).
+repository-vendored sidecar extension and verified by CI
+(`scripts/sync-sidecar-base.mjs --check`).
 Per-extension values (id, port, handler module) come from `sidecar.json` at
 runtime — never edit a constant in here. If you need behavior this file does not
 provide, propose a change to the canonical copy, bump SIDECAR_BASE_VERSION, and
@@ -70,7 +71,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlsplit
 
-SIDECAR_BASE_VERSION = 1
+SIDECAR_BASE_VERSION = 2
 
 _TOKEN_HEADER = "X-Hermes-Sidecar-Token"
 _HEALTH_PATHS = {"/health"}
@@ -78,6 +79,7 @@ _HEALTH_PATHS = {"/health"}
 # defense-in-depth so a direct caller can't OOM the sidecar).
 _MAX_REQUEST_BYTES = 20 * 1024 * 1024
 _LOOPBACK_HOST = "127.0.0.1"
+_PROXY_AUTH_MODES = {"legacy", "token-v1"}
 
 
 class Request:
@@ -139,7 +141,10 @@ class Sidecar:
         cfg = self._load_config(config_path)
         self.ext_id: str = cfg["id"]
         self.port: int = int(cfg["port"])
-        self.proxy_auth: str = cfg.get("proxy_auth", "token-v1")
+        proxy_auth = cfg.get("proxy_auth", "token-v1")
+        if not isinstance(proxy_auth, str) or proxy_auth not in _PROXY_AUTH_MODES:
+            raise ValueError("sidecar.json proxy_auth must be legacy or token-v1")
+        self.proxy_auth: str = proxy_auth
         self._token_path = _resolve_token_path(self.ext_id)
         self._routes: List[Tuple[str, re.Pattern, List[str], Callable]] = []
 
@@ -181,8 +186,10 @@ class Sidecar:
         return tok or None
 
     def _authorized(self, headers) -> bool:
-        if self.proxy_auth != "token-v1":
+        if self.proxy_auth == "legacy":
             return True  # legacy sidecar (declared unauthenticated in its manifest)
+        if self.proxy_auth != "token-v1":
+            return False  # defense-in-depth if startup validation is ever bypassed
         expected = self._current_token()  # re-read per request: live rotation
         if not expected:
             return False  # fail closed when no token on disk
@@ -195,7 +202,16 @@ class Sidecar:
         path = parsed.path
         # Health is the ONLY tokenless route (WebUI probes it cross-origin).
         if path in _HEALTH_PATHS and method in ("GET", "HEAD"):
-            return self.json({"ok": True, "sidecar_base_version": SIDECAR_BASE_VERSION})
+            status, response_headers, body = self.json(
+                {"ok": True, "sidecar_base_version": SIDECAR_BASE_VERSION}
+            )
+            response_headers.update(
+                {
+                    "Access-Control-Allow-Origin": "*",
+                    "Cache-Control": "no-store",
+                }
+            )
+            return status, response_headers, body
         # Deny-by-default: every non-health route requires the injected token.
         if not self._authorized(headers):
             return self.json(

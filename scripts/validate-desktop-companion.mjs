@@ -29,6 +29,12 @@ assert.deepEqual(entry.capabilities, ['manifest-bundle', 'loopback-sidecar']);
 assert.ok(!entry.capabilities.includes('sidecar-proxy'));
 assert.deepEqual(entry.assets.stylesheets, []);
 assert.deepEqual(runtime.stylesheets, []);
+assert.equal(entry.sidecar.proxy_auth, 'legacy');
+assert.deepEqual(entry.sidecar.runtime, {
+  kind: 'external',
+  repository: 'https://github.com/franksong2702/hermes-webui-desktop-companion'
+});
+assert.equal(runtime.sidecar.proxy_auth, entry.sidecar.proxy_auth);
 assertIncludesAll(
   entry.permissions.webui_api.read,
   ['sessions', 'session', 'approval/pending', 'clarify/pending'],

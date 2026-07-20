@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -27,23 +27,13 @@ function mergeDeep(base, overrides) {
   return out;
 }
 
-function validationErrors(scriptText, extensionOverrides = {}) {
+function validationResult(scriptText, extensionOverrides = {}, runtimeOverrides = {}, setup = null) {
   const id = `validator-case-${Math.random().toString(36).slice(2, 8)}`;
   const root = path.join(tmpRoot, id);
   const asset = 'assets/adapter.js';
   mkdirSync(path.join(root, 'assets'), { recursive: true });
   writeFileSync(path.join(root, 'README.md'), '# Validator fixture\n', { encoding: 'utf8', flag: 'w' });
   writeFileSync(path.join(root, 'assets/adapter.js'), scriptText, { encoding: 'utf8', flag: 'w' });
-  writeJson(path.join(root, 'manifest.json'), {
-    extensions: [
-      {
-        id,
-        name: 'Validator Fixture',
-        scripts: [asset],
-        stylesheets: []
-      }
-    ]
-  });
   const extensionJson = mergeDeep({
     id,
     name: 'Validator Fixture',
@@ -85,12 +75,26 @@ function validationErrors(scriptText, extensionOverrides = {}) {
       network_external: false
     }
   }, extensionOverrides);
+  const runtime = mergeDeep({
+    id,
+    name: 'Validator Fixture',
+    scripts: [asset],
+    stylesheets: [],
+    ...(extensionJson.sidecar ? { sidecar: structuredClone(extensionJson.sidecar) } : {})
+  }, runtimeOverrides);
+  if (runtime.sidecar) delete runtime.sidecar.runtime;
+  writeJson(path.join(root, 'manifest.json'), { extensions: [runtime] });
   writeJson(path.join(root, 'extension.json'), extensionJson);
+  if (setup) setup({ id, root, extensionJson, runtime });
   return validateEntry({
     idFromDir: id,
     root,
     extensionJsonPath: path.join(root, 'extension.json')
-  }).errors;
+  });
+}
+
+function validationErrors(scriptText, extensionOverrides = {}, runtimeOverrides = {}, setup = null) {
+  return validationResult(scriptText, extensionOverrides, runtimeOverrides, setup).errors;
 }
 
 try {
@@ -131,6 +135,164 @@ try {
     ]
   });
   assert(errors.includes('settings_schema requires permissions.storage.owned to be true'));
+
+  errors = validationErrors('', {
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'token-v1', runtime: { kind: 'vendored', path: 'sidecar' }
+    }
+  });
+  assert(errors.includes('sidecar block requires the loopback-sidecar capability'));
+
+  errors = validationErrors('', {}, {
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'legacy'
+    }
+  });
+  assert(errors.includes('manifest sidecar block requires loopback-sidecar metadata in extension.json'));
+
+  const externalLegacy = validationResult('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback',
+      origin: 'http://127.0.0.1:17787',
+      health_path: '/health',
+      proxy_auth: 'legacy',
+      runtime: {
+        kind: 'external',
+        repository: 'https://github.com/example/sidecar'
+      }
+    },
+    lifecycle: { sidecar_start_required: true },
+    permissions: { loopback_sidecar: true }
+  });
+  assert.deepEqual(externalLegacy.errors, []);
+  assert(externalLegacy.warnings.includes('external sidecar runtime is explicitly legacy (proxy_auth: legacy)'));
+
+  const externalToken = validationResult('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback',
+      origin: 'http://127.0.0.1:17788',
+      health_path: '/health',
+      proxy_auth: 'token-v1',
+      runtime: {
+        kind: 'external',
+        repository: 'https://github.com/example/node-sidecar'
+      }
+    },
+    permissions: { loopback_sidecar: true }
+  });
+  assert.deepEqual(externalToken.errors, []);
+  assert.deepEqual(externalToken.warnings, []);
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'token-vI',
+      runtime: { kind: 'external', repository: 'https://github.com/example/sidecar' }
+    },
+    permissions: { loopback_sidecar: true }
+  });
+  assert(errors.includes('sidecar.proxy_auth must be legacy or token-v1'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'legacy'
+    },
+    permissions: { loopback_sidecar: true }
+  });
+  assert(errors.includes('sidecar.runtime is required when loopback-sidecar capability is declared'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'legacy', runtime: { kind: 'external' }
+    },
+    permissions: { loopback_sidecar: true }
+  });
+  assert(errors.includes('sidecar.runtime.repository is required for an external runtime'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'token-v1', runtime: { kind: 'vendored' }
+    },
+    permissions: { loopback_sidecar: true }
+  });
+  assert(errors.includes('sidecar.runtime.path is required for a vendored runtime'));
+
+  const realRuntime = path.join(tmpRoot, 'real-vendored-runtime');
+  mkdirSync(realRuntime);
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17790', health_path: '/health',
+      proxy_auth: 'token-v1', runtime: { kind: 'vendored', path: 'sidecar' }
+    },
+    permissions: { loopback_sidecar: true }
+  }, {}, ({ root }) => symlinkSync(realRuntime, path.join(root, 'sidecar'), 'dir'));
+  assert(errors.includes('vendored sidecar runtime path must not contain symlinks: sidecar'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'https://127.0.0.1:17790', health_path: '/health',
+      proxy_auth: 'token-v1', runtime: { kind: 'vendored', path: 'sidecar' }
+    }
+  });
+  assert(errors.includes('vendored sidecar.origin must use http://127.0.0.1 with an explicit port'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://localhost:17790', health_path: '/health',
+      proxy_auth: 'token-v1', runtime: { kind: 'vendored', path: 'sidecar' }
+    }
+  });
+  assert(errors.includes('vendored sidecar.origin must use http://127.0.0.1 with an explicit port'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17790', health_path: '/ready',
+      proxy_auth: 'token-v1', runtime: { kind: 'vendored', path: 'sidecar' }
+    }
+  });
+  assert(errors.includes('vendored sidecar.health_path must be /health'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'token-v1',
+      runtime: { kind: 'external', repository: 'https://github.com/example/sidecar' }
+    },
+    permissions: { loopback_sidecar: true }
+  }, {
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'legacy'
+    }
+  });
+  assert(errors.includes('manifest sidecar.proxy_auth must match extension.json sidecar.proxy_auth'));
+
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17787', health_path: '/health',
+      proxy_auth: 'legacy',
+      runtime: { kind: 'external', repository: 'https://github.com/example/sidecar' }
+    },
+    permissions: { loopback_sidecar: true }
+  }, { sidecar: null });
+  assert(errors.includes('manifest sidecar block is required when loopback-sidecar capability is declared'));
 
   const first = buildRegistryWithArtifacts({
     publishedAt: '2026-01-01T00:00:00.000Z',

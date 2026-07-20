@@ -45,9 +45,12 @@ This entry declares only capabilities already available to extension entries:
 - `manifest-bundle`
 - `loopback-sidecar`
 
-It does not declare `sidecar-proxy`. Direct browser-to-loopback access is the
-current integration model. A same-origin sidecar proxy can be added later if
-Hermes WebUI core ships that capability.
+Direct browser-to-loopback access is the current integration model. Its sidecar
+runtime is owned by the external source
+repository above and is declared `proxy_auth: "legacy"`; it is not treated as a
+copy of this repository's canonical Python scaffold. Migration to the core
+same-origin proxy requires the external runtime to implement the language-neutral
+`token-v1` contract first.
 
 ## Install From Gallery
 
@@ -246,6 +249,7 @@ Manual verification should confirm:
 
 - No one-click install path is available yet.
 - WebUI settings do not yet manage sidecar lifecycle.
-- Sidecar proxy support is not declared because Hermes WebUI core has not
-  shipped it.
+- Hermes WebUI core's consent-gated sidecar proxy is shipped, but this external
+  runtime remains explicitly `legacy` and its adapter still uses direct loopback.
+  Moving it to the proxy requires the external runtime to adopt `token-v1`.
 - The native host source is linked, not vendored, in this extension entry.

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +101,15 @@ function isSafeLocalPath(value) {
 
 function localFile(entryRoot, rel) {
   return path.join(entryRoot, rel.split('/').join(path.sep));
+}
+
+function localPathHasSymlink(entryRoot, rel) {
+  let current = entryRoot;
+  for (const segment of rel.split('/')) {
+    current = path.join(current, segment);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return true;
+  }
+  return false;
 }
 
 function collectFiles(dir, prefix = '') {
@@ -308,6 +317,20 @@ function validateRuntimeManifest(entry, assets, errors) {
   if (JSON.stringify(runtimeStylesheets) !== JSON.stringify(assets.stylesheets)) {
     errors.push('manifest stylesheets must match extension.json assets.stylesheets');
   }
+  const hasSidecar = Array.isArray(entry.capabilities) && entry.capabilities.includes('loopback-sidecar');
+  if (!hasSidecar && runtime.sidecar !== undefined) {
+    errors.push('manifest sidecar block requires loopback-sidecar metadata in extension.json');
+  } else if (hasSidecar) {
+    if (!isPlainObject(runtime.sidecar)) {
+      errors.push('manifest sidecar block is required when loopback-sidecar capability is declared');
+    } else if (isPlainObject(entry.sidecar)) {
+      for (const field of ['type', 'origin', 'health_path', 'proxy_auth']) {
+        if (runtime.sidecar[field] !== entry.sidecar[field]) {
+          errors.push(`manifest sidecar.${field} must match extension.json sidecar.${field}`);
+        }
+      }
+    }
+  }
 }
 
 function validatePermissions(entry, scriptText, errors) {
@@ -430,16 +453,23 @@ function validatePostInstall(entry, errors) {
   }
 }
 
-function validateSidecar(entry, errors) {
+function validateSidecar(entry, errors, warnings) {
   const hasCapability = Array.isArray(entry.capabilities) && entry.capabilities.includes('loopback-sidecar');
-  if (!hasCapability) return;
+  if (!hasCapability) {
+    if (entry.sidecar !== undefined) {
+      errors.push('sidecar block requires the loopback-sidecar capability');
+    }
+    return;
+  }
   if (!isPlainObject(entry.sidecar)) {
     errors.push('sidecar block is required when loopback-sidecar capability is declared');
     return;
   }
   if (entry.sidecar.type !== 'loopback') errors.push('sidecar.type must be loopback');
+  let parsedOrigin = null;
   try {
     const origin = new URL(entry.sidecar.origin);
+    parsedOrigin = origin;
     if (!['http:', 'https:'].includes(origin.protocol)) errors.push('sidecar.origin must be http(s)');
     if (!['127.0.0.1', 'localhost', '::1'].includes(origin.hostname)) {
       errors.push('sidecar.origin must be loopback');
@@ -449,6 +479,61 @@ function validateSidecar(entry, errors) {
   }
   if (!isNonEmptyString(entry.sidecar.health_path) || !entry.sidecar.health_path.startsWith('/')) {
     errors.push('sidecar.health_path must be an absolute path');
+  }
+  if (!['legacy', 'token-v1'].includes(entry.sidecar.proxy_auth)) {
+    errors.push('sidecar.proxy_auth must be legacy or token-v1');
+  }
+
+  const runtime = entry.sidecar.runtime;
+  if (!isPlainObject(runtime)) {
+    errors.push('sidecar.runtime is required when loopback-sidecar capability is declared');
+    return;
+  }
+  if (!['vendored', 'external'].includes(runtime.kind)) {
+    errors.push('sidecar.runtime.kind must be vendored or external');
+    return;
+  }
+  if (runtime.kind === 'vendored') {
+    const port = parsedOrigin === null ? NaN : Number(parsedOrigin.port);
+    if (parsedOrigin === null
+        || parsedOrigin.protocol !== 'http:'
+        || parsedOrigin.hostname !== '127.0.0.1'
+        || !parsedOrigin.port
+        || !Number.isInteger(port)
+        || port < 1
+        || port > 65535
+        || parsedOrigin.username
+        || parsedOrigin.password
+        || parsedOrigin.pathname !== '/'
+        || parsedOrigin.search
+        || parsedOrigin.hash) {
+      errors.push('vendored sidecar.origin must use http://127.0.0.1 with an explicit port');
+    }
+    if (entry.sidecar.health_path !== '/health') {
+      errors.push('vendored sidecar.health_path must be /health');
+    }
+    if (!isSafeLocalPath(runtime.path)) {
+      errors.push('sidecar.runtime.path is required for a vendored runtime');
+    } else {
+      const runtimePath = localFile(entry.__root, runtime.path);
+      if (!existsSync(runtimePath)) {
+        errors.push(`vendored sidecar runtime directory missing: ${runtime.path}`);
+      } else if (localPathHasSymlink(entry.__root, runtime.path)) {
+        errors.push(`vendored sidecar runtime path must not contain symlinks: ${runtime.path}`);
+      } else if (!lstatSync(runtimePath).isDirectory()) {
+        errors.push(`vendored sidecar runtime directory missing: ${runtime.path}`);
+      }
+    }
+    if (entry.sidecar.proxy_auth !== 'token-v1') {
+      errors.push('vendored sidecars must use proxy_auth token-v1');
+    }
+  } else {
+    if (!isHttpUrl(runtime.repository)) {
+      errors.push('sidecar.runtime.repository is required for an external runtime');
+    }
+    if (entry.sidecar.proxy_auth === 'legacy') {
+      warnings.push('external sidecar runtime is explicitly legacy (proxy_auth: legacy)');
+    }
   }
 }
 
@@ -474,6 +559,7 @@ function validateCapabilities(entry, errors) {
 
 export function validateEntry(discovered) {
   const errors = [];
+  const warnings = [];
   let entry;
   try {
     entry = readJson(discovered.extensionJsonPath);
@@ -481,6 +567,7 @@ export function validateEntry(discovered) {
     return {
       id: discovered.idFromDir,
       root: discovered.root,
+      warnings,
       errors: [`extension.json is not valid JSON: ${error.message}`]
     };
   }
@@ -501,7 +588,7 @@ export function validateEntry(discovered) {
   validateCapabilities(entry, errors);
   validateLifecycle(entry, errors);
   validatePostInstall(entry, errors);
-  validateSidecar(entry, errors);
+  validateSidecar(entry, errors, warnings);
   validateSettingsSchema(entry, errors);
 
   const scriptText = assets.scripts
@@ -510,7 +597,7 @@ export function validateEntry(discovered) {
   validatePermissions(entry, scriptText, errors);
 
   delete entry.__root;
-  return { id: entry.id || discovered.idFromDir, root: discovered.root, entry, errors };
+  return { id: entry.id || discovered.idFromDir, root: discovered.root, entry, warnings, errors };
 }
 
 export function validateAllEntries() {

@@ -3,8 +3,9 @@
 # Copy to ~/.config/systemd/user/<id>-sidecar.service, adjust WorkingDirectory,
 # then: systemctl --user enable --now <id>-sidecar.service
 #
-# ExecStart MUST run sidecar.py (the canonical byte-compared entrypoint) — the
-# CI usage lint rejects any other entrypoint. Do NOT put the token in this file;
+# ExecStart MUST use the pinned interpreter with site startup disabled and run
+# sidecar.py (the canonical byte-compared entrypoint). The CI usage lint rejects
+# any other entrypoint. Do NOT put the token in this file;
 # WebUI provisions it in the state dir and the scaffold resolves it there.
 [Unit]
 Description=Hermes WebUI sidecar (scaffold example)
@@ -14,7 +15,7 @@ After=default.target
 Type=simple
 WorkingDirectory=%h/.hermes/webui/extensions/sidecar-scaffold-example/sidecar
 Environment=HERMES_WEBUI_STATE_DIR=%h/.hermes/webui
-ExecStart=/usr/bin/env python3 sidecar.py
+ExecStart=/usr/bin/python3 -S -u sidecar.py
 Restart=on-failure
 
 [Install]

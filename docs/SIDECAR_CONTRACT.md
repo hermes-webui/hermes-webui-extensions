@@ -1,10 +1,13 @@
 # Sidecar contract (proxy → sidecar authentication)
 
-Authoritative spec for **loopback-sidecar extensions** — a stdlib HTTP server on
-`127.0.0.1:<port>` that the WebUI proxies to on the extension's behalf. Read this
-before writing a sidecar; use the reference scaffold in
-[`examples/sidecar-scaffold/`](../examples/sidecar-scaffold/) rather than
-hand-rolling.
+Authoritative spec for **loopback-sidecar extensions** — a local HTTP server on
+`127.0.0.1:<port>`. A `token-v1` adapter reaches it through WebUI's same-origin
+proxy; an explicitly legacy external adapter may still use direct loopback
+access. The wire/authentication contract is language-neutral. A runtime committed
+to this repository must use the canonical Python scaffold in
+[`examples/sidecar-scaffold/`](../examples/sidecar-scaffold/); a runtime owned by
+an external repository may implement the same contract in Node, Rust, or another
+language.
 
 ## Why this exists
 
@@ -26,28 +29,79 @@ key, or just run your sidecar's underlying tool directly. No mechanism available
 here (token, HMAC, nonce, Unix socket with `0600`) changes that. Do not claim
 otherwise in your README.
 
-## The manifest field
+## Manifest and runtime ownership
+
+Every library entry declares whether its sidecar runtime is **vendored** in this
+repository or **external**. Discovery comes from this metadata, never from the
+presence of `sidecar_base.py`.
+
+### Repository-vendored runtime
 
 ```json
 "sidecar": {
   "type": "loopback",
   "origin": "http://127.0.0.1:17790",
   "health_path": "/health",
-  "proxy_auth": "token-v1"
+  "proxy_auth": "token-v1",
+  "runtime": {
+    "kind": "vendored",
+    "path": "sidecar"
+  }
 }
 ```
 
+Vendored runtimes must use `token-v1`. CI requires `sidecar_base.py`,
+`sidecar.py`, `sidecar.json`, and `routes_impl.py`; byte-compares the two
+protected scaffold files; and verifies that `sidecar.json` agrees with
+`extension.json` on id, port, and auth mode. Because the canonical scaffold
+serves plain HTTP on IPv4 loopback with a fixed liveness route, vendored metadata
+must use `http://127.0.0.1:<explicit-port>` and `health_path: "/health"`.
+
+### External runtime
+
+```json
+"sidecar": {
+  "type": "loopback",
+  "origin": "http://127.0.0.1:17787",
+  "health_path": "/health",
+  "proxy_auth": "legacy",
+  "runtime": {
+    "kind": "external",
+    "repository": "https://github.com/example/sidecar-runtime"
+  }
+}
+```
+
+External runtimes do not vendor the Python scaffold. `token-v1` external
+runtimes must implement the language-neutral conformance contract below. A
+runtime that has not migrated must declare `proxy_auth: "legacy"` explicitly;
+the validator reports that status rather than treating it as scaffold-compliant.
+Desktop Companion is the current external/legacy compatibility case.
+
+The runtime `manifest.json` repeats `type`, `origin`, `health_path`, and
+`proxy_auth` but omits the library-only `runtime` ownership object. CI requires
+the repeated fields to match `extension.json` exactly.
+
+### Auth modes
+
 - **`token-v1`** — required for any sidecar that mutates state or exposes
   sensitive reads. WebUI injects `X-Hermes-Sidecar-Token`; the sidecar validates.
-- **absent** — explicit **legacy** mode (no token, unchanged behavior). Only for
-  read-only, non-sensitive sidecars. New sidecars should use `token-v1`.
+- **`legacy`** — no token. Allowed only for an explicitly external runtime that
+  has not migrated yet. New sidecars should use `token-v1`.
 - **unknown value** — fails closed (the sidecar declaration is rejected by core).
+
+Core treats an omitted mode as legacy for backward compatibility. This library
+requires the field explicitly so legacy status cannot be mistaken for token-v1
+conformance.
 
 ## The token
 
 - **Provisioned by core**, minted per-extension at
-  `STATE_DIR/sidecar-auth/<id>.token` (mode `0600`), created eagerly and also on
-  consent. The sidecar never mints it — it only reads it.
+  `STATE_DIR/sidecar-auth/<id>.token` (mode `0600`) when the operator grants
+  sidecar-proxy consent. Proxy resolution reads the current persisted token and
+  calls the same atomic provisioner if the file is missing. If the token cannot
+  be persisted and re-read, consent or resolution fails closed with `503`. The
+  sidecar never mints the token — it only reads it.
 - **Header:** `X-Hermes-Sidecar-Token`, injected by the proxy on every forwarded
   request. Core strips any client-supplied `x-hermes-*` inbound (so the browser
   can't forge it) and strips it from responses (so a sidecar can't echo it back).
@@ -55,7 +109,7 @@ otherwise in your README.
   `HERMES_EXT_SIDECAR_TOKEN_FILE` → `$HERMES_WEBUI_STATE_DIR/sidecar-auth/<id>.token`
   → `$HERMES_HOME/webui/sidecar-auth/<id>.token` → platform default
   (`~/.hermes/webui/...`, `%LOCALAPPDATA%\hermes\webui\...` on Windows).
-- **Rotation:** re-read the token per request (the scaffold does — mtime-checked),
+- **Rotation:** re-read the token per request (the scaffold does),
   so deleting/rotating the file takes effect with no restart, and a stale token
   stops validating immediately.
 
@@ -71,17 +125,41 @@ otherwise in your README.
    health means any website can fingerprint which sidecars you run via a drive-by
    loopback probe — acceptable for liveness only.
 3. **Missing token file → 503, wrong token → 401**, both fail closed.
-4. **No secrets in the `.service`/unit file.** The token lives in the state dir;
-   the unit only points at the state dir. `ExecStart` must run `sidecar.py`.
+4. **No secrets in the `.service` file.** The token lives in the state dir; the
+   unit only points at the state dir. `WorkingDirectory` must resolve to
+   `<extension-id>/<runtime.path>`, and `ExecStart` must run only that directory's
+   byte-compared `sidecar.py` as `/usr/bin/python3 -S [-u] sidecar.py`, with no
+   trailing command tokens. The mandatory `-S` prevents `sitecustomize` and `.pth`
+   startup hooks from bypassing the byte-compared modules. The `[Service]`
+   section uses a small directive allowlist; auxiliary `Exec*`, environment files,
+   root/image overrides, and other execution-context directives are forbidden because
+   they could execute outside the authenticated scaffold. Direct shebang execution,
+   arbitrary Python-looking executables, `/usr/bin/env` wrappers, and Quadlet
+   `.container` units are rejected because they cannot prove the interpreter or
+   image entrypoint; model those runtimes as externally maintained instead.
+5. **One required route hook, one optional daemon hook.** `routes_impl.register(app)`
+   is required, and `routes_impl.py` must be a regular file that defines exactly
+   one top-level synchronous `register(app)` binding callable with that one
+   argument. It must apply at least one reachable `@app.route(...)` decorator (or
+   the equivalent direct decorator application) to a handler. A bare
+   `app.route(...)` call registers nothing and is rejected. Later rebinding is
+   rejected. `routes_impl.start_background(app)` is called only when the module
+   defines it.
+6. **The declared vendored tree is the artifact that executes.** Every component
+   of `runtime.path` must be a real directory, not a symlink. Protected scaffold,
+   entrypoint, config, and route files must be real regular files. Python import
+   collisions next to them (`sidecar_base/`, `routes_impl/`, compiled or bytecode
+   variants) are rejected so another module cannot shadow a byte-compared file.
 
 ## Auth-off posture
 
-WebUI authentication is optional and **off by default**. In that mode the consent
-endpoint itself is unauthenticated, so a `token-v1` sidecar is proxied **only when
-its origin is provably loopback** (`127.0.0.1`/`localhost`/`::1`); a non-loopback
-`token-v1` origin returns `503` until a password/passkey is configured. The
-extensions panel surfaces `auth_required` so the operator is prompted to enable
-authentication before wiring up a sidecar. Enabling auth is one field in
+WebUI authentication is optional and **off by default**, but `token-v1` is
+fail-closed in that posture. Both consent and proxy-target resolution return
+`403` until WebUI authentication is configured, regardless of whether the
+sidecar origin is loopback. This prevents an unauthenticated caller from using
+WebUI as a token-bearing forwarding oracle. The extensions status payload uses
+`posture: "local_unprotected"` to prompt the operator; once authentication is
+enabled it reports `posture: "protected"`. Enabling auth is one field in
 **Settings → Password** (or `HERMES_WEBUI_PASSWORD`).
 
 ## The request/response envelope (do not fight it)
@@ -124,11 +202,16 @@ changes, bump the version and re-sync every vendored copy
 
 ## Checklist for a new sidecar
 
-- [ ] `proxy_auth: "token-v1"` in the manifest (unless genuinely read-only/legacy)
-- [ ] vendor `sidecar_base.py` + `sidecar.py` byte-identical from the reference
+- [ ] declare `sidecar.runtime.kind` as `vendored` or `external`
+- [ ] declare `proxy_auth` explicitly in both metadata and runtime manifest
+- [ ] for vendored: use `token-v1` and vendor `sidecar_base.py` + `sidecar.py`
+      byte-identical from the reference
+- [ ] `runtime.path` contains no symlink and no canonical-module import collision
+- [ ] for external token-v1: implement the same header, health, status, rotation,
+      and fail-closed behavior in the external runtime's language
 - [ ] routes only in `routes_impl.py`; no `HTTPServer`/framework server anywhere else
 - [ ] `sidecar.json` = `{id, port, proxy_auth}`
-- [ ] `.service` `ExecStart` runs `sidecar.py`; no token in the unit
+- [ ] `.service` uses `/usr/bin/python3 -S [-u] sidecar.py`; no token in the unit
 - [ ] long ops use start-job + poll; nothing relies on streaming
 - [ ] README states the same-UID scope honestly and the docker limitation
 - [ ] `node scripts/sync-sidecar-base.mjs --check` and

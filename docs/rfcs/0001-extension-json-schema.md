@@ -52,18 +52,24 @@ the table.
   // --- what core surface this entry needs (capability names, not version pins) ---
   // capabilities are CORE-OWNED: the canonical list lives in the core repo, since
   // it defines the actual surface. Only list a capability core has SHIPPED.
-  // `manifest-bundle` and `loopback-sidecar` (direct browser→loopback, shipped today)
-  // are valid now; do NOT list `sidecar-proxy` until core ships the same-origin proxy.
+  // `manifest-bundle` and `loopback-sidecar` are valid core capabilities.
+  // The sidecar auth/proxy posture is declared by `sidecar.proxy_auth`; there is
+  // no separate `sidecar-proxy` capability.
   "capabilities": ["manifest-bundle", "loopback-sidecar"],
 
   // --- optional local helper process. The `sidecar` block is descriptive metadata. ---
-  // Today an extension reaches this directly (browser → loopback, allowed by the
-  // core CSP connect-src). A same-origin proxy to it is FUTURE work (capability
-  // `sidecar-proxy`), not assumable by entries yet.
+  // token-v1 runtimes are reached through core's consent-gated same-origin proxy.
+  // An external runtime may stay explicitly legacy while its browser adapter
+  // still uses direct loopback access, as Desktop Companion currently does.
   "sidecar": {
     "type": "loopback",
     "origin": "http://127.0.0.1:17787",
-    "health_path": "/health"
+    "health_path": "/health",
+    "proxy_auth": "legacy",
+    "runtime": {
+      "kind": "external",
+      "repository": "https://github.com/franksong2702/hermes-webui-desktop-companion"
+    }
   },
 
   // --- install / lifecycle behavior ---
@@ -146,7 +152,10 @@ delivery design:
 - `assets` paths are same-origin / repo-local (no external URLs, no traversal) AND
   the *derived* manifest passes the core loader's hardening rules
 - declared `capabilities` are in the **core-owned** capability list and SHIPPED
-  (e.g. reject `sidecar-proxy` until core ships it)
+  (`proxy_auth` is sidecar metadata, not a separate capability)
+- loopback sidecars explicitly declare proxy auth plus vendored/external runtime
+  ownership; vendored runtimes carry the canonical token-v1 scaffold while
+  external runtimes name their source repository
 - `permissions` block present and honest — cross-checked against a static scan of
   the assets (e.g. `network_external:false` + an external `fetch` → flagged;
   `webui_authenticated_api:false` + calls to authed endpoints → flagged)
@@ -166,7 +175,8 @@ delivery design:
   permissions, compatibility, source repo, screenshots, install/lifecycle notes)
   is much richer than the loader manifest, and hand-writing both would drift.
 - **Capabilities are core-owned; declare only shipped ones.** Desktop Companion
-  declares `manifest-bundle` + `loopback-sidecar` today, NOT `sidecar-proxy`.
+  declares `manifest-bundle` + `loopback-sidecar`; proxy auth lives in its
+  `sidecar` block rather than a separate capability.
 - **Screenshots in-repo for the first pass.** Revisit if repo size becomes an issue.
 - **Updates:** user-facing comparison by `version`; integrity by `sha256`.
 - **Compatibility capability-first**, `min_webui_version` as a fallback hint only.

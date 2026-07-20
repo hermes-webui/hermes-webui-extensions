@@ -39,7 +39,7 @@ This entry declares only capabilities currently available to extension entries:
 
 - `manifest-bundle`
 
-It does not require `loopback-sidecar` or future sidecar proxy support.
+It does not require `loopback-sidecar` or the sidecar proxy.
 
 ## Install For Local Testing
 

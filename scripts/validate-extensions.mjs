@@ -7,6 +7,7 @@ const failures = results.filter((result) => result.errors.length);
 for (const result of results) {
   if (!result.errors.length) {
     console.log(`ok ${result.id}`);
+    for (const warning of result.warnings || []) console.warn(`  warning: ${warning}`);
     continue;
   }
   console.error(`fail ${result.id}`);
