@@ -15,6 +15,7 @@ import { checkSidecarUsage } from './sidecar-contract-lib.mjs';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const result = checkSidecarUsage(REPO);
 for (const failure of result.failures) console.error(failure);
+for (const warning of result.warnings) console.warn(warning);
 
 if (result.failures.length) {
   console.error(`\n${result.failures.length} sidecar usage violation(s).`);

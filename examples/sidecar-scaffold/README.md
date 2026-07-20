@@ -62,6 +62,13 @@ def register(app):
 The `.service` unit's `ExecStart` must use
 `/usr/bin/python3 -S [-u] sidecar.py` (CI enforces this). The pinned interpreter
 and mandatory `-S` keep PATH, `sitecustomize`, and `.pth` startup hooks from
-bypassing the checked scaffold. The token file is provisioned by WebUI; point the
-sidecar at the same state dir (the default resolution matches core, so a standard
-install needs no extra config).
+replacing the checked scaffold. Use one unprefixed `ExecStart`; if `Type` is
+present, it must be `simple`. The token file is provisioned by WebUI. For a custom
+state directory, set `HERMES_WEBUI_STATE_DIR` and place `WorkingDirectory` at its
+matching `extensions/<id>/<runtime.path>` location. If this extension is installed
+outside that default tree, declare the extension's exact entry directory as
+`HERMES_EXT_INSTALL_DIR` and place `WorkingDirectory` at its `<runtime.path>`
+child. This sidecar-only variable is deliberately distinct from WebUI's
+`HERMES_WEBUI_EXTENSION_DIR`, which can mean either one entry or a gallery root.
+Custom directories must be absolute or `%h`-anchored and produce a reviewer
+warning. The defaults already agree.

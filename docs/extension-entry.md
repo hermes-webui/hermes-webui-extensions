@@ -269,8 +269,8 @@ Generate the registry locally with:
 node scripts/generate-registry.mjs --out dist/registry.json
 ```
 
-The generated registry is the gallery/install index consumed by future WebUI
-extension UI work. The first version includes the reviewed entry metadata plus
+The generated registry is the gallery/install index consumed by WebUI's shipped
+Settings → Extensions flow. It includes the reviewed entry metadata plus
 Action-added fields such as `entry_path`, `runtime_manifest_path`,
 `published_at`, `file_count`, and per-file `file_sha256` values.
 

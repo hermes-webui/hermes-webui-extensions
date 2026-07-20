@@ -70,14 +70,38 @@ function hasTopLevelRegister(filePath) {
     '        and isinstance(expr.func.value, ast.Name)',
     '        and expr.func.value.id == "app"',
     '    )',
+    'class NamedExprFinder(ast.NodeVisitor):',
+    '    def __init__(self):',
+    '        self.bindings = []',
+    '    def visit_NamedExpr(self, node):',
+    '        if isinstance(node.target, ast.Name) and node.target.id == "register":',
+    '            self.bindings.append(node)',
+    '        self.visit(node.value)',
+    '    def visit_Lambda(self, node):',
+    '        for default in [*node.args.defaults, *node.args.kw_defaults]:',
+    '            if default is not None: self.visit(default)',
     'class BindingFinder(ast.NodeVisitor):',
     '    def __init__(self):',
     '        self.bindings = []',
+    '    def scan_namedexpr(self, expressions):',
+    '        finder = NamedExprFinder()',
+    '        for expression in expressions:',
+    '            if expression is not None: finder.visit(expression)',
+    '        self.bindings.extend(finder.bindings)',
+    '    def annotations(self, args):',
+    '        values = [*args.posonlyargs, *args.args, *args.kwonlyargs]',
+    '        values.extend(item for item in [args.vararg, args.kwarg] if item)',
+    '        return [item.annotation for item in values]',
     '    def visit_FunctionDef(self, node):',
     '        if node.name == "register": self.bindings.append(node)',
+    '        self.scan_namedexpr([*node.decorator_list, *node.args.defaults,',
+    '                             *node.args.kw_defaults, *self.annotations(node.args),',
+    '                             node.returns])',
     '    visit_AsyncFunctionDef = visit_FunctionDef',
     '    def visit_ClassDef(self, node):',
     '        if node.name == "register": self.bindings.append(node)',
+    '        self.scan_namedexpr([*node.decorator_list, *node.bases,',
+    '                             *(keyword.value for keyword in node.keywords)])',
     '    def visit_Name(self, node):',
     '        if node.id == "register" and isinstance(node.ctx, (ast.Store, ast.Del)):',
     '            self.bindings.append(node)',
@@ -87,24 +111,43 @@ function hasTopLevelRegister(filePath) {
     '                self.bindings.append(node)',
     '    def visit_ImportFrom(self, node):',
     '        for alias in node.names:',
-    '            if (alias.asname or alias.name) == "register":',
+    '            if alias.name == "*" or (alias.asname or alias.name) == "register":',
     '                self.bindings.append(node)',
     '    def visit_ExceptHandler(self, node):',
     '        if node.name == "register": self.bindings.append(node)',
     '        self.generic_visit(node)',
-    '    def visit_Lambda(self, node): pass',
-    '    def visit_ListComp(self, node): pass',
-    '    def visit_SetComp(self, node): pass',
-    '    def visit_DictComp(self, node): pass',
-    '    def visit_GeneratorExp(self, node): pass',
-    'if any(isinstance(node, ast.Raise) for node in tree.body):',
+    '    def visit_MatchAs(self, node):',
+    '        if node.name == "register": self.bindings.append(node)',
+    '        self.generic_visit(node)',
+    '    def visit_MatchStar(self, node):',
+    '        if node.name == "register": self.bindings.append(node)',
+    '    def visit_MatchMapping(self, node):',
+    '        if node.rest == "register": self.bindings.append(node)',
+    '        self.generic_visit(node)',
+    '    def visit_Lambda(self, node):',
+    '        self.scan_namedexpr([*node.args.defaults, *node.args.kw_defaults])',
+    '    def visit_ListComp(self, node): self.scan_namedexpr([node])',
+    '    def visit_SetComp(self, node): self.scan_namedexpr([node])',
+    '    def visit_DictComp(self, node): self.scan_namedexpr([node])',
+    '    def visit_GeneratorExp(self, node): self.scan_namedexpr([node])',
+    'control_flow = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try,',
+    '                ast.With, ast.AsyncWith, ast.Assert)',
+    'optional_control_flow = tuple(',
+    '    item for item in (getattr(ast, "TryStar", None), getattr(ast, "Match", None))',
+    '    if item is not None',
+    ')',
+    'if any(isinstance(node, (ast.Raise,) + control_flow + optional_control_flow)',
+    '       for node in tree.body):',
+    '    raise SystemExit(1)',
+    'if any(isinstance(node, ast.Global) and "register" in node.names',
+    '       for node in ast.walk(tree)):',
     '    raise SystemExit(1)',
     'finder = BindingFinder()',
     'for node in tree.body:',
     '    finder.visit(node)',
     'bindings = finder.bindings',
     'if (len(bindings) != 1 or not isinstance(bindings[0], ast.FunctionDef)',
-    '        or bindings[0] not in tree.body):',
+    '        or bindings[0] not in tree.body or bindings[0].decorator_list):',
     '    raise SystemExit(1)',
     'node = bindings[0]',
     'positional = [*node.args.posonlyargs, *node.args.args]',
@@ -115,9 +158,7 @@ function hasTopLevelRegister(filePath) {
     'for statement in node.body:',
     '    if isinstance(statement, (ast.Raise, ast.Return)):',
     '        break',
-    '    if isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While,',
-    '                              ast.Try, ast.TryStar, ast.With, ast.AsyncWith,',
-    '                              ast.Match, ast.Assert)):',
+    '    if isinstance(statement, control_flow + optional_control_flow):',
     '        break',
     '    if isinstance(statement, ast.FunctionDef):',
     '        if any(is_route_factory(decorator) for decorator in statement.decorator_list):',
@@ -175,6 +216,18 @@ function pathHasSymlink(root, relativePath) {
     if (existsSync(current) && lstatSync(current).isSymbolicLink()) return true;
   }
   return false;
+}
+
+export function symlinksUnder(dir, prefix = '') {
+  if (!existsSync(dir)) return [];
+  const symlinks = [];
+  for (const item of readdirSync(dir, { withFileTypes: true })) {
+    const relativePath = prefix ? `${prefix}/${item.name}` : item.name;
+    const target = path.join(dir, item.name);
+    if (item.isSymbolicLink()) symlinks.push(relativePath);
+    else if (item.isDirectory()) symlinks.push(...symlinksUnder(target, relativePath));
+  }
+  return symlinks;
 }
 
 function importShadowCollisions(runtimeDir) {
@@ -245,23 +298,11 @@ function expectedPort(sidecar) {
 }
 
 function vendoredOriginIsCanonical(sidecar) {
-  try {
-    const origin = new URL(sidecar.origin);
-    const port = Number(origin.port);
-    return origin.protocol === 'http:'
-      && origin.hostname === '127.0.0.1'
-      && Boolean(origin.port)
-      && Number.isInteger(port)
-      && port >= 1
-      && port <= 65535
-      && !origin.username
-      && !origin.password
-      && origin.pathname === '/'
-      && !origin.search
-      && !origin.hash;
-  } catch (_) {
-    return false;
-  }
+  if (typeof sidecar?.origin !== 'string') return false;
+  const match = /^http:\/\/127\.0\.0\.1:([1-9]\d*)$/.exec(sidecar.origin.trim());
+  if (!match) return false;
+  const port = Number(match[1]);
+  return Number.isInteger(port) && port <= 65535;
 }
 
 function commandTokens(command) {
@@ -285,11 +326,15 @@ function normalizedUnitPath(value) {
   return path.posix.normalize(unquoted.replaceAll('\\', '/'));
 }
 
-function runsCanonicalEntrypoint(directive, entryId, runtimePath, workingDirectory) {
+function runsCanonicalEntrypoint(
+  directive,
+  runtimePath,
+  workingDirectory,
+  installDirectory
+) {
   const equals = directive.indexOf('=');
   if (equals < 0) return false;
-  let command = directive.slice(equals + 1).trim();
-  if (command.startsWith('-')) command = command.slice(1).trim();
+  const command = directive.slice(equals + 1).trim();
   const tokens = commandTokens(command);
   if (tokens.length === 0) return false;
 
@@ -307,10 +352,16 @@ function runsCanonicalEntrypoint(directive, entryId, runtimePath, workingDirecto
   const scriptToken = tokens[0];
 
   const normalizedRuntime = path.posix.normalize(runtimePath);
-  const expectedWorkingSuffix = `/${entryId}/${normalizedRuntime}`;
+  const normalizedInstallDirectory = normalizedUnitPath(installDirectory);
   const normalizedWorkingDirectory = normalizedUnitPath(workingDirectory);
-  if (normalizedWorkingDirectory === null
-      || !normalizedWorkingDirectory.endsWith(expectedWorkingSuffix)) {
+  if (normalizedInstallDirectory === null || normalizedWorkingDirectory === null) {
+    return false;
+  }
+  const expectedWorkingDirectory = path.posix.join(
+    normalizedInstallDirectory,
+    normalizedRuntime
+  );
+  if (normalizedWorkingDirectory !== expectedWorkingDirectory) {
     return false;
   }
   const normalizedScript = normalizedUnitPath(scriptToken);
@@ -351,6 +402,11 @@ export function checkScaffoldSync(repoRoot, { write = false } = {}) {
       failures.push(`INVALID  ${relative(repoRoot, dir)} runtime path must not contain symlinks`);
       continue;
     }
+    for (const symlink of symlinksUnder(dir)) {
+      failures.push(
+        `INVALID  ${relative(repoRoot, path.join(dir, symlink))} runtime tree must not contain symlinks`
+      );
+    }
     for (const collision of importShadowCollisions(dir)) {
       failures.push(
         `INVALID  ${relative(repoRoot, path.join(dir, collision))} shadows a canonical Python module`
@@ -365,7 +421,13 @@ export function checkScaffoldSync(repoRoot, { write = false } = {}) {
 
     for (const name of REQUIRED_VENDORED_FILES) {
       const destination = path.join(dir, name);
-      if (existsSync(destination) && !lstatSync(destination).isFile()) {
+      let destinationStat = null;
+      try {
+        destinationStat = lstatSync(destination);
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+      if (destinationStat !== null && !destinationStat.isFile()) {
         failures.push(`INVALID  ${relative(repoRoot, destination)} must be a regular file`);
         continue;
       }
@@ -375,7 +437,7 @@ export function checkScaffoldSync(repoRoot, { write = false } = {}) {
         synced += 1;
         continue;
       }
-      if (!existsSync(destination)) {
+      if (destinationStat === null) {
         failures.push(`MISSING  ${relative(repoRoot, destination)} (vendored scaffold incomplete)`);
         continue;
       }
@@ -413,14 +475,16 @@ export function checkScaffoldSync(repoRoot, { write = false } = {}) {
 
 export function checkSidecarUsage(repoRoot) {
   const failures = [];
+  const warnings = [];
   const entries = extensionEntries(repoRoot);
   const canonicalBasePath = path.join(repoRoot, 'examples', 'sidecar-scaffold', 'sidecar_base.py');
   const canonicalBase = existsSync(canonicalBasePath) ? readFileSync(canonicalBasePath) : null;
   for (const entry of entries) {
+    const entryFiles = walkFiles(entry.root);
     const allowedServerFile = vendoredDir(entry)
       ? path.join(vendoredDir(entry), 'sidecar_base.py')
       : null;
-    for (const filePath of walkFiles(entry.root)) {
+    for (const filePath of entryFiles) {
       const patterns = SERVER_PATTERNS.get(path.extname(filePath).toLowerCase());
       if (!patterns) continue;
       const contents = readFileSync(filePath);
@@ -449,7 +513,19 @@ export function checkSidecarUsage(repoRoot) {
       );
       continue;
     }
-    for (const unitPath of walkFiles(entry.root).filter((filePath) => /\.(service|container)$/.test(filePath))) {
+    for (const symlink of symlinksUnder(dir)) {
+      failures.push(
+        `INVALID RUNTIME  ${relative(repoRoot, path.join(dir, symlink))} — runtime tree must not contain symlinks`
+      );
+    }
+    for (const dropInPath of entryFiles.filter((filePath) => (
+      /(?:^|[/\\])[^/\\]+\.service\.d[/\\][^/\\]+\.conf$/.test(filePath)
+    ))) {
+      failures.push(
+        `DISALLOWED DROP-IN  ${relative(repoRoot, dropInPath)} — vendored launch behavior must live in one reviewed .service unit`
+      );
+    }
+    for (const unitPath of entryFiles.filter((filePath) => /\.(service|container)$/.test(filePath))) {
       if (unitPath.endsWith('.container')) {
         failures.push(
           `UNSUPPORTED CONTAINER  ${relative(repoRoot, unitPath)} — vendored Python sidecars must use a validated .service unit or declare an external runtime`
@@ -467,8 +543,9 @@ export function checkSidecarUsage(repoRoot) {
       ]);
       for (const item of mainDirectives) {
         if (!allowedServiceDirectives.has(item.name)
+            || (item.name === 'Type' && item.value !== 'simple')
             || (item.name === 'Environment'
-              && !/^HERMES_WEBUI_STATE_DIR=\S+$/.test(item.value))) {
+              && !/^(?:HERMES_WEBUI_STATE_DIR|HERMES_EXT_INSTALL_DIR)=\S+$/.test(item.value))) {
           failures.push(
             `DISALLOWED ${item.name}  ${relative(repoRoot, unitPath)} — service directives are restricted to the canonical launch environment`
           );
@@ -482,16 +559,53 @@ export function checkSidecarUsage(repoRoot) {
       const workingDirectory = workingDirectories.length > 0
         ? workingDirectories.at(-1).value
         : null;
+      const stateDirectories = mainDirectives
+        .filter((item) => item.name === 'Environment')
+        .map((item) => /^HERMES_WEBUI_STATE_DIR=(\S+)$/.exec(item.value)?.[1])
+        .filter(Boolean);
+      const stateDirectory = stateDirectories.length > 0
+        ? stateDirectories.at(-1)
+        : '%h/.hermes/webui';
+      const installDirectories = mainDirectives
+        .filter((item) => item.name === 'Environment')
+        .map((item) => /^HERMES_EXT_INSTALL_DIR=(\S+)$/.exec(item.value)?.[1])
+        .filter(Boolean);
+      const installDirectory = installDirectories.length > 0
+        ? installDirectories.at(-1)
+        : path.posix.join(stateDirectory, 'extensions', entry.id);
+      for (const [name, value] of [
+        ...(stateDirectories.length > 0 && stateDirectory !== '%h/.hermes/webui'
+          ? [['HERMES_WEBUI_STATE_DIR', stateDirectory]]
+          : []),
+        ...(installDirectories.length > 0
+          ? [['HERMES_EXT_INSTALL_DIR', installDirectory]]
+          : [])
+      ]) {
+        const normalized = normalizedUnitPath(value);
+        if (!(normalized?.startsWith('/') || normalized === '%h' || normalized?.startsWith('%h/'))) {
+          failures.push(
+            `BAD ${name}  ${relative(repoRoot, unitPath)} — custom directories must be absolute or %h-anchored`
+          );
+        } else {
+          warnings.push(
+            `REVIEW ${relative(repoRoot, unitPath)} ${name}=${value} — confirm this is an operator-controlled, non-broadly-writable directory`
+          );
+        }
+      }
       if (execs.length === 0) {
         failures.push(`MISSING ${directive}  ${relative(repoRoot, unitPath)} — must use /usr/bin/python3 -S [-u] sidecar.py`);
+        continue;
+      }
+      if (execs.length > 1) {
+        failures.push(`MULTIPLE ${directive}  ${relative(repoRoot, unitPath)} — exactly one launch command is allowed`);
         continue;
       }
       for (const exec of execs) {
         if (!runsCanonicalEntrypoint(
           exec,
-          entry.id,
           entry.metadata.sidecar.runtime.path,
-          workingDirectory
+          workingDirectory,
+          installDirectory
         )) {
           failures.push(
             `BAD ${directive}  ${relative(repoRoot, unitPath)} — must use /usr/bin/python3 -S [-u] sidecar.py, got: ${exec.trim()}`
@@ -500,5 +614,5 @@ export function checkSidecarUsage(repoRoot) {
       }
     }
   }
-  return { failures, scannedCount: entries.length };
+  return { failures, warnings, scannedCount: entries.length };
 }

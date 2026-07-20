@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildRegistryWithArtifacts, validateEntry } from './extension-registry-lib.mjs';
+import {
+  buildExtensionArtifact, buildRegistryWithArtifacts, validateAllEntries, validateEntry
+} from './extension-registry-lib.mjs';
 
 const tmpRoot = mkdtempSync(path.join(os.tmpdir(), 'hermes-extension-validator-'));
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
@@ -98,8 +102,70 @@ function validationErrors(scriptText, extensionOverrides = {}, runtimeOverrides 
 }
 
 try {
+  const linkedRootRepo = path.join(tmpRoot, 'linked-root-repo');
+  const linkedRootTarget = path.join(tmpRoot, 'linked-root-target');
+  mkdirSync(path.join(linkedRootRepo, 'extensions'), { recursive: true });
+  mkdirSync(linkedRootTarget, { recursive: true });
+  writeFileSync(path.join(linkedRootTarget, 'extension.json'), '{ deliberately invalid json', 'utf8');
+  symlinkSync(linkedRootTarget, path.join(linkedRootRepo, 'extensions', 'linked-entry'), 'dir');
+  const linkedRootResults = validateAllEntries({ repoRoot: linkedRootRepo }).results;
+  assert.equal(linkedRootResults.length, 1,
+    'discovery must report, not silently omit, a symlinked extension root');
+  assert.deepEqual(linkedRootResults[0].errors,
+    ['extension root must be a real directory, not a symlink']);
+
+  const nullMetadataRepo = path.join(tmpRoot, 'null-metadata-repo');
+  const nullMetadataRoot = path.join(nullMetadataRepo, 'extensions', 'null-entry');
+  mkdirSync(nullMetadataRoot, { recursive: true });
+  writeFileSync(path.join(nullMetadataRoot, 'extension.json'), 'null\n', 'utf8');
+  const nullResults = validateAllEntries({ repoRoot: nullMetadataRepo }).results;
+  assert.equal(nullResults.length, 1);
+  assert.deepEqual(nullResults[0].errors, ['extension.json must contain a JSON object']);
+
+  const danglingMetadataRepo = path.join(tmpRoot, 'dangling-metadata-repo');
+  const danglingMetadataRoot = path.join(danglingMetadataRepo, 'extensions', 'dangling-entry');
+  mkdirSync(danglingMetadataRoot, { recursive: true });
+  symlinkSync('missing-extension.json', path.join(danglingMetadataRoot, 'extension.json'), 'file');
+  const danglingResults = validateAllEntries({ repoRoot: danglingMetadataRepo }).results;
+  assert.equal(danglingResults.length, 1,
+    'discovery must not omit an extension whose metadata path is a dangling symlink');
+  assert(danglingResults[0].errors.includes('extension.json must be a real regular file, not a symlink'));
+
   let errors = validationErrors("fetch('/api/sessions/123');\n");
   assert(errors.includes('permissions.webui_api.read must include sessions'));
+
+  const linkedAssetTarget = path.join(tmpRoot, 'linked-asset-target.js');
+  writeFileSync(linkedAssetTarget, 'this is deliberately invalid JavaScript {{\n', 'utf8');
+  errors = validationErrors('', {}, {}, ({ root }) => {
+    const asset = path.join(root, 'assets', 'adapter.js');
+    rmSync(asset);
+    symlinkSync(linkedAssetTarget, asset, 'file');
+  });
+  assert(errors.includes('extension tree must not contain symlinks: assets/adapter.js'),
+    'validation must reject declared assets that artifact collection would omit');
+  assert(!errors.some((error) => error.startsWith('JavaScript syntax check failed')),
+    'validation must fail before reading or parsing a symlink target outside the extension tree');
+
+  const unicodeAsset = 'assets/café.js';
+  const unicodeResult = validationResult('', {
+    assets: { scripts: [unicodeAsset], stylesheets: [] }
+  }, {
+    scripts: [unicodeAsset], stylesheets: []
+  }, ({ root }) => {
+    writeFileSync(path.join(root, unicodeAsset), 'console.log("unicode asset");\n', 'utf8');
+  });
+  assert.deepEqual(unicodeResult.errors, []);
+  const unicodeArtifact = buildExtensionArtifact(unicodeResult);
+  const unicodeZip = path.join(tmpRoot, 'unicode-artifact.zip');
+  writeFileSync(unicodeZip, unicodeArtifact.buffer);
+  const listed = spawnSync('python3', [
+    '-c',
+    'import json,sys,zipfile; print(json.dumps(zipfile.ZipFile(sys.argv[1]).namelist(), ensure_ascii=False))',
+    unicodeZip
+  ], { encoding: 'utf8' });
+  assert.equal(listed.status, 0, listed.stderr);
+  assert(JSON.parse(listed.stdout).includes(`${unicodeResult.id}/${unicodeAsset}`),
+    'ZIP artifacts must mark UTF-8 member names so consumers decode them losslessly');
 
   errors = validationErrors("fetch('/api/session/draft');\n");
   assert(errors.includes('permissions.webui_api.write must include session/draft'));
@@ -187,6 +253,51 @@ try {
   assert.deepEqual(externalToken.errors, []);
   assert.deepEqual(externalToken.warnings, []);
 
+  for (const origin of [
+    'http://127.0.0.1:17788/admin',
+    'http://127.0.0.1:17788?mode=debug',
+    'http://user@127.0.0.1:17788',
+    'http://2130706433:17788',
+    'http://0x7f000001:17788',
+    'http://%31%32%37.0.0.1:17788'
+  ]) {
+    errors = validationErrors('', {
+      capabilities: ['manifest-bundle', 'loopback-sidecar'],
+      sidecar: {
+        type: 'loopback',
+        origin,
+        health_path: '/health',
+        proxy_auth: 'legacy',
+        runtime: { kind: 'external', repository: 'https://github.com/example/sidecar' }
+      },
+      lifecycle: { sidecar_start_required: true },
+      permissions: { loopback_sidecar: true }
+    });
+    assert(
+      errors.includes('sidecar.origin must be a loopback HTTP(S) origin without path, query, fragment, or userinfo'),
+      `core-incompatible sidecar origin must fail validation: ${origin}`
+    );
+  }
+
+  for (const healthPath of ['/health?token=abc', '/health%3Ftoken=abc', '//health', '/health/../admin']) {
+    errors = validationErrors('', {
+      capabilities: ['manifest-bundle', 'loopback-sidecar'],
+      sidecar: {
+        type: 'loopback',
+        origin: 'http://127.0.0.1:17788',
+        health_path: healthPath,
+        proxy_auth: 'legacy',
+        runtime: { kind: 'external', repository: 'https://github.com/example/sidecar' }
+      },
+      lifecycle: { sidecar_start_required: true },
+      permissions: { loopback_sidecar: true }
+    });
+    assert(
+      errors.includes('sidecar.health_path must be a safe absolute path without query or fragment'),
+      `core-incompatible sidecar health path must fail validation: ${healthPath}`
+    );
+  }
+
   errors = validationErrors('', {
     capabilities: ['manifest-bundle', 'loopback-sidecar'],
     sidecar: {
@@ -238,7 +349,23 @@ try {
     },
     permissions: { loopback_sidecar: true }
   }, {}, ({ root }) => symlinkSync(realRuntime, path.join(root, 'sidecar'), 'dir'));
-  assert(errors.includes('vendored sidecar runtime path must not contain symlinks: sidecar'));
+  assert(errors.includes('extension tree must not contain symlinks: sidecar'));
+
+  const externalRuntimeFile = path.join(tmpRoot, 'external-runtime-helper.py');
+  writeFileSync(externalRuntimeFile, '# outside packaged runtime\n', 'utf8');
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback', origin: 'http://127.0.0.1:17790', health_path: '/health',
+      proxy_auth: 'token-v1', runtime: { kind: 'vendored', path: 'sidecar' }
+    },
+    permissions: { loopback_sidecar: true }
+  }, {}, ({ root }) => {
+    const runtime = path.join(root, 'sidecar');
+    mkdirSync(runtime);
+    symlinkSync(externalRuntimeFile, path.join(runtime, 'linked-helper.py'), 'file');
+  });
+  assert(errors.includes('extension tree must not contain symlinks: sidecar/linked-helper.py'));
 
   errors = validationErrors('', {
     capabilities: ['manifest-bundle', 'loopback-sidecar'],
@@ -334,6 +461,53 @@ try {
   const mobileArtifact = first.artifacts.find((item) => item.id === 'mobile-conversations');
   assert(mobileArtifact.buffer.includes(Buffer.from('mobile-conversations/assets/mobile-conversations.js')));
 
+  const invalidRepo = path.join(tmpRoot, 'empty-vendored-repo');
+  const invalidEntryRoot = path.join(invalidRepo, 'extensions', 'broken-sidecar');
+  const repoRoot = path.resolve(scriptsDir, '..');
+  cpSync(
+    path.join(repoRoot, 'examples', 'sidecar-scaffold'),
+    path.join(invalidRepo, 'examples', 'sidecar-scaffold'),
+    { recursive: true }
+  );
+  cpSync(
+    path.join(repoRoot, 'extensions', 'assistant-avatar'),
+    invalidEntryRoot,
+    { recursive: true }
+  );
+  const invalidEntry = JSON.parse(readFileSync(path.join(invalidEntryRoot, 'extension.json'), 'utf8'));
+  invalidEntry.id = 'broken-sidecar';
+  invalidEntry.name = 'Broken Sidecar';
+  invalidEntry.capabilities = [...new Set([...invalidEntry.capabilities, 'loopback-sidecar'])];
+  invalidEntry.lifecycle.sidecar_start_required = true;
+  invalidEntry.permissions.loopback_sidecar = true;
+  invalidEntry.sidecar = {
+    type: 'loopback',
+    origin: 'http://127.0.0.1:17791',
+    health_path: '/health',
+    proxy_auth: 'token-v1',
+    runtime: { kind: 'vendored', path: 'sidecar' }
+  };
+  writeJson(path.join(invalidEntryRoot, 'extension.json'), invalidEntry);
+  const invalidManifest = JSON.parse(readFileSync(path.join(invalidEntryRoot, 'manifest.json'), 'utf8'));
+  invalidManifest.extensions[0].id = invalidEntry.id;
+  invalidManifest.extensions[0].name = invalidEntry.name;
+  invalidManifest.extensions[0].sidecar = {
+    type: invalidEntry.sidecar.type,
+    origin: invalidEntry.sidecar.origin,
+    health_path: invalidEntry.sidecar.health_path,
+    proxy_auth: invalidEntry.sidecar.proxy_auth
+  };
+  writeJson(path.join(invalidEntryRoot, 'manifest.json'), invalidManifest);
+  mkdirSync(path.join(invalidEntryRoot, 'sidecar'));
+  assert.throws(
+    () => buildRegistryWithArtifacts({
+      repoRoot: invalidRepo,
+      publishedAt: '2026-01-01T00:00:00.000Z'
+    }),
+    /vendored scaffold incomplete/,
+    'registry generation must reject a declared vendored runtime without its scaffold'
+  );
+
   const validateFromScripts = spawnSync(process.execPath, ['validate-extensions.mjs'], {
     cwd: scriptsDir,
     encoding: 'utf8',
@@ -349,8 +523,6 @@ try {
   });
   assert.equal(safetyScanFromScripts.status, 0, safetyScanFromScripts.stderr || safetyScanFromScripts.stdout);
   assert.match(safetyScanFromScripts.stdout, /safety scan passed for \d+ extension entr(?:y|ies)/);
-
-  const repoRoot = path.resolve(scriptsDir, '..');
 
   // Regression: an entry that writes localStorage and declares storage.owned === true
   // (the boolean form core REQUIRES to enable settings_schema) must PASS the safety scan.

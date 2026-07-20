@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   checkScaffoldSync,
   checkSidecarUsage
@@ -11,6 +12,7 @@ import {
 const root = mkdtempSync(path.join(os.tmpdir(), 'hermes-sidecar-contract-'));
 const canonical = path.join(root, 'examples', 'sidecar-scaffold');
 const extensions = path.join(root, 'extensions');
+const sourceRepoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function writeJson(filePath, value) {
   mkdirSync(path.dirname(filePath), { recursive: true });
@@ -176,9 +178,19 @@ try {
     'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nregister = None\n',
     'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nregister, other = None, None\n',
     'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nfrom replacement import register\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nfrom replacement import *\n',
+    'def replacement(fn):\n    return lambda app: None\n@replacement\ndef register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nmatch 1:\n    case register:\n        pass\n',
     'def register(app):\n    @app.route("GET", "/one")\n    def one(req):\n        return app.json({"ok": True})\ndef register(app):\n    @app.route("GET", "/two")\n    def two(req):\n        return app.json({"ok": True})\n',
     'raise RuntimeError("unreachable")\ndef register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\n',
     'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nraise RuntimeError("module import fails")\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nif True:\n    raise RuntimeError("module import fails")\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\ndef replacement(fn):\n    return fn\n@(register := replacement)\ndef helper():\n    pass\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\n_ = [item for item in [1] if (register := None)]\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\nhelper = lambda value=(register := (lambda app: None)): value\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\ndef helper(value: (register := (lambda app: None)) = None):\n    pass\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\ndef helper() -> (register := (lambda app: None)):\n    pass\n',
+    'def register(app):\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\ndef sneak():\n    global register\n    register = lambda app: None\nsneak()\n',
     'def register(app):\n    if True:\n        return\n    @app.route("GET", "/test")\n    def test(req):\n        return app.json({"ok": True})\n'
   ]) {
     writeFileSync(routesImpl, invalidRoutes, 'utf8');
@@ -194,6 +206,18 @@ try {
   assert.deepEqual(result.failures, []);
   assert.equal(result.vendoredCount, 1);
   assert.equal(result.externalCount, 2);
+
+  const canonicalEntrypoint = path.join(sidecarDir, 'sidecar.py');
+  const danglingTarget = path.join(root, 'outside-created-by-sync.py');
+  rmSync(canonicalEntrypoint);
+  symlinkSync(danglingTarget, canonicalEntrypoint, 'file');
+  result = checkScaffoldSync(root, { write: true });
+  assert(result.failures.some((failure) => failure.includes('sidecar.py must be a regular file')),
+    'scaffold sync must reject a dangling symlink in a protected-file position');
+  assert.equal(existsSync(danglingTarget), false,
+    'scaffold sync must not follow a dangling protected-file symlink outside the runtime');
+  rmSync(canonicalEntrypoint);
+  writeFileSync(canonicalEntrypoint, '# canonical entrypoint\n', 'utf8');
 
   writeFileSync(routesImpl,
     'def handler(req):\n    return {"ok": True}\ndef register(app):\n    app.route("GET", "/test")(handler)\n',
@@ -218,6 +242,18 @@ try {
     rmSync(collisionPath, { recursive: true, force: true });
   }
 
+  const externalHelper = path.join(root, 'external-helper.py');
+  const linkedHelper = path.join(sidecarDir, 'linked-helper.py');
+  writeFileSync(externalHelper, 'print("outside artifact")\n', 'utf8');
+  symlinkSync(externalHelper, linkedHelper, 'file');
+  result = checkScaffoldSync(root);
+  assert(result.failures.some((failure) => failure.includes('runtime tree must not contain symlinks')),
+    'files inside a vendored runtime must not redirect outside the packaged artifact');
+  result = checkSidecarUsage(root);
+  assert(result.failures.some((failure) => failure.includes('runtime tree must not contain symlinks')),
+    'the usage gate must reject nested runtime symlinks too');
+  rmSync(linkedHelper);
+
   const vendoredMetadataPath = path.join(vendoredRoot, 'extension.json');
   const vendoredMetadata = JSON.parse(readFileSync(vendoredMetadataPath, 'utf8'));
   const linkedRuntime = path.join(vendoredRoot, 'linked-sidecar');
@@ -238,6 +274,14 @@ try {
   result = checkScaffoldSync(root);
   assert(result.failures.some((failure) => failure.includes('health_path must be /health')));
   vendoredMetadata.sidecar.health_path = '/health';
+  writeJson(vendoredMetadataPath, vendoredMetadata);
+
+  vendoredMetadata.sidecar.origin = 'http://0x7f.0.0.1:17790';
+  writeJson(vendoredMetadataPath, vendoredMetadata);
+  result = checkScaffoldSync(root);
+  assert(result.failures.some((failure) => failure.includes('vendored sidecar.origin must use http://127.0.0.1')),
+    'the standalone contract gate must reject URL-normalized IPv4 spellings too');
+  vendoredMetadata.sidecar.origin = 'http://127.0.0.1:17790';
   writeJson(vendoredMetadataPath, vendoredMetadata);
 
   writeJson(path.join(sidecarDir, 'sidecar.json'), {
@@ -279,6 +323,12 @@ try {
   result = checkSidecarUsage(root);
   assert(result.failures.some((failure) => failure.startsWith('BAD ExecStart')),
     'a basename-only entrypoint without canonical WorkingDirectory must not pass');
+  writeFileSync(unitPath,
+    '[Service]\nWorkingDirectory=/tmp/untrusted/vendored-sidecar/sidecar\nExecStart=/usr/bin/python3 -S sidecar.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert(result.failures.some((failure) => failure.startsWith('BAD ExecStart')),
+    'a directory with only the expected suffix must not replace the installed extension tree');
   writeFileSync(unitPath,
     '[Service]\nWorkingDirectory=%h/.hermes/webui/extensions/vendored-sidecar/sidecar\nExecStart=sidecar.py\n',
     'utf8');
@@ -371,6 +421,24 @@ try {
   assert(result.failures.some((failure) => failure.startsWith('BAD ExecStart')),
     'the canonical service must disable site startup with -S');
   writeFileSync(unitPath,
+    '[Service]\nWorkingDirectory=%h/.hermes/webui/extensions/vendored-sidecar/sidecar\nExecStart=-/usr/bin/python3 -S sidecar.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert(result.failures.some((failure) => failure.startsWith('BAD ExecStart')),
+    'the ignore-failure command prefix must not hide a failed sidecar process');
+  writeFileSync(unitPath,
+    '[Service]\nType=forking\nWorkingDirectory=%h/.hermes/webui/extensions/vendored-sidecar/sidecar\nExecStart=/usr/bin/python3 -S sidecar.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert(result.failures.some((failure) => failure.startsWith('DISALLOWED Type')),
+    'service types that do not match the foreground scaffold process must fail');
+  writeFileSync(unitPath,
+    '[Service]\nType=simple\nWorkingDirectory=%h/.hermes/webui/extensions/vendored-sidecar/sidecar\nExecStart=/usr/bin/python3 -S sidecar.py\nExecStart=/usr/bin/python3 -S sidecar.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert(result.failures.some((failure) => failure.startsWith('MULTIPLE ExecStart')),
+    'a vendored service must have exactly one canonical launch command');
+  writeFileSync(unitPath,
     '[Service]\nWorkingDirectory=%h/.hermes/webui/extensions/vendored-sidecar/sidecar\nExecStart=/usr/bin/python3 -S -u sidecar.py\n',
     'utf8');
   const containerPath = path.join(unitDir, 'sidecar.container');
@@ -381,7 +449,46 @@ try {
   assert(result.failures.some((failure) => failure.startsWith('UNSUPPORTED CONTAINER')),
     'vendored Python sidecars must not rely on an unverified container entrypoint');
   rmSync(containerPath);
-  assert.deepEqual(checkSidecarUsage(root).failures, []);
+  result = checkSidecarUsage(root);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.warnings, [], 'the default installation layout must not produce review noise');
+  const dropInDir = path.join(unitDir, 'sidecar.service.d');
+  mkdirSync(dropInDir);
+  writeFileSync(path.join(dropInDir, 'override.conf'),
+    '[Service]\nExecStart=\nExecStart=/usr/bin/python3 -S rogue.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert(result.failures.some((failure) => failure.startsWith('DISALLOWED DROP-IN')),
+    'systemd drop-ins must not replace a reviewed vendored launch command');
+  rmSync(dropInDir, { recursive: true });
+  writeFileSync(unitPath,
+    '[Service]\nType=simple\nWorkingDirectory=/srv/hermes/extensions/vendored-sidecar/sidecar\nEnvironment=HERMES_WEBUI_STATE_DIR=/srv/hermes\nExecStart=/usr/bin/python3 -S sidecar.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert.deepEqual(result.failures, [],
+    'a custom state directory must be accepted when WorkingDirectory points at its installed artifact');
+  assert(result.warnings.some((warning) => warning.includes('HERMES_WEBUI_STATE_DIR=/srv/hermes')),
+    'a custom state directory must produce an explicit reviewer warning');
+  writeFileSync(unitPath,
+    '[Service]\nType=simple\nWorkingDirectory=/opt/hermes-extensions/vendored-sidecar/sidecar\nEnvironment=HERMES_WEBUI_STATE_DIR=/srv/hermes\nEnvironment=HERMES_EXT_INSTALL_DIR=/opt/hermes-extensions/vendored-sidecar\nExecStart=/usr/bin/python3 -S sidecar.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert.deepEqual(result.failures, [],
+    'a declared custom extension install directory must override the state-directory default');
+  assert(result.warnings.some((warning) => warning.includes('HERMES_EXT_INSTALL_DIR=/opt/hermes-extensions/vendored-sidecar')),
+    'a custom extension install directory must produce an explicit reviewer warning');
+  writeFileSync(unitPath,
+    '[Service]\nWorkingDirectory=/tmp/vendored-sidecar/sidecar\nEnvironment=HERMES_EXT_INSTALL_DIR=relative/path\nExecStart=/usr/bin/python3 -S sidecar.py\n',
+    'utf8');
+  result = checkSidecarUsage(root);
+  assert(result.failures.some((failure) => failure.startsWith('BAD HERMES_EXT_INSTALL_DIR')),
+    'a custom install directory must be absolute or anchored to the service user home');
+
+  const workflow = readFileSync(path.join(sourceRepoRoot, '.github', 'workflows', 'extensions.yml'), 'utf8');
+  assert.match(workflow, /examples\/loopback-sidecar\/\*\*/,
+    'the Extensions workflow must run for loopback example changes');
+  assert.match(workflow, /node scripts\/validate-desktop-companion\.mjs/,
+    'the Extensions workflow must enforce Desktop Companion external legacy metadata');
 
   console.log('sidecar contract self-tests passed');
 } finally {

@@ -78,6 +78,10 @@ runtime that has not migrated must declare `proxy_auth: "legacy"` explicitly;
 the validator reports that status rather than treating it as scaffold-compliant.
 Desktop Companion is the current external/legacy compatibility case.
 
+All runtime kinds use core-compatible endpoint syntax: `origin` is a bare
+loopback HTTP(S) origin with no userinfo, path, query, or fragment, and
+`health_path` is an absolute, segment-normalized path with no query or fragment.
+
 The runtime `manifest.json` repeats `type`, `origin`, `health_path`, and
 `proxy_auth` but omits the library-only `runtime` ownership object. CI requires
 the repeated fields to match `extension.json` exactly.
@@ -126,30 +130,55 @@ conformance.
    loopback probe — acceptable for liveness only.
 3. **Missing token file → 503, wrong token → 401**, both fail closed.
 4. **No secrets in the `.service` file.** The token lives in the state dir; the
-   unit only points at the state dir. `WorkingDirectory` must resolve to
-   `<extension-id>/<runtime.path>`, and `ExecStart` must run only that directory's
-   byte-compared `sidecar.py` as `/usr/bin/python3 -S [-u] sidecar.py`, with no
-   trailing command tokens. The mandatory `-S` prevents `sitecustomize` and `.pth`
-   startup hooks from bypassing the byte-compared modules. The `[Service]`
-   section uses a small directive allowlist; auxiliary `Exec*`, environment files,
-   root/image overrides, and other execution-context directives are forbidden because
-   they could execute outside the authenticated scaffold. Direct shebang execution,
-   arbitrary Python-looking executables, `/usr/bin/env` wrappers, and Quadlet
-   `.container` units are rejected because they cannot prove the interpreter or
-   image entrypoint; model those runtimes as externally maintained instead.
+   unit names only the non-secret state and optional custom extension install
+   directory.
+   `WorkingDirectory` must equal
+   `<HERMES_WEBUI_STATE_DIR>/extensions/<extension-id>/<runtime.path>` by
+   default. For an extension installed elsewhere, the unit declares the exact
+   extension entry directory with the sidecar-only `HERMES_EXT_INSTALL_DIR` and
+   `WorkingDirectory` must equal its `<runtime.path>` child. Do not reuse
+   WebUI's `HERMES_WEBUI_EXTENSION_DIR`: WebUI supports both a single-entry
+   development directory and a gallery root, so that variable is intentionally
+   ambiguous here. Custom directories must be absolute or `%h`-anchored and CI
+   emits an explicit reviewer warning. Reviewers must confirm each one is an
+   operator-controlled installation directory, not a broadly writable or
+   untrusted path.
+   `ExecStart` must run that directory's byte-compared `sidecar.py` as
+   `/usr/bin/python3 -S [-u] sidecar.py`, with no command prefix or trailing
+   tokens. The absolute interpreter path and mandatory `-S` prevent PATH,
+   `sitecustomize`, and `.pth` startup hooks from replacing checked modules. If
+   `Type` is present it must be `simple`, matching the foreground scaffold
+   process. The `[Service]` section uses a small directive allowlist; auxiliary
+   `Exec*`, environment files, root/image overrides, and other execution-context
+   directives are forbidden. Systemd `.service.d/*.conf` drop-ins are also
+   forbidden because they can replace the reviewed launch command. Direct
+   shebang execution, arbitrary Python-looking executables, `/usr/bin/env`
+   wrappers, and Quadlet `.container` units cannot prove the interpreter or image
+   entrypoint and must be modeled as external.
 5. **One required route hook, one optional daemon hook.** `routes_impl.register(app)`
    is required, and `routes_impl.py` must be a regular file that defines exactly
    one top-level synchronous `register(app)` binding callable with that one
-   argument. It must apply at least one reachable `@app.route(...)` decorator (or
-   the equivalent direct decorator application) to a handler. A bare
-   `app.route(...)` call registers nothing and is rejected. Later rebinding is
-   rejected. `routes_impl.start_background(app)` is called only when the module
-   defines it.
-6. **The declared vendored tree is the artifact that executes.** Every component
-   of `runtime.path` must be a real directory, not a symlink. Protected scaffold,
-   entrypoint, config, and route files must be real regular files. Python import
-   collisions next to them (`sidecar_base/`, `routes_impl/`, compiled or bytecode
-   variants) are rejected so another module cannot shadow a byte-compared file.
+   argument. That binding is undecorated and must apply at least one
+   `@app.route(...)` decorator (or the equivalent direct decorator application)
+   in its linear body before any control-flow statement. A bare `app.route(...)`
+   call registers nothing and is rejected. Static checks reject direct,
+   imported, assigned, pattern-capture, evaluated-definition (decorator,
+   default, and annotation), and comprehension-walrus rebinding. Dynamic
+   namespace mutation such as
+   `globals()["register"] = ...` is not generally provable and remains a review
+   responsibility. Control-flow statements in `routes_impl.py`'s own module body
+   are also rejected so that file cannot conditionally stop or replace route
+   registration. Imported helper
+   modules remain ordinary reviewed extension code.
+   `routes_impl.start_background(app)` is called only when the module defines it.
+6. **The reviewed extension tree is the artifact that executes.** Every entry
+   beneath an extension root, including declared assets and every component and
+   nested entry of `runtime.path`, must be a real file or directory, never a
+   symlink. Generated registry artifacts therefore package the same tree that
+   validation inspected. Protected scaffold, entrypoint, config, and route files
+   must be real regular files. Python import collisions next to them
+   (`sidecar_base/`, `routes_impl/`, compiled or bytecode variants) are rejected
+   so another module cannot shadow a byte-compared file.
 
 ## Auth-off posture
 

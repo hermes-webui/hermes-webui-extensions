@@ -98,11 +98,16 @@ Run the current repo-wide checks locally with:
 ```bash
 node scripts/validate-extensions.mjs
 node scripts/test-extension-validator.mjs
+node scripts/test-sidecar-contract.mjs
+python3 scripts/test-sidecar-scaffold.py
 node scripts/scan-extension-safety.mjs
+node scripts/sync-sidecar-base.mjs --check
+node scripts/check-sidecar-usage.mjs
+node scripts/validate-desktop-companion.mjs
 node scripts/generate-registry.mjs --out dist/registry.json
 ```
 
-Pull requests run the same validator and safety scan in CI. Pushes to `main`
+Pull requests run the same validation, contract, and safety checks in CI. Pushes to `main`
 generate the registry and per-extension zip artifacts for GitHub Pages. The
 registry entry includes a `download` URL and artifact-level `sha256` for each
 extension so the WebUI install client fetches and verifies reviewed bytes before

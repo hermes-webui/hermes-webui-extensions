@@ -247,7 +247,8 @@ Manual verification should confirm:
 
 ## Known Limitations
 
-- No one-click install path is available yet.
+- Gallery installation is available for the WebUI adapter; the external Desktop
+  Companion application and sidecar still require their own installation.
 - WebUI settings do not yet manage sidecar lifecycle.
 - Hermes WebUI core's consent-gated sidecar proxy is shipped, but this external
   runtime remains explicitly `legacy` and its adapter still uses direct loopback.
