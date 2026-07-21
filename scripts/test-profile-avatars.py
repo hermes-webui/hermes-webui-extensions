@@ -185,6 +185,13 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn("_validateAvatarFile(f)", pick)
         self.assertLess(pick.index("_validateAvatarFile(f)"), pick.index("upload(name, f)"))
 
+    def test_decode_failures_use_a_stable_user_facing_message(self) -> None:
+        block = self.source.split("function _decodeAvatarDimensions", 1)[1].split(
+            "function _validateAvatarFile", 1
+        )[0]
+        message = "The selected file is not a decodable image."
+        self.assertEqual(block.count(message), 2)
+
     def test_generated_initial_colors_meet_white_text_contrast(self) -> None:
         self.assertIn("55%, 30%", self.source)
         worst = 100.0

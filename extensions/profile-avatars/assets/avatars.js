@@ -543,6 +543,8 @@
         var dimensions = { width: bitmap.width, height: bitmap.height };
         if (typeof bitmap.close === 'function') bitmap.close();
         return dimensions;
+      }).catch(function () {
+        throw new Error('The selected file is not a decodable image.');
       });
     }
     return new Promise(function (resolve, reject) {
