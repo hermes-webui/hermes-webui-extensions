@@ -1,0 +1,85 @@
+{
+  "id": "docker-tunnel-manager",
+  "name": "Docker & Tunnel Manager",
+  "description": "View and manage Docker containers, images, volumes, system resource usage, and prune unused resources. Start/stop/restart containers. Compose project view with service status. Image history and layer explorer. Monitor Cloudflare tunnel status and health-check all tunnel backends. Runs an external Python sidecar (port 17900) that talks to the Docker socket and cloudflared CLI.",
+  "version": "0.3.0",
+  "author": "ChonSong",
+  "homepage": "https://github.com/ChonSong/docker-tunnel-sidecar",
+  "assets": {
+    "scripts": [
+      "assets/docker-tunnel-manager.js"
+    ],
+    "stylesheets": [
+      "assets/docker-tunnel-manager.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17900",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "external",
+      "repository": "https://github.com/ChonSong/docker-tunnel-sidecar"
+    }
+  },
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "summary": "Install the Docker & Tunnel Manager sidecar as a systemd user service, then refresh the WebUI to use it.",
+    "docs_url": "https://github.com/ChonSong/docker-tunnel-sidecar/blob/main/README.md",
+    "requires_local_app": false,
+    "local_app_label": "Docker & Tunnel Manager sidecar"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": true
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "embeds_iframe": false
+  },
+  "settings_schema": [
+    {
+      "key": "autoRefresh",
+      "type": "boolean",
+      "label": "Auto-refresh while panel is open",
+      "default": true
+    },
+    {
+      "key": "refreshInterval",
+      "type": "integer",
+      "label": "Refresh interval (seconds)",
+      "default": 15
+    },
+    {
+      "key": "sidecarPort",
+      "type": "integer",
+      "label": "Sidecar port",
+      "default": 17900
+    }
+  ]
+}
