@@ -1,0 +1,53 @@
+🇺🇸 US
+NPR News https://feeds.npr.org/1001/rss.xml — News — 9/10
+AP Top News https://rsshub.app/apnews/topics/apf-topnews — News — 9/10
+Reuters US https://feeds.reuters.com/reuters/topNews — News, Politics — 10/10
+The New York Times https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml — News, Politics — 10/10
+Washington Post https://feeds.washingtonpost.com/rss/world — News, Politics — 9/10
+Politico https://www.politico.com/rss/politicopicks.xml — Politics — 9/10
+The Hill https://thehill.com/feed/ — Politics — 7/10
+Wall Street Journal https://feeds.a.dj.com/rss/RSSMarketsMain.xml — Economy, News — 10/10
+Bloomberg Markets https://feeds.bloomberg.com/markets/news.rss — Economy, News — 10/10
+CNBC Economy https://search.cnbc.com/rs/search/combinedcombined/q=economy&type=cnbcnewsstory&partnerId=wrss01&id=20910258 — Economy, News — 8/10
+
+💻 Tech & AI
+TechCrunch https://techcrunch.com/feed/ — Tech, AI — 9/10
+Wired https://www.wired.com/feed/rss — Tech, AI — 9/10
+The Verge https://www.theverge.com/rss/index.xml — Tech — 8/10
+MIT Technology Review https://www.technologyreview.com/feed/ — Tech, AI — 10/10
+Ars Technica https://feeds.arstechnica.com/arstechnica/index — Tech — 8/10
+VentureBeat AI https://venturebeat.com/category/ai/feed/ — AI, Tech — 8/10
+AI News https://artificialintelligence-news.com/feed/ — AI — 7/10
+Towards AI https://pub.towardsai.net/feed — AI — 7/10
+
+🌍 Europe
+BBC News http://feeds.bbci.co.uk/news/rss.xml — News — 10/10
+The Guardian https://www.theguardian.com/world/rss — News, Politics — 9/10
+Financial Times https://www.ft.com/rss/home — Economy, News — 10/10
+The Economist https://www.economist.com/feeds/print-edition/technology.xml — Economy, Politics, News — 10/10
+Deutsche Welle https://rss.dw.com/rdf/rss-en-all — News, Politics — 8/10
+Euronews https://www.euronews.com/rss?format=mrss&level=program&name=euronews-program — News, Politics — 7/10
+Politico Europe https://www.politico.eu/feed/ — Politics — 9/10
+El País (English) https://feeds.elpais.com/mrss-s/pages/ep/site/english.elpais.com/portada — News, Politics — 8/10
+
+🌎 Latin America
+Reuters Latin America https://feeds.reuters.com/reuters/latestNews — News — 9/10
+Mercopress https://en.mercopress.com/rss — News, Politics — 7/10
+Buenos Aires Herald https://buenosairesherald.com/feed — News, Economy — 6/10
+Folha de S.Paulo (English) https://www1.folha.uol.com.br/internacional/en/rss091.xml — News, Politics — 8/10
+InSight Crime https://insightcrime.org/feed/ — Politics, News — 8/10
+
+🕌 Middle East
+Al Jazeera https://www.aljazeera.com/xml/rss/all.xml — News, Politics — 9/10
+Arab News https://www.arabnews.com/rss.xml — News, Economy — 7/10
+Jerusalem Post https://www.jpost.com/rss/rssfeedsheadlines.aspx — News, Politics — 7/10
+Middle East Eye https://www.middleeasteye.net/rss — News, Politics — 7/10
+Haaretz English https://www.haaretz.com/cmlink/1.628765 — News, Politics — 8/10
+
+💰 Finance
+CoinDesk https://www.coindesk.com/arc/outboundfeeds/rss/ — Crypto — 9/10
+CoinTelegraph https://cointelegraph.com/rss — Crypto — 8/10
+Decrypt https://decrypt.co/feed — Crypto — 7/10
+The Block https://www.theblock.co/rss.xml — Crypto, Economy — 8/10
+Investopedia https://www.investopedia.com/feedbuilder/feed/getfeed?feedName=rss_headline — Economy — 7/10
+IMF News https://www.imf.org/external/rss/all.xml — Economy, Politics — 9/10

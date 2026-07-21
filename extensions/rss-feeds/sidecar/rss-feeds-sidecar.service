@@ -1,0 +1,17 @@
+# RSS Feeds sidecar — token-v1 loopback backend for the rss-feeds WebUI extension.
+# Requires python3 with `feedparser` installed. WebUI provisions the proxy token
+# in the state dir; the scaffold resolves it. No token in this unit.
+# Install: cp to ~/.config/systemd/user/ then `systemctl --user enable --now rss-feeds-sidecar`
+[Unit]
+Description=RSS Feeds sidecar (loopback backend for the rss-feeds WebUI extension, token-v1)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.hermes/webui/extensions/rss-feeds/sidecar
+Environment=HERMES_WEBUI_STATE_DIR=%h/.hermes/webui
+ExecStart=/usr/bin/python3 -S -u sidecar.py
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

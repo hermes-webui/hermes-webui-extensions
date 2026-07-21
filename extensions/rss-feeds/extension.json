@@ -1,0 +1,72 @@
+{
+  "id": "rss-feeds",
+  "name": "RSS Feeds",
+  "description": "RSS/Atom reader for the WebUI \u2014 categorized subscriptions, keyword filters, search, read tracking, and optional AI summaries via a local loopback sidecar.",
+  "version": "0.1.0",
+  "author": "asorourx",
+  "assets": {
+    "scripts": [
+      "assets/feeds-inject.js",
+      "assets/feeds.js"
+    ],
+    "stylesheets": [
+      "assets/feeds.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17797",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  },
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "requires_local_app": true,
+    "local_app_label": "RSS Feeds sidecar",
+    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17797, then approve the sidecar proxy in Settings \u2192 Extensions."
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": [
+        "/api/extensions/sidecar-proxy-consent"
+      ]
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "mc.feeds.read",
+        "mc.feeds.read.visibility",
+        "mc.feeds.pageSize",
+        "mc.feeds.pageSize.clicked",
+        "mc.feeds.pageSize.summaries"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": true
+  }
+}

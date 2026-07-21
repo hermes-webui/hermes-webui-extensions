@@ -1,0 +1,22 @@
+{
+  "extensions": [
+    {
+      "id": "rss-feeds",
+      "name": "RSS Feeds",
+      "description": "RSS/Atom reader \u2014 categorized subscriptions, filters, search, read tracking, and optional AI summaries.",
+      "scripts": [
+        "assets/feeds-inject.js",
+        "assets/feeds.js"
+      ],
+      "stylesheets": [
+        "assets/feeds.css"
+      ],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17797",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      }
+    }
+  ]
+}
