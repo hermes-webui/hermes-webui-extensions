@@ -91,6 +91,7 @@
      The WebUI sidecar proxy stamps no-store on responses, which would defeat
      normal HTTP caching — this sidesteps it with zero persistent storage. */
   var _blobByUrl = Object.create(null);   // source url → object URL
+  var _blobInflight = Object.create(null); // source url → shared fetch Promise
   function _pruneBlobCache() {
     var live = Object.create(null);
     Object.keys(_byProfile).forEach(function (name) {
@@ -103,20 +104,40 @@
       delete _blobByUrl[url];
     });
   }
+  function _fetchAvatarBlob(url) {
+    if (_blobByUrl[url]) return Promise.resolve(_blobByUrl[url]);
+    if (_blobInflight[url]) return _blobInflight[url];
+    var request = fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.blob() : null; })
+      .then(function (blob) {
+        if (!blob) return null;
+        var objectUrl = URL.createObjectURL(blob);
+        _blobByUrl[url] = objectUrl;
+        return objectUrl;
+      });
+    _blobInflight[url] = request.then(function (objectUrl) {
+      delete _blobInflight[url];
+      return objectUrl;
+    }, function (error) {
+      delete _blobInflight[url];
+      throw error;
+    });
+    return _blobInflight[url];
+  }
   function _prefetchImages() {
     var jobs = [];
     Object.keys(_byProfile).forEach(function (name) {
       var e = _byProfile[name];
       if (!e.url) return;
       if (_blobByUrl[e.url]) { e.blob = _blobByUrl[e.url]; return; }
+      var requestedUrl = e.url;
       jobs.push(
-        fetch(e.url, { credentials: 'same-origin' })
-          .then(function (r) { return r.ok ? r.blob() : null; })
-          .then(function (b) {
-            if (!b) return;
-            var obj = URL.createObjectURL(b);
-            _blobByUrl[e.url] = obj;
-            if (_byProfile[name]) _byProfile[name].blob = obj;
+        _fetchAvatarBlob(requestedUrl)
+          .then(function (objectUrl) {
+            if (!objectUrl) return;
+            var current = _byProfile[name];
+            if (current && current.url === requestedUrl) current.blob = objectUrl;
+            else _pruneBlobCache(); // late result for a replaced/removed avatar
           })
           .catch(function () {})
       );
@@ -328,6 +349,7 @@
     }).then(function (jj) {
       var raw = jj.url || ('/api/avatars/' + name + '?v=' + Math.floor(Date.now() / 1000));
       _record(name, BASE + raw, _byProfile[name] || {});
+      _pruneBlobCache();
       return _prefetchImages().then(function () { _broadcast(); return jj; });
     });
   }
@@ -339,6 +361,7 @@
         throw new Error(jj.error || ('Delete failed (HTTP ' + r.status + ')'));
       });
       if (_byProfile[name]) { _byProfile[name].url = null; _byProfile[name].blob = null; }
+      _pruneBlobCache();
       _broadcast();
       return r.json();
     });
@@ -348,12 +371,18 @@
     refresh().then(function () { _fetchSessionProfiles(true).then(_decorateSessionRows); });
   });
 
-  function _watch() {
-    if (!('MutationObserver' in window)) return;
-    new MutationObserver(function (muts) {
-      var sawSessions = false, sawBadges = false;
-      for (var a = 0; a < muts.length; a++) {
-        var nodes = muts[a].addedNodes || [];
+  function _handlePageMutations(muts) {
+    var sawSessions = false, sawBadges = false;
+    for (var a = 0; a < muts.length; a++) {
+      // custom-avatar clears its image by removing a child and restoring a text
+      // node on the EXISTING badge. Neither added node is an Element, so inspect
+      // the mutation target as well and let _renderBadges reclaim the slot once
+      // hwx-avatar-set has gone away.
+      var target = muts[a].target;
+      if (!sawBadges && target instanceof Element && target.matches('.role-icon.assistant')) {
+        sawBadges = true;
+      }
+      var nodes = muts[a].addedNodes || [];
         for (var b = 0; b < nodes.length; b++) {
           var node = nodes[b];
           if (!(node instanceof Element)) continue;
@@ -376,13 +405,17 @@
             sawBadges = true;
           }
         }
-      }
-      if (sawSessions) {
-        _decorateSessionRows();   // sync from cached map — runs before paint
-        _decorateSoon();          // then refresh the map in the background
-      }
-      if (sawBadges) _renderBadges();
-    }).observe(document.body, { childList: true, subtree: true });
+    }
+    if (sawSessions) {
+      _decorateSessionRows();   // sync from cached map — runs before paint
+      _decorateSoon();          // then refresh the map in the background
+    }
+    if (sawBadges) _renderBadges();
+  }
+  function _watch() {
+    if (!('MutationObserver' in window)) return;
+    new MutationObserver(_handlePageMutations)
+      .observe(document.body, { childList: true, subtree: true });
   }
 
   function _setActive(name) {
@@ -422,8 +455,28 @@
 
   /* ---- Manager modal: upload / remove an avatar per profile ---- */
   var _managerRestoreFocus = null;
+  function _isCoreDialogOpen() {
+    var overlay = document.getElementById('appDialogOverlay');
+    return !!(overlay && overlay.style.display !== 'none');
+  }
+  function _clearAvatarStatus() {
+    var status = document.getElementById('paAvatarManagerStatus');
+    if (!status) return;
+    status.hidden = true;
+    status.textContent = '';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+  }
   function _showAvatarError(message) {
-    if (typeof window.showToast === 'function') window.showToast(message, 3000, 'error');
+    var manager = document.getElementById('paAvatarManager');
+    var status = document.getElementById('paAvatarManagerStatus');
+    if (manager && manager.style.display !== 'none' && status) {
+      status.textContent = message;
+      status.hidden = false;
+      status.setAttribute('role', 'alert');
+      status.setAttribute('aria-live', 'assertive');
+    }
+    else if (typeof window.showToast === 'function') window.showToast(message, undefined, 'error');
     else window.alert(message);
   }
   function _confirmAvatarRemoval(name) {
@@ -431,7 +484,7 @@
     if (typeof window.showConfirmDialog === 'function') {
       return window.showConfirmDialog({
         title: 'Remove profile avatar?', message: message,
-        confirmText: 'Remove', danger: true, focusCancel: true,
+        confirmLabel: 'Remove', danger: true, focusCancel: true,
       });
     }
     return Promise.resolve(window.confirm(message));
@@ -468,6 +521,7 @@
         var rm = document.createElement('button');
         rm.type = 'button'; rm.className = 'pa-m-btn pa-m-btn--danger'; rm.textContent = 'Remove';
         rm.onclick = function () {
+          _clearAvatarStatus();
           _confirmAvatarRemoval(p.label || p.name).then(function (approved) {
             if (!approved) return;
             rm.disabled = true;
@@ -488,6 +542,7 @@
     inp.onchange = function () {
       var f = inp.files && inp.files[0];
       if (!f) return;
+      _clearAvatarStatus();
       // 512 KiB matches the core sidecar-proxy's hard response cap — anything
       // larger uploads "ok" then 502s on read, so reject it up front.
       if (f.size > 512 * 1024) { _showAvatarError('Image too large (max 512 KiB). Resize to 256–512px first.'); return; }
@@ -506,6 +561,7 @@
         '<div class="pa-m-topbar"><span class="pa-m-brand">Profile avatars</span>' +
           '<button type="button" class="pa-m-close" id="paAvatarClose" aria-label="Close">&times;</button></div>' +
         '<div class="pa-m-hint">PNG / JPEG / WebP, ≤ 512 KiB. 256–512px square looks best.</div>' +
+        '<div class="pa-m-status" id="paAvatarManagerStatus" role="status" aria-live="polite" hidden></div>' +
         '<div class="pa-m-list" id="paAvatarManagerList"></div>' +
       '</div>';
     document.body.appendChild(ov);
@@ -513,6 +569,10 @@
     document.getElementById('paAvatarClose').addEventListener('click', _closeManager);
     document.addEventListener('keydown', function (e) {
       if (ov.style.display === 'none') return;
+      // Yield regardless of listener registration order: if core runs first it
+      // closes the overlay but leaves defaultPrevented set; if we run first the
+      // overlay is still visibly open.
+      if (e.defaultPrevented || _isCoreDialogOpen()) return;
       if (e.key === 'Escape') {
         e.preventDefault(); e.stopPropagation(); _closeManager(); return;
       }
@@ -528,6 +588,7 @@
     _buildManager();
     _managerRestoreFocus = document.activeElement;
     var ov = document.getElementById('paAvatarManager');
+    _clearAvatarStatus();
     ov.style.display = 'flex';
     var close = document.getElementById('paAvatarClose');
     if (close) close.focus();
