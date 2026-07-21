@@ -12,7 +12,9 @@
   "sidecar": {
     "type": "loopback",
     "origin": "http://127.0.0.1:18787",
-    "health_path": "/health"
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": { "kind": "vendored", "path": "sidecar" }
   },
   "lifecycle": {
     "webui_restart_required": false,
@@ -21,7 +23,7 @@
     "native_host_autostart": "none"
   },
   "post_install": {
-    "summary": "Install adds the Jarvis button. Start the local token sidecar with GEMINI_API_KEY and allow Gemini Live in CSP before connecting.",
+    "summary": "Enable WebUI authentication, approve Jarvis Voice in Settings → Extensions, then start the local token sidecar with GEMINI_API_KEY.",
     "requires_local_app": true,
     "local_app_label": "Jarvis token sidecar"
   },
@@ -41,7 +43,6 @@
     "invokes_hermes_send": true
   },
   "settings_schema": [
-    { "key": "sidecarUrl", "type": "string", "label": "Token sidecar URL", "default": "http://127.0.0.1:18787" },
     { "key": "model", "type": "string", "label": "Gemini Live model", "default": "gemini-3.1-flash-live-preview" },
     { "key": "voice", "type": "enum", "label": "Voice", "options": ["Puck", "Charon", "Kore", "Fenrir", "Aoede"], "default": "Puck" },
     { "key": "hermesTimeoutSeconds", "type": "integer", "label": "Hermes tool timeout seconds", "default": 180 }

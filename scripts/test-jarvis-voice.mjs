@@ -27,6 +27,9 @@ sandbox.window = sandbox;
 sandbox.S = { session: { session_id: 's1' }, messages: [], pendingFiles: [] };
 
 const js = readFileSync(new URL('../extensions/jarvis-voice/assets/jarvis-voice.js', import.meta.url), 'utf8');
+assert.match(js, /fetch\('\/api\/extensions\/jarvis-voice\/sidecar\/api\/token'/);
+assert.equal(js.includes('sidecarUrl'), false);
+assert.match(js, /Enable WebUI authentication under Settings → Password/);
 vm.runInNewContext(js, sandbox, { filename: 'jarvis-voice.js' });
 const jarvis = sandbox.HermesJarvisVoice;
 assert.equal(typeof jarvis.runHermes, 'function');

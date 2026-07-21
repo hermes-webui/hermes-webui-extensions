@@ -38,7 +38,6 @@
       return fallback;
     };
     return {
-      sidecarUrl: String(get('sidecarUrl', 'http://127.0.0.1:18787')).replace(/\/+$/, ''),
       model: String(get('model', 'gemini-3.1-flash-live-preview')),
       voice: String(get('voice', 'Puck')),
       timeoutSeconds: Math.max(15, Number(get('hermesTimeoutSeconds', 180)) || 180),
@@ -182,9 +181,20 @@
       const cancelled = () => epoch !== state.disconnectEpoch;
       const cfg = settings();
       setStatus('token');
-      const res = await fetch(`${cfg.sidecarUrl}/api/token`, { method: 'POST' });
+      const res = await fetch('/api/extensions/jarvis-voice/sidecar/api/token', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
       if (cancelled()) throw new Error('Jarvis connection cancelled');
-      if (!res.ok) throw new Error(`token server returned ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new Error('Enable WebUI authentication under Settings → Password, then approve Jarvis Voice under Settings → Extensions.');
+        }
+        if (res.status === 404) {
+          throw new Error('Jarvis Voice needs a WebUI build containing sidecar token-v1 support (#6331).');
+        }
+        throw new Error(`Jarvis token proxy returned ${res.status}`);
+      }
       const data = await res.json();
       if (cancelled()) throw new Error('Jarvis connection cancelled');
       if (!data.token) throw new Error('token server returned no token');
