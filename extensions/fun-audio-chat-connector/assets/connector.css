@@ -1,0 +1,338 @@
+/* ── Fun Audio Chat Connector ────────────────────────────────────────────
+ * Overlay panel for full-duplex speech-to-speech voice chatting with
+ * a local Fun-Audio-Chat (FAC) WebSocket server.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/* ── Floating toggle button ── */
+#hwx-fac-toggle {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--border, #3a3a4e);
+  background: var(--surface, #1e1e2e);
+  color: var(--text, #ddd);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+#hwx-fac-toggle:hover {
+  transform: scale(1.08);
+  border-color: var(--accent, #7c5cfc);
+  box-shadow: 0 4px 20px rgba(124, 92, 252, 0.25);
+}
+
+#hwx-fac-toggle svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+}
+
+#hwx-fac-toggle.hwx-fac-active {
+  border-color: #22c55e;
+  box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+}
+
+/* ── Main overlay panel ── */
+#hwx-fac-panel {
+  position: fixed;
+  bottom: 84px;
+  right: 24px;
+  z-index: 2147483646;
+  width: 340px;
+  max-height: 520px;
+  background: var(--surface, #1e1e2e);
+  border: 1px solid var(--border, #3a3a4e);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text, #ddd);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+#hwx-fac-panel.hwx-fac-open {
+  display: flex;
+}
+
+/* ── Header ── */
+#hwx-fac-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border, #3a3a4e);
+  background: var(--surface2, #2a2a3e);
+}
+
+#hwx-fac-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+#hwx-fac-header-title svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+#hwx-fac-close {
+  background: none;
+  border: none;
+  color: var(--text-dim, #888);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+#hwx-fac-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text, #ddd);
+}
+
+/* ── Status indicator ── */
+#hwx-fac-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, #3a3a4e);
+  font-size: 12px;
+}
+
+#hwx-fac-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #666;
+  flex-shrink: 0;
+  transition: background 0.3s ease;
+}
+
+#hwx-fac-status-dot.hwx-fac-dot-disconnected { background: #666; }
+#hwx-fac-status-dot.hwx-fac-dot-connecting  { background: #fbbf24; animation: pulse-dot 0.8s ease-in-out infinite; }
+#hwx-fac-status-dot.hwx-fac-dot-connected   { background: #22c55e; }
+#hwx-fac-status-dot.hwx-fac-dot-error       { background: #ef4444; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+#hwx-fac-status-text {
+  flex: 1;
+}
+
+#hwx-fac-reconnect {
+  background: var(--accent-bg, #333);
+  border: 1px solid var(--border2, #555);
+  border-radius: 6px;
+  padding: 3px 10px;
+  color: var(--text, #ddd);
+  cursor: pointer;
+  font-size: 11px;
+  display: none;
+}
+
+#hwx-fac-reconnect.hwx-fac-show {
+  display: inline-block;
+}
+
+/* ── VU Meter ── */
+#hwx-fac-vu-container {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border, #3a3a4e);
+}
+
+#hwx-fac-vu-label {
+  font-size: 11px;
+  color: var(--text-dim, #888);
+  margin-bottom: 4px;
+}
+
+#hwx-fac-vu-bar {
+  height: 6px;
+  background: var(--surface3, #333348);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+#hwx-fac-vu-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22c55e, #fbbf24, #ef4444);
+  border-radius: 3px;
+  transition: width 0.08s ease;
+}
+
+/* ── Control buttons ── */
+#hwx-fac-controls {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border, #3a3a4e);
+}
+
+#hwx-fac-talk-btn {
+  flex: 1;
+  padding: 10px 16px;
+  border: 2px solid var(--border2, #555);
+  border-radius: 24px;
+  background: var(--accent-bg, #333);
+  color: var(--text, #ddd);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+#hwx-fac-talk-btn:hover:not(:disabled) {
+  border-color: var(--accent, #7c5cfc);
+}
+
+#hwx-fac-talk-btn.hwx-fac-recording {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+  animation: pulse-record 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-record {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+#hwx-fac-talk-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Transcription / Log area ── */
+#hwx-fac-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px;
+  max-height: 180px;
+  min-height: 60px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim, #aaa);
+  word-wrap: break-word;
+}
+
+#hwx-fac-log::-webkit-scrollbar {
+  width: 4px;
+}
+
+#hwx-fac-log::-webkit-scrollbar-thumb {
+  background: var(--border2, #555);
+  border-radius: 2px;
+}
+
+.hwx-fac-log-entry {
+  padding: 2px 0;
+}
+
+.hwx-fac-log-entry.hwx-fac-user {
+  color: var(--text, #ddd);
+}
+
+.hwx-fac-log-entry.hwx-fac-agent {
+  color: #7c5cfc;
+}
+
+.hwx-fac-log-entry.hwx-fac-system {
+  color: var(--text-dim, #888);
+  font-style: italic;
+}
+
+/* ── Settings panel (collapsible) ── */
+#hwx-fac-settings-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim, #888);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 8px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border, #3a3a4e);
+}
+
+#hwx-fac-settings-toggle:hover {
+  color: var(--text, #ddd);
+}
+
+#hwx-fac-settings {
+  padding: 10px 14px;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border, #3a3a4e);
+}
+
+#hwx-fac-settings.hwx-fac-open {
+  display: flex;
+}
+
+.hwx-fac-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hwx-fac-setting-row label {
+  font-size: 12px;
+  color: var(--text-dim, #aaa);
+  white-space: nowrap;
+}
+
+.hwx-fac-setting-row input,
+.hwx-fac-setting-row select {
+  background: var(--surface2, #2a2a3e);
+  border: 1px solid var(--border2, #555);
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: var(--text, #ddd);
+  font-size: 12px;
+  width: 120px;
+}
+
+.hwx-fac-setting-row input:focus,
+.hwx-fac-setting-row select:focus {
+  outline: none;
+  border-color: var(--accent, #7c5cfc);
+}
+
+/* ── Responsive ── */
+@media (max-width: 480px) {
+  #hwx-fac-panel {
+    right: 8px;
+    bottom: 76px;
+    width: calc(100% - 16px);
+    max-height: 80vh;
+  }
+  #hwx-fac-toggle {
+    right: 8px;
+    bottom: 16px;
+  }
+}

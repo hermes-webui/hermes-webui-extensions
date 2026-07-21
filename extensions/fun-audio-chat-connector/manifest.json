@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "fun-audio-chat-connector",
+      "name": "Fun Audio Chat Connector",
+      "description": "Full-duplex speech-to-speech voice chatting via a local Fun-Audio-Chat server. Real-time Opus streaming over WebSocket.",
+      "scripts": [
+        "assets/connector.js"
+      ],
+      "stylesheets": [
+        "assets/connector.css"
+      ]
+    }
+  ]
+}

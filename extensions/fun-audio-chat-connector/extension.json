@@ -1,0 +1,53 @@
+{
+  "id": "fun-audio-chat-connector",
+  "name": "Fun Audio Chat Connector",
+  "description": "Full-duplex speech-to-speech voice chatting via a local Fun-Audio-Chat (FAC) WebSocket server. Captures mic audio, streams Opus frames to FAC, and plays back response audio in real time.",
+  "version": "0.1.0",
+  "author": "chonsong",
+  "assets": {
+    "scripts": [
+      "assets/connector.js"
+    ],
+    "stylesheets": [
+      "assets/connector.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-fac-host",
+        "hermes-ext-fac-port",
+        "hermes-ext-fac-mode",
+        "hermes-ext-fac-panel-open"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "microphone": true
+  }
+}
