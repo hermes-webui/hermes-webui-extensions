@@ -43,7 +43,7 @@ Hermes WebUI page
 WebUI sidecar proxy (after consent)
   -> /api/extensions/profile-avatars/sidecar/api/avatars[...]
   -> loopback sidecar on 127.0.0.1:17798 (sidecar/sidecar.py)
-     -> SQLite at $HERMES_AVATARS_STATE_DIR/avatars.db
+     -> SQLite at $HERMES_WEBUI_STATE_DIR/avatars.db
 Reads (same-origin WebUI API): /api/profiles (roster + active),
   /api/sessions?all_profiles=1 (session → profile map, throttled, in-memory)
 ```
@@ -54,8 +54,8 @@ Built and tested against Hermes WebUI ≥ 0.16 (the current extension gallery /
 sidecar-proxy API). Required surface:
 
 - manifest-bundled asset injection (`manifest.json` scripts/stylesheets)
-- consented sidecar proxy at `/api/extensions/<id>/sidecar/*` and
-  `POST /api/extensions/sidecar-proxy-consent`
+- `token-v1` sidecar proxy at `/api/extensions/<id>/sidecar/*` (core injects
+  `X-Hermes-Sidecar-Token`; approve the sidecar in **Settings → Extensions**)
 - same-origin JSON APIs: `GET /api/profiles`, `GET /api/sessions?all_profiles=1`
 - DOM integration contract (all optional; each degrades to native rendering
   when absent):
@@ -63,35 +63,49 @@ sidecar-proxy API). Required surface:
   - `.role-icon.assistant` (transcript badge)
   - `.session-item[data-sid] .session-title-row` (session rows)
 
-## Sidecar
+## Sidecar (token-v1 scaffold)
 
-`sidecar/sidecar.py` is stdlib-only Python (no dependencies). Routes:
-`GET /api/avatars` (map), `GET/POST/DELETE /api/avatars/<profile>`,
-`GET /health`.
+Built on the canonical Hermes sidecar scaffold. `sidecar/sidecar.py` and
+`sidecar/sidecar_base.py` are vendored **byte-identical** from
+`examples/sidecar-scaffold/` (CI: `scripts/sync-sidecar-base.mjs --check`); this
+extension's own code is `sidecar/routes_impl.py` (routes) + `sidecar/avatars.py`
+(SQLite storage). `sidecar/sidecar.json` declares `{id, port, proxy_auth}`. Routes:
+`GET /api/avatars` (map), `GET/POST/DELETE /api/avatars/<profile>`; `GET /health`
+(liveness only — the sole tokenless route).
 
-| Setting | Env var | Default |
+**Proxy auth — `token-v1`.** The loopback port is reachable by any local process
+and the WebUI proxy strips inbound credentials, so the sidecar can't tell a
+proxied request from a direct one. Core mints a per-extension secret and injects
+`X-Hermes-Sidecar-Token`; the scaffold validates it **deny-by-default** at one
+dispatch chokepoint (every route but `/health`). Missing token file → `503`,
+wrong token → `401`. **Honest scope:** this protects against callers that can't
+read the user's state dir (other-UID users, host containers, sandboxed
+processes) — the same level as WebUI's own auth. It does **not** defend against
+arbitrary same-UID code, which can read the token file directly. Auth is
+fail-closed while WebUI auth is off — enable it in **Settings → Password**, then
+approve the sidecar in **Settings → Extensions**.
+
+| Setting | Source | Default |
 |---|---|---|
-| Port | `HERMES_AVATARS_SIDECAR_PORT` | `17798` |
-| State dir (avatars.db) | `HERMES_AVATARS_STATE_DIR` | `~/.hermes/webui` |
+| Port | `sidecar/sidecar.json` | `17798` |
+| State dir (avatars.db + token) | `HERMES_WEBUI_STATE_DIR` | `~/.hermes/webui` |
 
-Run it manually:
-
-```bash
-python3 sidecar/sidecar.py
-```
-
-or install the provided systemd user unit (`sidecar/profile-avatars-sidecar.service`):
+Install the systemd user unit — it runs `/usr/bin/python3 -S -u sidecar.py` with
+no token in the unit (core provisions it in the state dir):
 
 ```bash
 cp sidecar/profile-avatars-sidecar.service ~/.config/systemd/user/
 systemctl --user enable --now profile-avatars-sidecar
 ```
 
-**Sidecar health expectations:** `GET http://127.0.0.1:17798/health` returns
-`{"ok": true}`. The WebUI diagnostics card probes this URL from the browser
-with credentials omitted — when you browse from a different machine than the
-one running the WebUI, that probe reads "unreachable / blocked" by design; the
-consented proxy path is what actually serves traffic.
+**Health:** `GET http://127.0.0.1:17798/health` returns
+`{"ok": true, "sidecar_base_version": N}`. The WebUI diagnostics card probes this
+cross-origin (credentials omitted); the token-bearing proxy path is what serves
+real traffic.
+
+**Docker limitation:** a bridge-networked WebUI container cannot reach a host-run
+sidecar's `127.0.0.1:17798` (loopback is namespace-local). Sidecars work only
+where core and the sidecar share a network namespace and the state dir.
 
 ## Install, disable, uninstall
 

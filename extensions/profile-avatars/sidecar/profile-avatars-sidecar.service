@@ -1,20 +1,16 @@
-[Unit]
-# Profile Avatars sidecar — loopback backend for the profile-avatars WebUI extension.
-# The WebUI proxies /api/extensions/profile-avatars/sidecar/* here after consent.
+# Profile Avatars sidecar — token-v1 loopback backend for the profile-avatars WebUI extension.
+# WebUI provisions the proxy token in the state dir; the scaffold resolves it. No token here.
 # Install: cp to ~/.config/systemd/user/ then `systemctl --user enable --now profile-avatars-sidecar`
-Description=Profile Avatars sidecar (per-profile avatar backend for the profile-avatars WebUI extension)
-After=network-online.target
-Wants=network-online.target
+[Unit]
+Description=Profile Avatars sidecar (per-profile avatar backend, token-v1)
+After=default.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env python3 %h/.hermes/webui/extensions/profile-avatars/sidecar/sidecar.py
 WorkingDirectory=%h/.hermes/webui/extensions/profile-avatars/sidecar
-# Share the WebUI's state dir so existing avatars.db (the 7 uploaded avatars) carries over.
-Environment=HERMES_AVATARS_STATE_DIR=%h/.hermes/webui
-Environment=HERMES_AVATARS_SIDECAR_PORT=17798
+Environment=HERMES_WEBUI_STATE_DIR=%h/.hermes/webui
+ExecStart=/usr/bin/python3 -S -u sidecar.py
 Restart=on-failure
-RestartSec=3
 
 [Install]
 WantedBy=default.target

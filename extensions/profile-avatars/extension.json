@@ -16,6 +16,16 @@
     "manifest-bundle",
     "loopback-sidecar"
   ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17798",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  },
   "lifecycle": {
     "webui_restart_required": false,
     "sidecar_start_required": true,
@@ -25,7 +35,7 @@
   "post_install": {
     "requires_local_app": true,
     "local_app_label": "Profile Avatars sidecar",
-    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17798, then approve the sidecar proxy in Settings → Extensions."
+    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17798, then approve the sidecar proxy in Settings \u2192 Extensions."
   },
   "screenshots": [],
   "permissions": {

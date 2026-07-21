@@ -1,0 +1,5 @@
+{
+  "id": "profile-avatars",
+  "port": 17798,
+  "proxy_auth": "token-v1"
+}

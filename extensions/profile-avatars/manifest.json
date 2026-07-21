@@ -3,7 +3,7 @@
     {
       "id": "profile-avatars",
       "name": "Profile Avatars",
-      "description": "Per-profile avatars on chips, transcript badges, and the session list — server-stored, synced across devices.",
+      "description": "Per-profile avatars on chips, transcript badges, and the session list \u2014 server-stored, synced across devices.",
       "scripts": [
         "assets/avatars.js"
       ],
@@ -13,7 +13,8 @@
       "sidecar": {
         "type": "loopback",
         "origin": "http://127.0.0.1:17798",
-        "health_path": "/health"
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
       }
     }
   ]
