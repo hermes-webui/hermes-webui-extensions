@@ -19,8 +19,8 @@ load** into a shared in-memory object URL. Nothing is written to
   to the title, so with "Show N from other profiles" you can see at a glance
   which agent each chat belongs to. Re-renders live when you switch profiles.
 - **Manager modal** — a button at the top of the **Profiles** tab opens an upload / replace / remove
-  panel for every profile. PNG / JPEG / WebP, up to 512 KiB, magic-byte sniffed
-  server-side.
+  panel for every profile. PNG / JPEG / WebP, up to 512 KiB and 4096px / 16
+  megapixels, decoded before upload and structurally validated server-side.
 - **Colored-initial fallback** — profiles without an image get a deterministic
   colored initial bubble.
 
@@ -136,8 +136,11 @@ where core and the sidecar share a network namespace and the state dir.
 - Reads `GET /api/profiles` and `GET /api/sessions?all_profiles=1` (same-origin,
   session-authenticated) to know the roster and which profile owns each session.
 - Talks to its loopback sidecar only through the WebUI's consented proxy path.
-- Uploads go to the sidecar; images never leave the machine. The sidecar
-  validates type by magic bytes and caps size at 512 KiB (matching the core sidecar-proxy response cap).
+- Uploads go to the sidecar; images never leave the machine. The browser first
+  decodes each file, then the sidecar validates the raster structure, dimensions,
+  type, and 512 KiB limit (matching the core sidecar-proxy response cap).
+- Avatar rows use the same profile-ID grammar as core and are capped at 128.
+  `avatars.db` and its SQLite artifacts are forced to owner-only (`0600`) mode.
 - No localStorage, no cookies read, no external network access, no native host.
 
 ## Manual verification
@@ -153,10 +156,10 @@ where core and the sidecar share a network namespace and the state dir.
 5. Remove the avatar → everything reverts to the colored initial / native glyph.
 6. Upload a >512 KiB file or a non-image → rejected with a message, nothing applied.
 
-## Future CI checks
+## Automated verification
 
-- `node --check assets/avatars.js`
-- JSON validity of `extension.json` / `manifest.json`
-- `python3 -m py_compile sidecar/*.py`
-- Sidecar contract test: `POST` a 1×1 PNG → `GET` returns it with `ETag`;
-  `GET /health` returns `{"ok": true}`.
+- `python3 scripts/test-profile-avatars.py` covers raster structure/dimensions,
+  profile grammar, storage bounds/modes, multipart parsing, consent-aware manager
+  refresh, upload decoding, and generated-initial contrast.
+- Repository CI also runs extension metadata, JavaScript syntax, sidecar contract,
+  scaffold-sync, and safety checks on every change.

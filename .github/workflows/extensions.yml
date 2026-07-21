@@ -63,6 +63,9 @@ jobs:
       - name: Test canonical sidecar scaffold
         run: python scripts/test-sidecar-scaffold.py
 
+      - name: Test Profile Avatars
+        run: python scripts/test-profile-avatars.py
+
       - name: Scan extension safety gates
         run: node scripts/scan-extension-safety.mjs
 
