@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "voicevox-tts",
+      "name": "VOICEVOX TTS",
+      "description": "Use a local VOICEVOX server as a TTS engine (registers into Settings \u2192 TTS Engine).",
+      "scripts": [
+        "assets/voicevox-tts.js"
+      ],
+      "stylesheets": []
+    }
+  ]
+}
