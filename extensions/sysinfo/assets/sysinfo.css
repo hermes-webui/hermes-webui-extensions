@@ -1,0 +1,407 @@
+/* machine uptime chip — sits inline next to the hostname in the
+   System Health subtitle. Small, muted, tabular-numeric. */
+.mc-uptime-chip {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+/* Internet speed test — modern bars + count-up numbers in the System-health card. */
+.mc-speedtest { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.mc-speedtest-body { margin-top: 10px; }
+.mc-speedtest-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.mc-speedtest-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.mc-speedtest-btn:hover { border-color: var(--accent); color: var(--accent); }
+.mc-speedtest-btn:disabled { opacity: .6; cursor: default; }
+.mc-speedtest-btn.mc-speedtest-running { animation: mc-st-pulse 1s ease-in-out infinite; }
+.mc-speedtest-when { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mc-speedtest-metrics { display: flex; flex-direction: column; gap: 8px; }
+.mc-speedtest-row { display: flex; align-items: center; gap: 10px; }
+.mc-speedtest-dir { flex: 0 0 auto; width: 14px; text-align: center; color: var(--muted); font-weight: 700; }
+.mc-speedtest-bar { flex: 1 1 auto; height: 8px; border-radius: 999px; overflow: hidden; background: var(--accent-bg, rgba(127,127,127,.12)); }
+.mc-speedtest-fill { height: 100%; width: 0%; border-radius: 999px; transition: width .7s cubic-bezier(.2,.7,.2,1); }
+.mc-speedtest-bar-down .mc-speedtest-fill { background: linear-gradient(90deg, var(--blue, #0288A8), #34d399); }
+.mc-speedtest-bar-up .mc-speedtest-fill { background: linear-gradient(90deg, var(--accent, #B8860B), #f59e0b); }
+.mc-speedtest-num { flex: 0 0 auto; min-width: 86px; text-align: right; font-variant-numeric: tabular-nums; }
+.mc-speedtest-num b { font-size: 15px; color: var(--text); }
+.mc-speedtest-num i { font-size: 10px; color: var(--muted); font-style: normal; }
+.mc-speedtest-ping { font-size: 11px; color: var(--muted); }
+.mc-speedtest-ping b { color: var(--text); font-variant-numeric: tabular-nums; }
+/* per-stack action buttons (Start / Restart / Stop all) on the group header */
+.mc-docker-startall,
+.mc-docker-restartall,
+.mc-docker-stopall {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 600;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.3));
+  /* WCAG 2.5.8 minimum target size */
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mc-docker-startall { color: var(--accent, #2e9e7a); }
+.mc-docker-startall:hover { background: var(--accent-bg, rgba(46, 158, 122, 0.12)); }
+.mc-docker-restartall { color: var(--text-muted, var(--text)); }
+.mc-docker-restartall:hover { background: var(--surface-subtle, rgba(120, 120, 120, 0.12)); }
+.mc-docker-stopall { color: var(--danger, #d9534f); }
+.mc-docker-stopall:hover { background: rgba(217, 83, 79, 0.12); }
+.mc-docker-startall:disabled,
+.mc-docker-restartall:disabled,
+.mc-docker-stopall:disabled { opacity: 0.5; cursor: default; }
+.mc-docker-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 4px 6px;
+  margin-top: 14px;
+  background: transparent;
+  border: none;
+  border-top: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+.mc-docker-toggle:hover {
+  color: var(--accent, var(--text));
+}
+.mc-docker-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.mc-docker-toggle-chevron {
+  display: inline-flex;
+  width: 14px;
+  font-size: 11px;
+  color: var(--muted);
+  transition: color 0.12s;
+}
+.mc-docker-toggle:hover .mc-docker-toggle-chevron {
+  color: var(--accent);
+}
+.mc-docker-toggle-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: var(--accent-bg, rgba(120, 120, 120, 0.12));
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.25));
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+}
+/* No blank capsule before the lazy-loaded "last run" text exists (speed test row) */
+.mc-docker-toggle-count:empty { display: none; }
+.mc-docker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+/* the user-agent's `[hidden]` rule is display:none with
+   specificity (0,1,0). Our `.mc-docker-list { display:flex }` matches that
+   specificity but comes later in the cascade, so [hidden] silently lost.
+   Explicit override re-enables collapse. */
+.mc-docker-list[hidden] {
+  display: none !important;
+}
+/* compose-stack groups — collapsible header + indented body */
+.mc-docker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mc-docker-group-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--accent-bg, var(--surface-subtle));
+  border: 1px solid var(--border, var(--surface-subtle));
+}
+.mc-docker-group-hd:hover { filter: brightness(1.06); }
+.mc-docker-group-hd:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mc-docker-group-chev {
+  font-size: 10px;
+  width: 12px;
+  text-align: center;
+  color: var(--text-muted, var(--text));
+}
+.mc-docker-group-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mc-docker-group-count {
+  font-size: 11px;
+  color: var(--text-muted, var(--text));
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.mc-docker-group-rename {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted, var(--text));
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+.mc-docker-group-rename:hover { opacity: 1; background: var(--surface-subtle); }
+/* header-scoped actions wrapper = positioning context for the stack menu
+   (distinct from .mc-docker-actions so the mobile row rule doesn't apply) */
+.mc-docker-group-actions { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+.mc-docker-group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border, var(--surface-subtle));
+  margin-left: 5px;
+}
+.mc-docker-group-body[hidden] { display: none !important; }
+/* compose service tag next to the container name */
+.mc-docker-svc {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--text-muted, var(--text));
+  opacity: 0.8;
+}
+.mc-docker-row {
+  /* column layout = [dot] [name] [cpu] [ram] [mem-usage-wide] [actions] */
+  display: grid;
+  grid-template-columns: 14px minmax(120px, 1.4fr) 90px 90px minmax(120px, 1.2fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--surface-subtle, var(--accent-bg));
+  border: 1px solid var(--border, var(--surface-subtle));
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.mc-docker-row--busy {
+  opacity: 0.75;
+  pointer-events: none;
+  position: relative;
+  background: rgba(59, 157, 219, .07);
+}
+/* Unmissable "updating" state: pulsing row + spinner where the actions live */
+.mc-docker-row--busy::after {
+  content: '';
+  position: absolute; right: 10px; top: 50%; margin-top: -7px;
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--blue, #3b9ddb); border-top-color: transparent;
+  animation: mcDockerSpin .7s linear infinite;
+}
+.mc-docker-row--busy .mc-docker-updbadge,
+.mc-docker-row--busy .mc-docker-actions { visibility: hidden; }
+@keyframes mcDockerSpin { to { transform: rotate(360deg); } }
+/* pulses referenced by the running/busy indicators (were undefined -> no animation) */
+@keyframes mc-st-pulse      { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+@keyframes mcDockerPulseOk  { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes mcDockerPulseWarn{ 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) {
+  .si-sysinfo-card, .si-sysinfo-card * { animation: none !important; }
+}
+/* state dot — green pulse for running, amber for paused/restarting,
+   red for exited/dead/created. Kept compact so the row density doesn't
+   change for stopped containers. */
+.mc-docker-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+.mc-docker-dot--ok {
+  background: #2ec27e;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 8px rgba(46, 194, 126, 0.55);
+  animation: mcDockerPulseOk 1.6s ease-in-out infinite;
+}
+.mc-docker-dot--warn {
+  background: #f5a623;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 6px rgba(245, 166, 35, 0.55);
+  animation: mcDockerPulseWarn 1.0s ease-in-out infinite;
+}
+.mc-docker-dot--err {
+  background: #d94343;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 0 4px rgba(217, 67, 67, 0.4);
+}
+.mc-docker-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;          /* let the inner text ellipsize instead of clipping the badge */
+}
+/* only the name text truncates — the UPDATE badge stays visible regardless of length */
+.mc-docker-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.mc-docker-cell {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.mc-docker-cell--wide {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* action button cluster — matches the "Restart {profile} gateway"
+   pill aesthetic but compact (one icon per action). Hover = accent tint.
+   Stop is danger-tinted on hover. */
+.mc-docker-actions {
+  display: inline-flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.mc-docker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  background: var(--accent-bg, rgba(120, 120, 120, 0.12));
+  color: var(--text);
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.25));
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.12s;
+}
+.mc-docker-btn:hover:not(:disabled) {
+  background: var(--accent-bg-strong, rgba(80, 130, 200, 0.25));
+  border-color: var(--accent, rgba(80, 130, 200, 0.55));
+  transform: scale(1.06);
+}
+.mc-docker-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.mc-docker-btn--start { color: #2ec27e; }
+.mc-docker-btn--start:hover:not(:disabled) {
+  background: rgba(46, 194, 126, 0.18);
+  border-color: rgba(46, 194, 126, 0.5);
+}
+.mc-docker-btn--restart { color: #d4a043; }
+.mc-docker-btn--restart:hover:not(:disabled) {
+  background: rgba(245, 166, 35, 0.18);
+  border-color: rgba(245, 166, 35, 0.5);
+}
+.mc-docker-btn--stop { color: #d94343; }
+.mc-docker-btn--stop:hover:not(:disabled) {
+  background: rgba(217, 67, 67, 0.2);
+  border-color: rgba(217, 67, 67, 0.5);
+}
+/* kebab (⋮) dropdown for container actions — same on mobile/iPad/desktop */
+.mc-docker-actions { position: relative; }
+.mc-docker-kebab {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 7px; min-height: 30px;
+}
+.mc-docker-kebab:hover, .mc-docker-kebab[aria-expanded="true"] {
+  background: var(--accent-bg, rgba(120,120,120,.14)); color: var(--accent-text, var(--text));
+}
+.mc-docker-menu {
+  position: absolute; right: 0; top: 100%; margin-top: 4px; z-index: 60;
+  background-color: var(--menu-bg, var(--surface, #fff)); border: 1px solid var(--border);
+  border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.20); padding: 4px;
+  min-width: 132px; display: flex; flex-direction: column; gap: 2px;
+}
+/* The mobile .mc-docker-actions uses transform (a stacking context), which would
+   trap the open menu below later compose groups. Lift the row + group that owns
+   the open menu so it paints above its siblings. */
+.mc-docker-row:has(.mc-docker-menu:not([hidden])) { position: relative; z-index: 70; }
+.mc-docker-group:has(.mc-docker-menu:not([hidden])) { position: relative; z-index: 70; }
+/* the display:flex above otherwise defeats the [hidden] attribute (equal
+   specificity, later rule wins) → menus rendered always-open. Keep it hidden. */
+.mc-docker-menu[hidden] { display: none; }
+.mc-docker-mi {
+  display: flex; align-items: center; gap: 8px; text-align: left; width: 100%;
+  border: none; background: transparent; color: var(--text); cursor: pointer;
+  font-size: 13px; font-weight: 500; padding: 9px 11px; border-radius: 6px;
+  white-space: nowrap;   /* keep each action on one line (no "Update / image" wrap) */
+}
+.mc-docker-mi:hover:not(:disabled) { background: var(--accent-bg, rgba(120,120,120,.14)); }
+.mc-docker-mi:disabled { opacity: 0.4; cursor: not-allowed; }
+.mc-docker-mi--start { color: #2ec27e; }
+.mc-docker-mi--restart { color: #d4a043; }
+.mc-docker-mi--stop { color: #d94343; }
+.mc-docker-mi--update { color: var(--blue, #3b9ddb); }
+/* image-update affordances */
+.mc-docker-update-pill {
+  appearance: none; font: inherit; min-height: 24px; display: inline-flex; align-items: center; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); white-space: nowrap; }
+/* header row: Docker toggle (grows) + last-checked text + Check-now button, one line */
+.mc-docker-toprow { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.mc-docker-toprow .mc-docker-toggle { flex: 1 1 auto; width: auto; margin-top: 0; }
+.mc-docker-checkupd { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 11px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.mc-docker-checkupd:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.mc-docker-checkupd:disabled { opacity: .6; cursor: default; }
+.mc-docker-checkupd--busy { animation: mc-st-pulse 1s ease-in-out infinite; }
+.mc-docker-update-when { flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-docker-updbadge { flex: 0 0 auto; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 999px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); }
+/* stack-header roll-up: N image updates available inside this collapsed group */
+.mc-docker-group-upd { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); border: 0; cursor: pointer; font-family: inherit; line-height: 1.7; }
+.mc-docker-group-upd:hover { background: rgba(59,157,219,.34); }
+.mc-docker-update-pill:hover { background: rgba(59,157,219,.34); }
+/* Kill the dead space above/below the collapsed Speed test row */
+  .mc-speedtest { margin-top: 8px; padding-top: 0; }
+.mc-speedtest .mc-docker-toggle { margin-top: 0; }
+.mc-docker-toprow { margin-top: 0; }
+.mc-speedtest-auto { display: inline-flex; align-items: center; background: transparent; color: var(--muted, #8b93a7); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.mc-speedtest-auto:hover { border-color: var(--accent); color: var(--accent); }
+.mc-docker-upd-busy { animation: mc-st-pulse 1s ease-in-out infinite; cursor: default; }
+/* ── sysinfo extension card shell (sibling of the native System-health panel) ── */
+.si-sysinfo-card { display: flex; flex-direction: column; gap: 4px; }
+
+
+/* ── Mobile (≤700px): keep the Insights Docker card inside the viewport ──
+   The desktop 6-column grid with fixed 90px cells overflowed the phone and
+   forced horizontal scroll (rows sheared off-screen). On mobile each row is
+   a wrapping flex card instead. */
+@media (max-width: 700px) {
+  .si-sysinfo-card { max-width: 100%; overflow-x: hidden; }
+  .mc-docker-list, .mc-docker-group, .mc-docker-group-body { min-width: 0; max-width: 100%; }
+  .mc-docker-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+    padding: 7px 9px;
+  }
+  .mc-docker-dot { order: 0; flex: 0 0 auto; }
+  .mc-docker-name { order: 1; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mc-docker-updbadge { order: 2; }
+  .mc-docker-actions { order: 3; flex: 0 0 auto; position: static; transform: none; margin-left: auto; visibility: visible; }
+  /* CPU / RAM / mem-usage flow onto a second line, left-aligned, no fixed widths */
+  .mc-docker-cell, .mc-docker-cell--wide { order: 4; flex: 0 0 auto; font-size: 10.5px; }
+  .mc-docker-cell:first-of-type { margin-left: 20px; }   /* align under the name, past the dot */
+  /* Header roll-up (8/14 · 6 updates · Check updates) can wrap too */
+  .mc-docker-toprow { flex-wrap: wrap; gap: 4px 8px; }
+  .mc-docker-update-when { flex: 1 1 100%; order: 5; font-size: 10px; }
+  .mc-docker-row--busy::after { right: 8px; }
+}

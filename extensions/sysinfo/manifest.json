@@ -1,0 +1,21 @@
+{
+  "extensions": [
+    {
+      "id": "sysinfo",
+      "name": "System Info",
+      "description": "Speed test + Docker cards under the Insights System-health panel.",
+      "scripts": [
+        "assets/sysinfo.js"
+      ],
+      "stylesheets": [
+        "assets/sysinfo.css"
+      ],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17796",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      }
+    }
+  ]
+}
