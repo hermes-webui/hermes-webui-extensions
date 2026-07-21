@@ -1,0 +1,20 @@
+{
+  "extensions": [
+    {
+      "id": "hermes-desktop",
+      "name": "Hermes Desktop",
+      "description": "A full Linux XFCE desktop inside Hermes WebUI.",
+      "scripts": [
+        "assets/desktop-extension.js"
+      ],
+      "stylesheets": [
+        "assets/desktop-extension.css"
+      ],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17887",
+        "health_path": "/health"
+      }
+    }
+  ]
+}

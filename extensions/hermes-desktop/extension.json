@@ -1,0 +1,70 @@
+{
+  "id": "hermes-desktop",
+  "name": "Hermes Desktop",
+  "description": "A full Linux desktop inside Hermes WebUI with Computer Use integration. Choose between Host (Xvfb :0) or Container (Xfce :1) as the agent's GUI target. Watch the agent drive the desktop via noVNC while you chat — the same session is rendered in a mini transcript panel.",
+  "version": "0.2.0",
+  "author": "ChonSong",
+  "homepage": "https://github.com/ChonSong/hermes-desktop",
+  "assets": {
+    "scripts": [
+      "assets/desktop-extension.js"
+    ],
+    "stylesheets": [
+      "assets/desktop-extension.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar",
+    "transcript-render"
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17887",
+    "health_path": "/health"
+  },
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "summary": "Install enables the WebUI desktop panel. Clone the companion repo, build the Docker container, and start the sidecar to launch the Linux desktop. Optionally install cua-driver (hermes computer-use install) for native Computer Use agent control.",
+    "docs_url": "https://github.com/ChonSong/hermes-desktop#after-gallery-install",
+    "requires_local_app": true,
+    "local_app_label": "Hermes Desktop sidecar"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "sidecar_commands": {
+      "from_loopback": false,
+      "can_switch_sessions": false,
+      "can_write_drafts": false,
+      "can_autosend": false,
+      "can_respond_approval": false,
+      "can_respond_clarify": false,
+      "approval_clarify_response_default": false
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}
