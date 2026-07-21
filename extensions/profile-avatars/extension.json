@@ -2,7 +2,7 @@
   "id": "profile-avatars",
   "name": "Profile Avatars",
   "description": "Per-profile avatar images everywhere: profile chips, transcript assistant badges, and the session list (including other-profile chats). Server-stored via a loopback sidecar, so avatars sync across devices with zero localStorage.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "asorourx",
   "assets": {
     "scripts": [

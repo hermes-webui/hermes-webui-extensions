@@ -65,7 +65,8 @@
   function _hashColor(name) {
     var h = 0;
     for (var i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0;
-    return 'hsl(' + (Math.abs(h) % 360) + ', 55%, 45%)';
+    // White initials stay above WCAG AA contrast at every generated hue.
+    return 'hsl(' + (Math.abs(h) % 360) + ', 55%, 30%)';
   }
   function _initial(name) {
     if (!name) return '?';
@@ -536,6 +537,40 @@
       wrap.appendChild(row);
     });
   }
+  function _decodeAvatarDimensions(file) {
+    if (typeof window.createImageBitmap === 'function') {
+      return window.createImageBitmap(file).then(function (bitmap) {
+        var dimensions = { width: bitmap.width, height: bitmap.height };
+        if (typeof bitmap.close === 'function') bitmap.close();
+        return dimensions;
+      });
+    }
+    return new Promise(function (resolve, reject) {
+      var objectUrl = URL.createObjectURL(file);
+      var image = new Image();
+      image.onload = function () {
+        var dimensions = { width: image.naturalWidth, height: image.naturalHeight };
+        URL.revokeObjectURL(objectUrl);
+        resolve(dimensions);
+      };
+      image.onerror = function () {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('The selected file is not a decodable image.'));
+      };
+      image.src = objectUrl;
+    });
+  }
+  function _validateAvatarFile(file) {
+    return _decodeAvatarDimensions(file).then(function (dimensions) {
+      var width = Number(dimensions.width) || 0;
+      var height = Number(dimensions.height) || 0;
+      if (!width || !height) throw new Error('The selected image has invalid dimensions.');
+      if (width > 4096 || height > 4096 || width * height > 16 * 1024 * 1024) {
+        throw new Error('Image dimensions are too large (max 4096px / 16 megapixels).');
+      }
+      return dimensions;
+    });
+  }
   function _pickAndUpload(name) {
     var inp = document.createElement('input');
     inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp';
@@ -546,7 +581,9 @@
       // 512 KiB matches the core sidecar-proxy's hard response cap — anything
       // larger uploads "ok" then 502s on read, so reject it up front.
       if (f.size > 512 * 1024) { _showAvatarError('Image too large (max 512 KiB). Resize to 256–512px first.'); return; }
-      upload(name, f).catch(function (e) { _showAvatarError(e.message); });
+      _validateAvatarFile(f)
+        .then(function () { return upload(name, f); })
+        .catch(function (e) { _showAvatarError(e.message); });
     };
     inp.click();
   }
@@ -592,7 +629,16 @@
     ov.style.display = 'flex';
     var close = document.getElementById('paAvatarClose');
     if (close) close.focus();
-    (_loaded ? Promise.resolve() : refresh()).then(_renderManagerList);
+    // Always refresh on open: profile create/delete rebuilds the core panel but
+    // emits no stable lifecycle event for extensions to consume.
+    sidecarConsented().then(function (ok) {
+      if (!ok) {
+        _renderManagerList();
+        _showAvatarError('Enable WebUI authentication and approve this sidecar in Settings → Extensions.');
+        return;
+      }
+      return refresh().then(_renderManagerList);
+    });
   }
   function _closeManager() {
     var ov = document.getElementById('paAvatarManager');

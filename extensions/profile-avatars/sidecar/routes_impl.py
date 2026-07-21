@@ -87,7 +87,12 @@ def register(app) -> None:
                 {"error": "unsupported image type — allowed: PNG, JPEG, WebP (magic bytes)"},
                 status=415,
             )
-        return app.json(avatars.store_avatar(profile, mime, blob))
+        try:
+            return app.json(avatars.store_avatar(profile, mime, blob))
+        except avatars.InvalidImageError as exc:
+            return app.json({"error": f"invalid image: {exc}"}, status=415)
+        except avatars.AvatarLimitError as exc:
+            return app.json({"error": str(exc)}, status=409)
 
     @app.route("DELETE", "/api/avatars/{profile}")
     def delete(req):
