@@ -9,7 +9,8 @@
       "sidecar": {
         "type": "loopback",
         "origin": "http://127.0.0.1:17900",
-        "health_path": "/api/health"
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
       }
     }
   ]

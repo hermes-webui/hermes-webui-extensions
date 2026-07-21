@@ -4,12 +4,12 @@ View and manage Docker containers, images, and system resource usage directly in
 
 ## What it does
 
-- **Containers** — list all containers with status, ports, uptime, CPU/memory usage. Start, stop, restart individual containers. Prune stopped containers. Live log streaming per container (SSE).
+- **Containers** — list all containers with status, ports, uptime, CPU/memory usage. Start, stop, restart individual containers. Prune stopped containers.
 - **Images** — list images with size, age, and how many containers reference them. Prune dangling images. View image history and layers.
 - **Volumes** — list all volumes with name, driver, mountpoint, and creation date. Delete individual volumes or prune all unused volumes.
 - **Compose** — project view showing services grouped by Compose project with per-service status, ports, and replica counts.
 - **System** — Docker disk usage breakdown (images, containers, volumes, build cache) with total reclaimable space.
-- **Logs** — live streaming log viewer for any container, with auto-scroll, pause/resume, and line count controls.
+- **Logs** — live polling log viewer for any container, with auto-scroll, pause/resume, and line count controls.
 - **Tunnel** — Cloudflare tunnel info (name, ID, connectors, uptime). Ingress route table with per-backend health status (green/red, response time). Tail tunnel logs.
 
 ## Architecture
@@ -23,34 +23,20 @@ WebUI Extension (IIFE)  ──fetch()──▶  Sidecar (port 17900)
                                   docker.sock   config.yml
 ```
 
-The **sidecar** is a single-file Python HTTP server (`sidecar/docker-tunnel-sidecar.py`) that uses `docker-py` for Docker operations and `cloudflared` via subprocess for tunnel status. It binds only to `127.0.0.1:17900` and carries CORS headers so the WebUI extension can reach it.
+The **sidecar** is an external Python HTTP server ([ChonSong/docker-tunnel-sidecar](https://github.com/ChonSong/docker-tunnel-sidecar)) that uses `docker-py` for Docker operations and `cloudflared` via subprocess for tunnel status. It binds only to `127.0.0.1:17900` and implements the `token-v1` sidecar contract — WebUI mints a per-extension token and injects it as `X-Hermes-Sidecar-Token` on every proxied request.
 
 ## Installation
 
 ### 1. Install the sidecar service
 
 ```bash
-# Copy the sidecar
-mkdir -p ~/repos/hermes-webui-extensions/extensions/docker-tunnel-manager
+git clone https://github.com/ChonSong/docker-tunnel-sidecar.git ~/docker-tunnel-sidecar
+cd ~/docker-tunnel-sidecar
+pip3 install docker
 
 # Install systemd user service
 mkdir -p ~/.config/systemd/user
-cat > ~/.config/systemd/user/docker-tunnel-sidecar.service << 'SERVICE'
-[Unit]
-Description=Docker & Tunnel Manager sidecar
-After=network-online.target docker.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=python3 /home/sc/workspace/hermes-webui-extensions/extensions/docker-tunnel-manager/sidecar/docker-tunnel-sidecar.py
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-SERVICE
-
+cp sidecar.service ~/.config/systemd/user/docker-tunnel-sidecar.service
 systemctl --user daemon-reload
 systemctl --user enable --now docker-tunnel-sidecar.service
 ```
@@ -58,8 +44,8 @@ systemctl --user enable --now docker-tunnel-sidecar.service
 ### 2. Verify the sidecar is running
 
 ```bash
-curl -s http://127.0.0.1:17900/api/health
-# → {"status":"ok"}
+curl -s http://127.0.0.1:17900/health
+# → {"ok":true}
 ```
 
 ### 3. Install the extension via WebUI
@@ -80,6 +66,10 @@ Then restart the WebUI:
 systemctl --user restart hermes-webui.service
 ```
 
+### 4. Enable WebUI authentication (required for token-v1)
+
+The `token-v1` sidecar contract is fail-closed until WebUI authentication is enabled. In WebUI, go to **Settings → Password** and set a password (or set `HERMES_WEBUI_PASSWORD`). Once enabled, WebUI provisions the per-extension token and the sidecar starts accepting requests.
+
 ## Usage
 
 Click the **container icon** in the left rail to open the Docker & Tunnel Manager panel.
@@ -88,47 +78,29 @@ The panel has seven tabs:
 
 | Tab | Content |
 |-----|---------|
-| **Containers** | Table of all containers. Green/yellow/red status dots. Port mappings. Start/stop/restart buttons per row. Bulk prune button. Live log streaming button per container. |
+| **Containers** | Table of all containers. Green/yellow/red status dots. Port mappings. Start/stop/restart buttons per row. Bulk prune button. Log viewer per container. |
 | **Images** | Table of images with size, created date, container usage count. Prune dangling images. History and layers explorer per image. |
 | **Volumes** | Table of all volumes with name, driver, mountpoint, and age. Delete individual volumes. Prune all unused volumes. |
 | **Compose** | Project view showing Compose stacks. Each project expands to show services with status, ports, and replica count. |
 | **System** | Docker disk usage as bar charts. Shows reclaimable space per category. |
-| **Logs** | Live SSE log stream for a selected container. Auto-scroll toggle, pause/resume, configurable line count history. |
+| **Logs** | Live polling log stream for a selected container. Auto-scroll toggle, pause/resume, configurable line count history. |
 | **Tunnel** | Cloudflare tunnel status (connector count, uptime). Ingress route table where each row shows the hostname, backend port, and last health-check result (200/green, timeout/red). |
 
 Destructive actions (prune, stop) show a confirmation dialog.
 
-## Sidecar API
+## Sidecar contract
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /api/health` | Sidecar is alive |
-| `GET /api/containers` | List all containers |
-| `POST /api/containers/<id>/start` | Start a container |
-| `POST /api/containers/<id>/stop` | Stop a container |
-| `POST /api/containers/<id>/restart` | Restart a container |
-| `POST /api/containers/prune` | Prune stopped containers |
-| `GET /api/containers/<id>/logs` | SSE streaming log tail per container |
-| `GET /api/images` | List all images |
-| `GET /api/images/<id>/history` | Image layer history |
-| `POST /api/images/prune` | Prune dangling images |
-| `GET /api/volumes` | List all volumes |
-| `POST /api/volumes/prune` | Prune unused volumes |
-| `POST /api/volumes/<name>/delete` | Delete a specific volume |
-| `GET /api/compose` | List Compose projects with service status |
-| `GET /api/system/df` | Docker disk usage |
-| `POST /api/system/prune` | Full system prune |
-| `GET /api/tunnels` | Cloudflare tunnel info + ingress |
-| `GET /api/tunnels/health` | Ping all ingress backends |
-| `GET /api/tunnels/logs?lines=N` | Tail tunnel service logs |
+This extension uses an **external token-v1** sidecar runtime. The sidecar:
 
-## Trust model
-
-The extension runs **trusted local code** in the WebUI origin. The sidecar:
-- Binds to `127.0.0.1` only (no network exposure)
+- Binds to `127.0.0.1:17900` only (no network exposure)
+- Validates `X-Hermes-Sidecar-Token` on every route except `GET/HEAD /health`
+- Re-reads the token per request for live rotation
+- Uses constant-time comparison (`hmac.compare_digest`)
+- Returns 401 for missing/wrong token, 503 when the token file is unreadable
+- `/health` is the only tokenless route (liveness only, `ACAO: *`, `Cache-Control: no-store`)
+- Returns bounded log snapshots (no SSE/streaming — WebUI's proxy buffers and times out around 10s)
 - Talks to the Docker socket (requires `docker` group membership)
 - Reads the Cloudflare tunnel config at `~/.cloudflared/config.yml`
-- Executes `cloudflared` CLI and `journalctl` for tunnel logs
 
 No data leaves the machine. The extension does not make external network requests.
 
@@ -163,7 +135,7 @@ rm -rf ~/.hermes/webui-dev/extensions/docker-tunnel-manager
 ## TODO / Future
 
 - [x] Volume management
-- [x] Container log streaming (tail -f in panel)
+- [x] Container log viewer (live polling)
 - [x] Compose project view (docker compose ps)
 - [x] Image history and layers explorer
 - [ ] Tunnel adapter interface for ngrok/localtunnel support

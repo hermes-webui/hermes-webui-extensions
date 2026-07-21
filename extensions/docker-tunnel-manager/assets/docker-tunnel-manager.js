@@ -24,7 +24,8 @@
   let activeTab = 'containers';
   let refreshTimer = null;
   let pendingActions = new Set();
-  let activeEventSource = null;
+  let logPollTimer = null;
+  let activeLogCid = null;
 
   /* ── Settings helpers ──────────────────────────────────────────── */
 
@@ -326,16 +327,7 @@
     }
   }
 
-  /* ── Logs EventSource helper ────────────────────────────────────── */
-
-  function disconnectEventSource() {
-    if (activeEventSource) {
-      activeEventSource.close();
-      activeEventSource = null;
-    }
-  }
-
-  /* ── Volumes tab ────────────────────────────────────────────────── */
+  /* ── Log polling ────────────────────────────────────────────────── */
 
   async function renderVolumes(container) {
     showLoading(container);
@@ -449,7 +441,7 @@
       }
       let html = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
         <select class="hwx-dtm-logs-select" id="hwxDtmLogsSelect" style="background:var(--surface,#181825);color:var(--text,#fff);border:1px solid var(--border,#333);border-radius:6px;padding:6px 10px;font-size:12px;flex:1;min-width:160px">${opts}</select>
-        <button class="hwx-dtm-bar-btn" id="hwxDtmLogsToggle" style="white-space:nowrap">Streaming: ON</button>
+        <button class="hwx-dtm-bar-btn" id="hwxDtmLogsToggle" style="white-space:nowrap">Live: ON</button>
         <button class="hwx-dtm-bar-btn" id="hwxDtmLogsClear">Clear</button>
         <span style="font-size:11px;color:var(--muted,#888);margin-left:4px" id="hwxDtmLogsStatus"></span>
       </div>
@@ -462,47 +454,51 @@
       const clearBtn = container.querySelector('#hwxDtmLogsClear');
       const statusEl = container.querySelector('#hwxDtmLogsStatus');
 
-      let streaming = true;
+      let live = true;
 
-      function updateToggleLabel() {
-        toggleBtn.textContent = streaming ? 'Streaming: ON' : 'Streaming: OFF';
-      }
-
-      function connectLogs(cid) {
-        disconnectEventSource();
-        display.textContent = '';
-        statusEl.textContent = 'Connecting…';
-
-        const url = apiUrl(`/api/containers/${encodeURIComponent(cid)}/logs?tail=200&follow=true`);
-        activeEventSource = new EventSource(url);
-
-        activeEventSource.onmessage = (e) => {
-          if (!streaming) return;
-          display.textContent += e.data + '\n';
-          display.scrollTop = display.scrollHeight;
-        };
-
-        activeEventSource.onerror = () => {
-          statusEl.textContent = 'Disconnected';
+      async function pollLogs(cid) {
+        try {
+          const logData = await apiGet(`/api/containers/${encodeURIComponent(cid)}/logs?tail=200`);
+          if (!live) return;
+          if (logData && logData.logs) {
+            display.textContent = logData.logs.join('\n');
+            statusEl.textContent = `${logData.count} lines`;
+            display.scrollTop = display.scrollHeight;
+          }
+        } catch (e) {
+          statusEl.textContent = 'Error fetching logs';
           statusEl.style.color = 'var(--red,#f38ba8)';
-        };
-
-        activeEventSource.onopen = () => {
-          statusEl.textContent = 'Connected';
-          statusEl.style.color = 'var(--green,#a6e3a1)';
-        };
+          return;
+        }
+        if (live) {
+          logPollTimer = setTimeout(() => pollLogs(activeLogCid), 3000);
+        }
       }
 
-      select.onchange = () => connectLogs(select.value);
+      function startPolling(cid) {
+        stopPolling();
+        activeLogCid = cid;
+        logPollTimer = setTimeout(() => pollLogs(cid), 0);
+      }
+
+      function stopPolling() {
+        if (logPollTimer) {
+          clearTimeout(logPollTimer);
+          logPollTimer = null;
+        }
+      }
+
+      select.onchange = () => {
+        startPolling(select.value);
+      };
 
       toggleBtn.onclick = () => {
-        streaming = !streaming;
-        updateToggleLabel();
-        if (streaming) {
-          // Reconnect to get fresh stream
-          connectLogs(select.value);
+        live = !live;
+        toggleBtn.textContent = live ? 'Live: ON' : 'Live: OFF';
+        if (live) {
+          startPolling(select.value);
         } else {
-          disconnectEventSource();
+          stopPolling();
           statusEl.textContent = 'Paused';
           statusEl.style.color = 'var(--muted,#888)';
         }
@@ -510,8 +506,8 @@
 
       clearBtn.onclick = () => { display.textContent = ''; };
 
-      // Auto-connect to first container
-      connectLogs(select.value);
+      // Auto-start polling on first container
+      startPolling(select.value);
     } catch (e) {
       showError(container, `Sidecar error: ${e.message || e}`);
     }
@@ -565,7 +561,7 @@
   }
 
   function switchTab(tab) {
-    if (activeTab === 'logs') disconnectEventSource();
+    if (activeTab === 'logs') stopPolling();
     activeTab = tab;
     document.querySelectorAll('.hwx-dtm-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
     refreshTab();
@@ -642,7 +638,7 @@
   function closeOverlay() {
     if (!overlayOpen) return;
     overlayOpen = false;
-    disconnectEventSource();
+    stopPolling();
     const overlay = document.getElementById(OVERLAY_ID);
     if (overlay) overlay.style.display = 'none';
     const btn = document.getElementById(RAIL_BTN_ID);
