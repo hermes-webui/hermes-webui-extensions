@@ -1,0 +1,74 @@
+{
+    "id": "chat-tiling",
+    "name": "Chat Tiling",
+    "description": "Work with multiple conversations at once in a resizable tile grid: 2-column split, 4 corners (2x2), or 6 tiles (3x2). Click a sidebar session to open it in the focused tile; each tile shows that conversation's transcript, and the focused tile drives the shared composer and model picker. Maximize/restore individual tiles. Layout is remembered locally.",
+    "version": "0.2.0",
+    "author": "ChonSong",
+    "homepage": "https://github.com/ChonSong/hermes-webui",
+    "assets": {
+        "scripts": [
+            "assets/tiling.js"
+        ],
+        "stylesheets": []
+    },
+    "capabilities": [
+        "manifest-bundle"
+    ],
+    "lifecycle": {
+        "webui_restart_required": false,
+        "sidecar_start_required": false,
+        "native_host_start_required": false,
+        "native_host_autostart": "none"
+    },
+    "screenshots": [],
+    "permissions": {
+        "webui_api": {
+            "read": [
+                "session",
+                "sessions"
+            ],
+            "write": []
+        },
+        "webui_navigation": false,
+        "dom": {
+            "owned": true,
+            "mutates_core_views": true
+        },
+        "storage": {
+            "owned": true,
+            "shared_webui_keys": []
+        },
+        "loopback_sidecar": false,
+        "native_host": false,
+        "filesystem": {
+            "arbitrary": false,
+            "serves_bundled_assets": true
+        },
+        "network_external": false
+    },
+    "settings_schema": [
+        {
+            "key": "default_layout",
+            "type": "enum",
+            "label": "Default layout",
+            "options": [
+                {"value": "2", "label": "2-column (horizontal split)"},
+                {"value": "4", "label": "4 corners (2x2 grid)"},
+                {"value": "6", "label": "6 tiles (3x2 grid)"}
+            ],
+            "default": "4"
+        },
+        {
+            "key": "auto_tile",
+            "type": "boolean",
+            "label": "Enter tiling automatically on load",
+            "default": true
+        },
+        {
+            "key": "show_sidebar_badges",
+            "type": "boolean",
+            "label": "Show tile count badges in sidebar",
+            "default": true
+        }
+    ]
+}

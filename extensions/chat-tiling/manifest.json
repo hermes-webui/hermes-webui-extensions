@@ -1,0 +1,11 @@
+{
+  "extensions": [
+    {
+      "id": "chat-tiling",
+      "name": "Chat Tiling",
+      "description": "Multi-session tiling layouts: split in 2, 4 corners, or 3x2 grid.",
+      "scripts": ["assets/tiling.js"],
+      "stylesheets": []
+    }
+  ]
+}

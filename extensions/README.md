@@ -44,3 +44,6 @@ need it and maintainers agree on the shared contract.
 - `external-app-tab`: pin a compatible self-hosted web app (Grafana, a
   dashboard, or another framable tool) as a tab inside the WebUI via an iframe
   (needs the core `HERMES_WEBUI_CSP_FRAME_EXTRA` knob for external origins).
+- `chat-tiling`: work with multiple conversations at once in a resizable tile
+  grid (2-column / 4-corner 2×2 / 3×2), each tile with its own composer, model,
+  messages, and live streaming; maximize/restore individual tiles.
