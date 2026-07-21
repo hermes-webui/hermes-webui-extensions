@@ -131,40 +131,43 @@ where the backend has length limits.
 
 ## Sidecar Metadata
 
-Extensions that depend on a local helper process should declare it in manifest
-metadata once the WebUI-side contract supports that field. This lets WebUI show
-users that an extension has a local dependency and eventually report coarse
-health state without hardcoding extension-specific behavior.
+Extensions that depend on a local helper process declare the proxy contract and
+runtime ownership in `extension.json`. This lets WebUI report health without
+hardcoding extension-specific behavior and lets repository CI decide whether a
+runtime must carry the canonical scaffold.
 
 Example shape:
 
 ```json
 {
-  "extensions": [
-    {
-      "id": "desktop-companion",
-      "name": "Desktop Companion",
-      "scripts": ["assets/companion-adapter.js"],
-      "stylesheets": ["assets/companion-adapter.css"],
-      "sidecar": {
-        "type": "loopback",
-        "origin": "http://127.0.0.1:17787",
-        "health_path": "/health"
-      }
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17787",
+    "health_path": "/health",
+    "proxy_auth": "legacy",
+    "runtime": {
+      "kind": "external",
+      "repository": "https://github.com/franksong2702/hermes-webui-desktop-companion"
     }
-  ]
+  }
 }
 ```
 
-The `sidecar` object should stay descriptive unless the main WebUI repo defines
-stronger behavior. Declaring a sidecar should not imply install, auto-start,
-proxy, or public network access semantics.
+The `sidecar` object declares both the WebUI proxy contract and who owns the
+runtime. The runtime `manifest.json` repeats `type`, `origin`, `health_path`, and
+`proxy_auth`, but omits the library-only `runtime` object. See
+[`SIDECAR_CONTRACT.md`](SIDECAR_CONTRACT.md) before adding one.
 
 Suggested fields:
 
 - `type`: use `loopback` for a local HTTP service bound to localhost
 - `origin`: the localhost origin the extension expects
 - `health_path`: a read-only path WebUI can use for coarse health checks
+- `proxy_auth`: explicit `token-v1` or `legacy` (new runtimes use `token-v1`)
+- `runtime.kind`: `vendored` for a runtime committed under this entry, or
+  `external` for a separately owned runtime
+- `runtime.path`: required local directory for `vendored`
+- `runtime.repository`: required source URL for `external`
 
 ## README Shape
 
@@ -266,8 +269,8 @@ Generate the registry locally with:
 node scripts/generate-registry.mjs --out dist/registry.json
 ```
 
-The generated registry is the gallery/install index consumed by future WebUI
-extension UI work. The first version includes the reviewed entry metadata plus
+The generated registry is the gallery/install index consumed by WebUI's shipped
+Settings → Extensions flow. It includes the reviewed entry metadata plus
 Action-added fields such as `entry_path`, `runtime_manifest_path`,
 `published_at`, `file_count`, and per-file `file_sha256` values.
 

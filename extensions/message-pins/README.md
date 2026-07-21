@@ -44,7 +44,7 @@ This entry declares only capabilities currently available to extension entries:
 
 - `manifest-bundle`
 
-It does not require `loopback-sidecar` or future sidecar proxy support.
+It does not require `loopback-sidecar` or the sidecar proxy.
 
 ## Install For Local Testing
 
@@ -71,8 +71,7 @@ The runtime `manifest.json` injects:
 }
 ```
 
-Once the in-app extensions gallery is available, this entry can also be browsed
-and installed from Settings -> Extensions.
+This entry can be browsed and installed from Settings -> Extensions.
 
 ## Disable And Uninstall
 

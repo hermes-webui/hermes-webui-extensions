@@ -1,12 +1,11 @@
 # RFC 0001 — Extension entry metadata (`extension.json`)
 
-**Status:** Draft / for discussion
+**Status:** Implemented; updated to match the shipped registry contract
 **Audience:** extension library maintainers + contributors
 
-This is an **RFC, not a locked contract.** It proposes a concrete shape for
-per-extension metadata so we have something specific to react to. Please leave
-comments on the PR — field names, what's required vs. optional, and the open
-questions at the end are all up for debate before anything is implemented.
+This RFC records the design discussion that produced the current extension
+metadata contract. The implementation now validates both author-maintained files:
+the library-facing `extension.json` and core's minimal runtime `manifest.json`.
 
 ## Why
 
@@ -19,19 +18,18 @@ Two roadmap pieces need a metadata file per extension:
 - **CI validation** (#6) + **safety gates** (#8) — validate entries against a schema
   on every PR.
 
-A single declared file is the natural source of truth for all of these.
+The richer library declaration and the minimal runtime declaration split those
+responsibilities; CI is the source of truth for whether they agree.
 
-## Proposed: author writes `extension.json`, the Action derives the loader manifest
+## Implemented: author maintains both declarations and CI checks agreement
 
-Recommendation (open to debate — see Open Questions): each
-`extensions/<id>/extension.json` is the **one file an author maintains**. The
-registry GitHub Action **derives** the minimal runtime `manifest.json` the core
-loader (`api/extensions.py`) consumes, from the `assets` block below. Rationale:
-single source of truth for authors; the loader contract stays minimal and
-auditable (and core-owned). The alternative — two hand-written files — is also on
-the table.
+Each extension maintains `extension.json` for registry, permissions, lifecycle,
+and compatibility metadata, plus the minimal `manifest.json` consumed by core's
+loader (`api/extensions.py`). CI requires IDs, asset lists, and sidecar wire fields
+to agree exactly. The registry generator packages the reviewed manifest; it does
+not synthesize or replace it.
 
-## Proposed schema
+## Implemented `extension.json` schema
 
 ```jsonc
 {
@@ -52,18 +50,24 @@ the table.
   // --- what core surface this entry needs (capability names, not version pins) ---
   // capabilities are CORE-OWNED: the canonical list lives in the core repo, since
   // it defines the actual surface. Only list a capability core has SHIPPED.
-  // `manifest-bundle` and `loopback-sidecar` (direct browser→loopback, shipped today)
-  // are valid now; do NOT list `sidecar-proxy` until core ships the same-origin proxy.
+  // `manifest-bundle` and `loopback-sidecar` are valid core capabilities.
+  // The sidecar auth/proxy posture is declared by `sidecar.proxy_auth`; there is
+  // no separate `sidecar-proxy` capability.
   "capabilities": ["manifest-bundle", "loopback-sidecar"],
 
   // --- optional local helper process. The `sidecar` block is descriptive metadata. ---
-  // Today an extension reaches this directly (browser → loopback, allowed by the
-  // core CSP connect-src). A same-origin proxy to it is FUTURE work (capability
-  // `sidecar-proxy`), not assumable by entries yet.
+  // token-v1 runtimes are reached through core's consent-gated same-origin proxy.
+  // An external runtime may stay explicitly legacy while its browser adapter
+  // still uses direct loopback access, as Desktop Companion currently does.
   "sidecar": {
     "type": "loopback",
     "origin": "http://127.0.0.1:17787",
-    "health_path": "/health"
+    "health_path": "/health",
+    "proxy_auth": "legacy",
+    "runtime": {
+      "kind": "external",
+      "repository": "https://github.com/franksong2702/hermes-webui-desktop-companion"
+    }
   },
 
   // --- install / lifecycle behavior ---
@@ -118,15 +122,13 @@ the table.
 }
 ```
 
-## Manifest derivation must preserve core hardening (per @santastabber)
+## Manifest consistency preserves core hardening (per @santastabber)
 
-When the Action derives the runtime `manifest.json` from `assets`, the output
-**must satisfy every rule the core loader already enforces** — same-origin asset
-paths only (`/extensions/` or `/static/`), no traversal/encoded dot-segments, the
-URL-count and manifest-size caps, bare paths resolving under `/extensions/`. The
-derivation never relaxes those; if an entry's `assets` can't produce a
-core-valid manifest, the entry fails validation. The generated manifest is held
-to the *same* bar as a hand-written one.
+The checked-in runtime `manifest.json` must satisfy every rule the core loader
+already enforces: same-origin asset paths only (`/extensions/` or `/static/`), no
+traversal or encoded dot-segments, URL-count and manifest-size caps, and bare
+paths resolving under `/extensions/`. CI also compares it with `extension.json`;
+drift in assets or sidecar wire fields fails validation before packaging.
 
 ## Install metadata / lifecycle the schema must support (per @santastabber)
 
@@ -143,10 +145,13 @@ delivery design:
 ## Validation (what CI / safety gates check — #6, #8)
 
 - required fields present; `id` is lowercase-hyphen, unique, matches the directory
-- `assets` paths are same-origin / repo-local (no external URLs, no traversal) AND
-  the *derived* manifest passes the core loader's hardening rules
+- `assets` paths are same-origin / repo-local (no external URLs, no traversal),
+  the checked-in manifest passes core loader hardening, and both declarations agree
 - declared `capabilities` are in the **core-owned** capability list and SHIPPED
-  (e.g. reject `sidecar-proxy` until core ships it)
+  (`proxy_auth` is sidecar metadata, not a separate capability)
+- loopback sidecars explicitly declare proxy auth plus vendored/external runtime
+  ownership; vendored runtimes carry the canonical token-v1 scaffold while
+  external runtimes name their source repository
 - `permissions` block present and honest — cross-checked against a static scan of
   the assets (e.g. `network_external:false` + an external `fetch` → flagged;
   `webui_authenticated_api:false` + calls to authed endpoints → flagged)
@@ -160,13 +165,13 @@ delivery design:
 
 ## Resolved (maintainer consensus)
 
-- **One file (not two).** Both maintainers favor: authors maintain `extension.json`,
-  CI derives the runtime loader manifest. Frank's rationale from real Desktop
-  Companion code: the author-facing metadata (identity, assets, sidecar,
-  permissions, compatibility, source repo, screenshots, install/lifecycle notes)
-  is much richer than the loader manifest, and hand-writing both would drift.
+- **Two reviewed files with exact drift checks.** Authors maintain rich
+  `extension.json` metadata and core's minimal runtime `manifest.json`. CI compares
+  their identity, assets, and sidecar wire fields, while the registry packages the
+  checked-in manifest unchanged.
 - **Capabilities are core-owned; declare only shipped ones.** Desktop Companion
-  declares `manifest-bundle` + `loopback-sidecar` today, NOT `sidecar-proxy`.
+  declares `manifest-bundle` + `loopback-sidecar`; proxy auth lives in its
+  `sidecar` block rather than a separate capability.
 - **Screenshots in-repo for the first pass.** Revisit if repo size becomes an issue.
 - **Updates:** user-facing comparison by `version`; integrity by `sha256`.
 - **Compatibility capability-first**, `min_webui_version` as a fallback hint only.

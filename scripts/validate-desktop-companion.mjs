@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve('extensions/desktop-companion');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = path.join(repoRoot, 'extensions', 'desktop-companion');
 
 function readJson(rel) {
   return JSON.parse(readFileSync(path.join(root, rel), 'utf8'));
@@ -29,6 +31,26 @@ assert.deepEqual(entry.capabilities, ['manifest-bundle', 'loopback-sidecar']);
 assert.ok(!entry.capabilities.includes('sidecar-proxy'));
 assert.deepEqual(entry.assets.stylesheets, []);
 assert.deepEqual(runtime.stylesheets, []);
+assert.equal(entry.sidecar.proxy_auth, 'legacy');
+assert.deepEqual(entry.sidecar.runtime, {
+  kind: 'external',
+  repository: 'https://github.com/franksong2702/hermes-webui-desktop-companion'
+});
+assert.equal(runtime.sidecar.proxy_auth, entry.sidecar.proxy_auth);
+const exampleManifest = JSON.parse(
+  readFileSync(path.join(repoRoot, 'examples', 'loopback-sidecar', 'manifest.json'), 'utf8')
+);
+assert.deepEqual(
+  exampleManifest.extensions,
+  [{
+    id: runtime.id,
+    name: runtime.name,
+    scripts: runtime.scripts,
+    stylesheets: runtime.stylesheets,
+    sidecar: runtime.sidecar
+  }],
+  'the loopback-sidecar example must match Desktop Companion’s shipped external legacy manifest'
+);
 assertIncludesAll(
   entry.permissions.webui_api.read,
   ['sessions', 'session', 'approval/pending', 'clarify/pending'],

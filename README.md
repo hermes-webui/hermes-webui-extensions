@@ -90,19 +90,24 @@ Extension entries should document:
 - manual verification steps
 - any future CI check that should protect the extension
 
-The long-term goal is for this repository to validate existing extension
-entries as the main WebUI extension contract evolves.
+This repository validates existing extension entries as the main WebUI extension
+contract evolves.
 
 Run the current repo-wide checks locally with:
 
 ```bash
 node scripts/validate-extensions.mjs
 node scripts/test-extension-validator.mjs
+node scripts/test-sidecar-contract.mjs
+python3 scripts/test-sidecar-scaffold.py
 node scripts/scan-extension-safety.mjs
+node scripts/sync-sidecar-base.mjs --check
+node scripts/check-sidecar-usage.mjs
+node scripts/validate-desktop-companion.mjs
 node scripts/generate-registry.mjs --out dist/registry.json
 ```
 
-Pull requests run the same validator and safety scan in CI. Pushes to `main`
+Pull requests run the same validation, contract, and safety checks in CI. Pushes to `main`
 generate the registry and per-extension zip artifacts for GitHub Pages. The
 registry entry includes a `download` URL and artifact-level `sha256` for each
 extension so the WebUI install client fetches and verifies reviewed bytes before
@@ -122,6 +127,7 @@ The one-click **install flow and registry UI shipped in core** (Settings →
 Extensions: browse the registry, review permissions, install/uninstall with
 sha256 verification). Merged entries here are validated + safety-scanned in CI,
 published to the registry, and become one-click-installable from inside WebUI.
-The Tier-A loopback sidecar proxy remains future/demand-driven; sidecar-class
-entries currently reach their local backend directly under the loopback CSP
-allowance and should document their manual install + lifecycle explicitly.
+The consent-gated per-extension loopback proxy is shipped. `token-v1` runtimes use
+that same-origin path and validate core's per-install token; explicitly legacy
+external adapters may still use direct loopback under the core CSP allowance.
+Every sidecar entry must document its install and lifecycle requirements.

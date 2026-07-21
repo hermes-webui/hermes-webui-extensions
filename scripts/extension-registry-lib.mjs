@@ -1,14 +1,16 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { checkScaffoldSync, checkSidecarUsage, symlinksUnder } from './sidecar-contract-lib.mjs';
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const EXTENSIONS_ROOT = path.join(REPO_ROOT, 'extensions');
 export const DEFAULT_REGISTRY_BASE_URL = 'https://hermes-webui.github.io/hermes-webui-extensions/';
 const ZIP32_MAX = 0xffffffff;
 const ZIP16_MAX = 0xffff;
+const ZIP_UTF8_FLAG = 0x0800;
 
 const VALID_CAPABILITIES = new Set([
   'manifest-bundle',
@@ -43,22 +45,25 @@ export function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf8'));
 }
 
-export function repoRelative(filePath) {
-  return path.relative(REPO_ROOT, filePath).split(path.sep).join('/');
+export function repoRelative(filePath, repoRoot = REPO_ROOT) {
+  return path.relative(repoRoot, filePath).split(path.sep).join('/');
 }
 
-export function discoverEntries() {
-  if (!existsSync(EXTENSIONS_ROOT)) return [];
-  return readdirSync(EXTENSIONS_ROOT, { withFileTypes: true })
-    .filter((item) => item.isDirectory())
+export function discoverEntries({ repoRoot = REPO_ROOT } = {}) {
+  const extensionsRoot = path.join(repoRoot, 'extensions');
+  if (!existsSync(extensionsRoot)) return [];
+  return readdirSync(extensionsRoot, { withFileTypes: true })
+    .filter((item) => item.isDirectory() || item.isSymbolicLink())
     .map((item) => {
-      const root = path.join(EXTENSIONS_ROOT, item.name);
+      const root = path.join(extensionsRoot, item.name);
       const extensionJsonPath = path.join(root, 'extension.json');
-      return existsSync(extensionJsonPath)
-        ? { idFromDir: item.name, root, extensionJsonPath }
-        : null;
+      return {
+        idFromDir: item.name,
+        root,
+        extensionJsonPath,
+        rootIsSymlink: item.isSymbolicLink()
+      };
     })
-    .filter(Boolean)
     .sort((a, b) => a.idFromDir.localeCompare(b.idFromDir));
 }
 
@@ -88,6 +93,59 @@ function isHttpUrl(value) {
   }
 }
 
+function fullyDecodePath(value) {
+  let current = value;
+  try {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) return decoded;
+      current = decoded;
+    }
+  } catch (_) {
+    return null;
+  }
+  return current;
+}
+
+function isCoreCompatibleSidecarOrigin(value) {
+  if (!isNonEmptyString(value)) return false;
+  const raw = value.trim();
+  if ([...raw].some((char) => ['\0', '\r', '\n', '"', "'", '<', '>', '\\'].includes(char))) {
+    return false;
+  }
+  if (!/^https?:\/\/[^/?#]+$/i.test(raw)) return false;
+  const authority = raw.slice(raw.indexOf('://') + 3);
+  if (!/^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i.test(authority)) return false;
+  try {
+    const origin = new URL(raw);
+    return ['http:', 'https:'].includes(origin.protocol)
+      && ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(origin.hostname.toLowerCase())
+      && !origin.username
+      && !origin.password;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isCoreCompatibleHealthPath(value) {
+  if (!isNonEmptyString(value)) return false;
+  const raw = value.trim();
+  if (!raw.startsWith('/') || raw.startsWith('//')) return false;
+  if ([...raw].some((char) => ['\0', '\r', '\n', '"', "'", '<', '>', '\\'].includes(char))) {
+    return false;
+  }
+  if (raw.includes('?') || raw.includes('#')) return false;
+  const decoded = fullyDecodePath(raw);
+  if (decoded === null || !decoded.startsWith('/') || decoded.startsWith('//')) return false;
+  if ([...decoded].some((char) => ['\0', '\r', '\n', '"', "'", '<', '>', '\\', '?', '#'].includes(char))) {
+    return false;
+  }
+  if (/\s/u.test(decoded)) return false;
+  const segments = decoded.slice(1).split('/');
+  return segments.length > 0
+    && segments.every((segment) => segment.length > 0 && segment !== '.' && segment !== '..');
+}
+
 function isSafeLocalPath(value) {
   if (!isNonEmptyString(value)) return false;
   if (value.startsWith('/') || value.startsWith('\\')) return false;
@@ -102,6 +160,16 @@ function isSafeLocalPath(value) {
 function localFile(entryRoot, rel) {
   return path.join(entryRoot, rel.split('/').join(path.sep));
 }
+
+function localPathHasSymlink(entryRoot, rel) {
+  let current = entryRoot;
+  for (const segment of rel.split('/')) {
+    current = path.join(current, segment);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) return true;
+  }
+  return false;
+}
+
 
 function collectFiles(dir, prefix = '') {
   const files = [];
@@ -156,8 +224,8 @@ function writeZipLocalHeader({ name, content }) {
   const { date, time } = dosDateTime();
   const checksum = crc32(content);
   header.writeUInt32LE(0x04034b50, 0);
-  header.writeUInt16LE(10, 4);
-  header.writeUInt16LE(0, 6);
+  header.writeUInt16LE(20, 4);
+  header.writeUInt16LE(ZIP_UTF8_FLAG, 6);
   header.writeUInt16LE(0, 8);
   header.writeUInt16LE(time, 10);
   header.writeUInt16LE(date, 12);
@@ -175,8 +243,8 @@ function writeZipCentralHeader({ name, content, offset, checksum }) {
   const { date, time } = dosDateTime();
   header.writeUInt32LE(0x02014b50, 0);
   header.writeUInt16LE(0x031e, 4);
-  header.writeUInt16LE(10, 6);
-  header.writeUInt16LE(0, 8);
+  header.writeUInt16LE(20, 6);
+  header.writeUInt16LE(ZIP_UTF8_FLAG, 8);
   header.writeUInt16LE(0, 10);
   header.writeUInt16LE(time, 12);
   header.writeUInt16LE(date, 14);
@@ -308,6 +376,20 @@ function validateRuntimeManifest(entry, assets, errors) {
   if (JSON.stringify(runtimeStylesheets) !== JSON.stringify(assets.stylesheets)) {
     errors.push('manifest stylesheets must match extension.json assets.stylesheets');
   }
+  const hasSidecar = Array.isArray(entry.capabilities) && entry.capabilities.includes('loopback-sidecar');
+  if (!hasSidecar && runtime.sidecar !== undefined) {
+    errors.push('manifest sidecar block requires loopback-sidecar metadata in extension.json');
+  } else if (hasSidecar) {
+    if (!isPlainObject(runtime.sidecar)) {
+      errors.push('manifest sidecar block is required when loopback-sidecar capability is declared');
+    } else if (isPlainObject(entry.sidecar)) {
+      for (const field of ['type', 'origin', 'health_path', 'proxy_auth']) {
+        if (runtime.sidecar[field] !== entry.sidecar[field]) {
+          errors.push(`manifest sidecar.${field} must match extension.json sidecar.${field}`);
+        }
+      }
+    }
+  }
 }
 
 function validatePermissions(entry, scriptText, errors) {
@@ -430,25 +512,88 @@ function validatePostInstall(entry, errors) {
   }
 }
 
-function validateSidecar(entry, errors) {
+function validateSidecar(entry, errors, warnings) {
   const hasCapability = Array.isArray(entry.capabilities) && entry.capabilities.includes('loopback-sidecar');
-  if (!hasCapability) return;
+  if (!hasCapability) {
+    if (entry.sidecar !== undefined) {
+      errors.push('sidecar block requires the loopback-sidecar capability');
+    }
+    return;
+  }
   if (!isPlainObject(entry.sidecar)) {
     errors.push('sidecar block is required when loopback-sidecar capability is declared');
     return;
   }
   if (entry.sidecar.type !== 'loopback') errors.push('sidecar.type must be loopback');
-  try {
-    const origin = new URL(entry.sidecar.origin);
-    if (!['http:', 'https:'].includes(origin.protocol)) errors.push('sidecar.origin must be http(s)');
-    if (!['127.0.0.1', 'localhost', '::1'].includes(origin.hostname)) {
-      errors.push('sidecar.origin must be loopback');
-    }
-  } catch (_) {
-    errors.push('sidecar.origin must be a valid URL');
+  let parsedOrigin = null;
+  if (!isCoreCompatibleSidecarOrigin(entry.sidecar.origin)) {
+    errors.push('sidecar.origin must be a loopback HTTP(S) origin without path, query, fragment, or userinfo');
+  } else {
+    parsedOrigin = new URL(entry.sidecar.origin.trim());
   }
-  if (!isNonEmptyString(entry.sidecar.health_path) || !entry.sidecar.health_path.startsWith('/')) {
-    errors.push('sidecar.health_path must be an absolute path');
+  if (!isCoreCompatibleHealthPath(entry.sidecar.health_path)) {
+    errors.push('sidecar.health_path must be a safe absolute path without query or fragment');
+  }
+  if (!['legacy', 'token-v1'].includes(entry.sidecar.proxy_auth)) {
+    errors.push('sidecar.proxy_auth must be legacy or token-v1');
+  }
+
+  const runtime = entry.sidecar.runtime;
+  if (!isPlainObject(runtime)) {
+    errors.push('sidecar.runtime is required when loopback-sidecar capability is declared');
+    return;
+  }
+  if (!['vendored', 'external'].includes(runtime.kind)) {
+    errors.push('sidecar.runtime.kind must be vendored or external');
+    return;
+  }
+  if (runtime.kind === 'vendored') {
+    const port = parsedOrigin === null ? NaN : Number(parsedOrigin.port);
+    if (parsedOrigin === null
+        || parsedOrigin.protocol !== 'http:'
+        || parsedOrigin.hostname !== '127.0.0.1'
+        || !parsedOrigin.port
+        || !Number.isInteger(port)
+        || port < 1
+        || port > 65535
+        || parsedOrigin.username
+        || parsedOrigin.password
+        || parsedOrigin.pathname !== '/'
+        || parsedOrigin.search
+        || parsedOrigin.hash) {
+      errors.push('vendored sidecar.origin must use http://127.0.0.1 with an explicit port');
+    }
+    if (entry.sidecar.health_path !== '/health') {
+      errors.push('vendored sidecar.health_path must be /health');
+    }
+    if (!isSafeLocalPath(runtime.path)) {
+      errors.push('sidecar.runtime.path is required for a vendored runtime');
+    } else {
+      const runtimePath = localFile(entry.__root, runtime.path);
+      if (!existsSync(runtimePath)) {
+        errors.push(`vendored sidecar runtime directory missing: ${runtime.path}`);
+      } else if (localPathHasSymlink(entry.__root, runtime.path)) {
+        errors.push(`vendored sidecar runtime path must not contain symlinks: ${runtime.path}`);
+      } else if (!lstatSync(runtimePath).isDirectory()) {
+        errors.push(`vendored sidecar runtime directory missing: ${runtime.path}`);
+      } else {
+        for (const symlink of symlinksUnder(runtimePath)) {
+          errors.push(
+            `vendored sidecar runtime tree must not contain symlinks: ${runtime.path}/${symlink}`
+          );
+        }
+      }
+    }
+    if (entry.sidecar.proxy_auth !== 'token-v1') {
+      errors.push('vendored sidecars must use proxy_auth token-v1');
+    }
+  } else {
+    if (!isHttpUrl(runtime.repository)) {
+      errors.push('sidecar.runtime.repository is required for an external runtime');
+    }
+    if (entry.sidecar.proxy_auth === 'legacy') {
+      warnings.push('external sidecar runtime is explicitly legacy (proxy_auth: legacy)');
+    }
   }
 }
 
@@ -474,6 +619,34 @@ function validateCapabilities(entry, errors) {
 
 export function validateEntry(discovered) {
   const errors = [];
+  const warnings = [];
+  if (discovered.rootIsSymlink) {
+    return {
+      id: discovered.idFromDir,
+      root: discovered.root,
+      warnings,
+      errors: ['extension root must be a real directory, not a symlink']
+    };
+  }
+  let metadataStat;
+  try {
+    metadataStat = lstatSync(discovered.extensionJsonPath);
+  } catch (error) {
+    return {
+      id: discovered.idFromDir,
+      root: discovered.root,
+      warnings,
+      errors: [`extension.json is not a readable regular file: ${error.message}`]
+    };
+  }
+  if (!metadataStat.isFile()) {
+    return {
+      id: discovered.idFromDir,
+      root: discovered.root,
+      warnings,
+      errors: ['extension.json must be a real regular file, not a symlink']
+    };
+  }
   let entry;
   try {
     entry = readJson(discovered.extensionJsonPath);
@@ -481,7 +654,30 @@ export function validateEntry(discovered) {
     return {
       id: discovered.idFromDir,
       root: discovered.root,
+      warnings,
       errors: [`extension.json is not valid JSON: ${error.message}`]
+    };
+  }
+  if (!isPlainObject(entry)) {
+    return {
+      id: discovered.idFromDir,
+      root: discovered.root,
+      warnings,
+      errors: ['extension.json must contain a JSON object']
+    };
+  }
+
+  const treeSymlinks = symlinksUnder(discovered.root);
+  for (const symlink of treeSymlinks) {
+    errors.push(`extension tree must not contain symlinks: ${symlink}`);
+  }
+  if (treeSymlinks.length) {
+    return {
+      id: entry.id || discovered.idFromDir,
+      root: discovered.root,
+      entry,
+      warnings,
+      errors
     };
   }
 
@@ -501,7 +697,7 @@ export function validateEntry(discovered) {
   validateCapabilities(entry, errors);
   validateLifecycle(entry, errors);
   validatePostInstall(entry, errors);
-  validateSidecar(entry, errors);
+  validateSidecar(entry, errors, warnings);
   validateSettingsSchema(entry, errors);
 
   const scriptText = assets.scripts
@@ -510,11 +706,11 @@ export function validateEntry(discovered) {
   validatePermissions(entry, scriptText, errors);
 
   delete entry.__root;
-  return { id: entry.id || discovered.idFromDir, root: discovered.root, entry, errors };
+  return { id: entry.id || discovered.idFromDir, root: discovered.root, entry, warnings, errors };
 }
 
-export function validateAllEntries() {
-  const discovered = discoverEntries();
+export function validateAllEntries({ repoRoot = REPO_ROOT } = {}) {
+  const discovered = discoverEntries({ repoRoot });
   const seen = new Set();
   const results = discovered.map((item) => {
     const result = validateEntry(item);
@@ -525,14 +721,23 @@ export function validateAllEntries() {
   return { discovered, results };
 }
 
-function assertValidResults() {
-  const { results } = validateAllEntries();
+function assertValidResults(repoRoot = REPO_ROOT) {
+  const { results } = validateAllEntries({ repoRoot });
   const failures = results.filter((result) => result.errors.length);
   if (failures.length) {
     const message = failures
       .map((result) => `${result.id}\n${result.errors.map((error) => `  - ${error}`).join('\n')}`)
       .join('\n');
     throw new Error(`Cannot generate registry from invalid entries:\n${message}`);
+  }
+  const sidecarFailures = [
+    ...checkScaffoldSync(repoRoot).failures,
+    ...checkSidecarUsage(repoRoot).failures
+  ];
+  if (sidecarFailures.length) {
+    throw new Error(
+      `Cannot generate registry from an invalid sidecar contract:\n${sidecarFailures.join('\n')}`
+    );
   }
   return results;
 }
@@ -575,14 +780,15 @@ export function buildExtensionArtifact(result) {
 function buildRegistryFromResults(results, {
   publishedAt,
   artifactBaseUrl = DEFAULT_REGISTRY_BASE_URL,
-  artifactsById = new Map()
+  artifactsById = new Map(),
+  repoRoot = REPO_ROOT
 }) {
   return {
     version: 1,
     generated_at: publishedAt,
     extensions: results
       .map((result) => {
-        const entryDir = repoRelative(result.root);
+        const entryDir = repoRelative(result.root, repoRoot);
         const fileHashes = extensionFiles(result).map((file) => ({
           path: file.path,
           sha256: sha256File(file.absolutePath)
@@ -608,19 +814,28 @@ function buildRegistryFromResults(results, {
   };
 }
 
-export function buildRegistry({ publishedAt = new Date().toISOString() } = {}) {
-  return buildRegistryFromResults(assertValidResults(), { publishedAt });
+export function buildRegistry({
+  publishedAt = new Date().toISOString(),
+  repoRoot = REPO_ROOT
+} = {}) {
+  return buildRegistryFromResults(assertValidResults(repoRoot), { publishedAt, repoRoot });
 }
 
 export function buildRegistryWithArtifacts({
   publishedAt = new Date().toISOString(),
-  artifactBaseUrl = DEFAULT_REGISTRY_BASE_URL
+  artifactBaseUrl = DEFAULT_REGISTRY_BASE_URL,
+  repoRoot = REPO_ROOT
 } = {}) {
-  const results = assertValidResults();
+  const results = assertValidResults(repoRoot);
   const artifacts = results.map((result) => buildExtensionArtifact(result));
   const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
   return {
-    registry: buildRegistryFromResults(results, { publishedAt, artifactBaseUrl, artifactsById }),
+    registry: buildRegistryFromResults(results, {
+      publishedAt,
+      artifactBaseUrl,
+      artifactsById,
+      repoRoot
+    }),
     artifacts
   };
 }

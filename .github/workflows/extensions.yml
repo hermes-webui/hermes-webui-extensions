@@ -5,8 +5,11 @@ on:
     paths:
       - 'extensions/**'
       - 'scripts/**'
+      - 'examples/sidecar-scaffold/**'
+      - 'examples/loopback-sidecar/**'
       - 'README.md'
       - 'docs/extension-entry.md'
+      - 'docs/SIDECAR_CONTRACT.md'
       - 'docs/rfcs/0001-extension-json-schema.md'
       - '.github/workflows/extensions.yml'
   push:
@@ -15,8 +18,11 @@ on:
     paths:
       - 'extensions/**'
       - 'scripts/**'
+      - 'examples/sidecar-scaffold/**'
+      - 'examples/loopback-sidecar/**'
       - 'README.md'
       - 'docs/extension-entry.md'
+      - 'docs/SIDECAR_CONTRACT.md'
       - 'docs/rfcs/0001-extension-json-schema.md'
       - '.github/workflows/extensions.yml'
 
@@ -40,14 +46,34 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Validate extension entries
         run: node scripts/validate-extensions.mjs
 
       - name: Test extension validator
         run: node scripts/test-extension-validator.mjs
 
+      - name: Test sidecar contract enforcement
+        run: node scripts/test-sidecar-contract.mjs
+
+      - name: Test canonical sidecar scaffold
+        run: python scripts/test-sidecar-scaffold.py
+
       - name: Scan extension safety gates
         run: node scripts/scan-extension-safety.mjs
+
+      - name: Check sidecar scaffold is in sync
+        run: node scripts/sync-sidecar-base.mjs --check
+
+      - name: Check sidecar usage (no rogue servers / correct ExecStart)
+        run: node scripts/check-sidecar-usage.mjs
+
+      - name: Validate Desktop Companion and loopback example
+        run: node scripts/validate-desktop-companion.mjs
 
       - name: Generate registry
         run: node scripts/generate-registry.mjs --out dist/registry.json

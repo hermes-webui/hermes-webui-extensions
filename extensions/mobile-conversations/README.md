@@ -39,7 +39,7 @@ This entry declares only capabilities currently available to extension entries:
 
 - `manifest-bundle`
 
-It does not require `loopback-sidecar` or future sidecar proxy support.
+It does not require `loopback-sidecar` or the sidecar proxy.
 
 ## Install For Local Testing
 
@@ -146,7 +146,6 @@ Manual mobile verification should confirm:
 
 ## Known Limitations
 
-- No one-click install path is available yet.
 - The extension relies on current WebUI DOM and browser helper names until a
   formal mobile sidebar extension API exists.
 - The extension is intentionally mobile-only and does not add a desktop control.
