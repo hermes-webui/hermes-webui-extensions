@@ -42,7 +42,7 @@
     "webui_api": {
       "read": [
         "/api/profiles",
-        "/api/sessions",
+        "sessions",
         "/api/extensions/status",
         "/api/extensions/profile-avatars/sidecar/api/avatars",
         "/api/extensions/profile-avatars/sidecar/api/avatars/{profile}"
