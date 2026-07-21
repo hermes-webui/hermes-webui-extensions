@@ -1,0 +1,21 @@
+{
+  "extensions": [
+    {
+      "id": "profile-avatars",
+      "name": "Profile Avatars",
+      "description": "Per-profile avatars on chips, transcript badges, and the session list \u2014 server-stored, synced across devices.",
+      "scripts": [
+        "assets/avatars.js"
+      ],
+      "stylesheets": [
+        "assets/avatars.css"
+      ],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17798",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      }
+    }
+  ]
+}

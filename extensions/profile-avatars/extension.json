@@ -1,0 +1,71 @@
+{
+  "id": "profile-avatars",
+  "name": "Profile Avatars",
+  "description": "Per-profile avatar images everywhere: profile chips, transcript assistant badges, and the session list (including other-profile chats). Server-stored via a loopback sidecar, so avatars sync across devices with zero localStorage.",
+  "version": "0.1.0",
+  "author": "asorourx",
+  "assets": {
+    "scripts": [
+      "assets/avatars.js"
+    ],
+    "stylesheets": [
+      "assets/avatars.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17798",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  },
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "requires_local_app": true,
+    "local_app_label": "Profile Avatars sidecar",
+    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17798, then approve the sidecar proxy in Settings \u2192 Extensions."
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "/api/profiles",
+        "sessions",
+        "/api/extensions/status",
+        "/api/extensions/profile-avatars/sidecar/api/avatars",
+        "/api/extensions/profile-avatars/sidecar/api/avatars/{profile}"
+      ],
+      "write": [
+        "/api/extensions/profile-avatars/sidecar/api/avatars/{profile}"
+      ]
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}
