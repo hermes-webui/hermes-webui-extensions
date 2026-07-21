@@ -13,6 +13,7 @@ so a larger image would store fine but 502 on read; reject it at upload instead.
 from __future__ import annotations
 
 import email.parser as _ep
+import email.policy as _policy
 import hashlib
 import os
 import re as _re
@@ -106,7 +107,7 @@ def avatar_url_for(profile: str) -> Optional[str]:
     meta = get_avatar_meta(profile)
     if not meta:
         return None
-    return f"/api/avatars/{profile}?v={int(meta['updated_at'])}"
+    return f"/api/avatars/{profile}?v={_cache_buster(meta['updated_at'], meta.get('etag'))}"
 
 
 def list_avatars() -> dict:
@@ -118,13 +119,28 @@ def list_avatars() -> dict:
     except Exception:
         return {}
     try:
-        rows = conn.execute("SELECT profile, updated_at FROM avatars").fetchall()
+        rows = conn.execute("SELECT profile, updated_at, etag FROM avatars").fetchall()
     finally:
         conn.close()
     return {
-        r[0]: {"url": f"/api/avatars/{r[0]}?v={int(r[1])}", "updated_at": r[1]}
+        r[0]: {"url": f"/api/avatars/{r[0]}?v={_cache_buster(r[1], r[2])}", "updated_at": r[1]}
         for r in rows
     }
+
+
+def _cache_buster(updated_at, etag) -> str:
+    """Collision-free cache-busting token for an avatar URL.
+
+    ``updated_at`` alone (an int-truncated epoch second) collides when two
+    distinct uploads land in the same wall-clock second, pinning the browser to
+    the first blob until reload. Folding in the content ETag makes the token
+    change whenever the bytes change, even within a second.
+    """
+    base = int(updated_at) if updated_at is not None else 0
+    tag = (etag or "").strip('"')
+    if not tag:
+        return str(base)
+    return f"{base}-{tag[:12]}"
 
 
 def get_avatar_row(profile: str):
@@ -209,34 +225,41 @@ def parse_multipart(body: bytes, content_type: str) -> tuple:
     """Parse multipart/form-data from an already-read body (the scaffold reads the
     full request body for us, so there is no stream/chunked handling to do here).
     Returns (fields, files) where files[name] = (filename, raw_bytes)."""
+    if "\r" in content_type or "\n" in content_type:
+        raise ValueError("Invalid Content-Type")
     m = _re.search(r"boundary=([^;\s]+)", content_type)
-    if not m:
+    if not m or not m.group(1).strip('"'):
         raise ValueError("No boundary in Content-Type")
-    boundary = m.group(1).strip('"').encode()
+
+    try:
+        envelope = (
+            b"Content-Type: "
+            + content_type.encode("ascii")
+            + b"\r\nMIME-Version: 1.0\r\n\r\n"
+            + body
+        )
+    except UnicodeEncodeError as exc:
+        raise ValueError("Invalid Content-Type") from exc
+
+    message = _ep.BytesParser(policy=_policy.default).parsebytes(envelope)
+    if not message.is_multipart():
+        raise ValueError("Malformed multipart body")
+
     fields, files = {}, {}
-    delimiter = b"--" + boundary
-    for part in body.split(delimiter)[1:]:
-        stripped = part.lstrip(b"\r\n")
-        if stripped.startswith(b"--"):
-            break
-        sep = b"\r\n\r\n" if b"\r\n\r\n" in part else b"\n\n"
-        if sep not in part:
+    for part in message.iter_parts():
+        if part.is_multipart() or part.get_content_disposition() != "form-data":
             continue
-        header_raw, pbody = part.split(sep, 1)
-        if pbody.endswith(b"\r\n"):
-            pbody = pbody[:-2]
-        elif pbody.endswith(b"\n"):
-            pbody = pbody[:-1]
-        header_text = header_raw.lstrip(b"\r\n").decode("utf-8", errors="replace")
-        msg = _ep.HeaderParser().parsestr(header_text)
-        disp = msg.get("Content-Disposition", "")
-        name_m = _re.search(r'name="([^"]*)"', disp)
-        file_m = _re.search(r'filename="([^"]*)"', disp)
-        if not name_m:
+        name = part.get_param("name", header="content-disposition")
+        if not name:
             continue
-        name = name_m.group(1)
-        if file_m:
-            files[name] = (file_m.group(1), pbody)
+        if name in fields or name in files:
+            raise ValueError(f"Duplicate multipart field: {name}")
+        decoded = part.get_payload(decode=True)
+        payload = decoded if isinstance(decoded, bytes) else b""
+        filename = part.get_filename()
+        if filename is not None:
+            files[name] = (filename, payload)
         else:
-            fields[name] = pbody.decode("utf-8", errors="replace")
+            charset = part.get_content_charset() or "utf-8"
+            fields[name] = payload.decode(charset, errors="replace")
     return fields, files

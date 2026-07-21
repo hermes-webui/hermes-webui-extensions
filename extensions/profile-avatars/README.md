@@ -50,8 +50,11 @@ Reads (same-origin WebUI API): /api/profiles (roster + active),
 
 ## Supported WebUI version / API surface
 
-Built and tested against Hermes WebUI ≥ 0.16 (the current extension gallery /
-sidecar-proxy API). Required surface:
+Requires a Hermes WebUI build that contains the `token-v1` sidecar-proxy
+contract (core [nesquena/hermes-webui#6331](https://github.com/nesquena/hermes-webui/pull/6331),
+first shipped in `exp-v0.52.129`). An older build has no per-extension sidecar
+token, so every protected sidecar call fails closed. A stable-channel minimum
+will be documented once #6331 promotes to a `v*` release. Required surface:
 
 - manifest-bundled asset injection (`manifest.json` scripts/stylesheets)
 - `token-v1` sidecar proxy at `/api/extensions/<id>/sidecar/*` (core injects
@@ -62,6 +65,11 @@ sidecar-proxy API). Required surface:
   - `.app-titlebar-profile-icon`, `.composer-profile-icon` (profile chips)
   - `.role-icon.assistant` (transcript badge)
   - `.session-item[data-sid] .session-title-row` (session rows)
+
+**Coexistence:** if the separate `custom-avatar` extension has an assistant
+transcript image active, that extension keeps ownership of `.role-icon.assistant`.
+Profile Avatars still owns profile chips, profile-aware session rows, and the
+manager, and resumes transcript badges if the custom assistant avatar is removed.
 
 ## Sidecar (token-v1 scaffold)
 

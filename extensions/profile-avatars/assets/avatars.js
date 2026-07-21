@@ -19,6 +19,34 @@
   var _byProfile = Object.create(null);
   var _activeName = null;
   var _loaded = false;
+  // Core (api/profiles.py::_is_root_profile / _profiles_match) treats the
+  // literal alias 'default', an absent/empty value, and the renamed root
+  // profile's display name as the SAME profile. _byProfile is keyed by the
+  // roster's display name, so we normalize every profile reference to the root
+  // display name — otherwise a renamed root strands its avatar on the chip,
+  // badges, and every legacy session row still tagged 'default'.
+  var _rootProfileName = 'default';
+  function _canonicalProfileName(name) {
+    var n = (typeof name === 'string' && name.trim()) ? name.trim() : 'default';
+    if (n === 'default' || n === _rootProfileName) return _rootProfileName;
+    return n;
+  }
+  // Refresh the root + active identity from the roster: the root is the
+  // is_default entry; the active profile is resolved from is_active (falling
+  // back to data.active) and canonicalized so it matches a _byProfile key.
+  function _syncRosterIdentity(data, profiles) {
+    profiles = Array.isArray(profiles) ? profiles : [];
+    for (var i = 0; i < profiles.length; i++) {
+      if (profiles[i] && profiles[i].is_default && profiles[i].name) { _rootProfileName = profiles[i].name; break; }
+    }
+    var activeRow = null;
+    for (var j = 0; j < profiles.length; j++) {
+      if (profiles[j] && profiles[j].is_active) { activeRow = profiles[j]; break; }
+    }
+    var raw = (activeRow && activeRow.name) || (data && data.active) || _activeName;
+    _activeName = _canonicalProfileName(raw);
+    return profiles;
+  }
 
   // Consent is granted by the user in Settings -> Extensions; we NEVER auto-grant it.
   // Resolves true only when the proxy reports this extension's sidecar as consented.
@@ -26,15 +54,11 @@
     return fetch('/api/extensions/status', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        var recs = (d && (d.extensions || d.records)) || (Array.isArray(d) ? d : []);
+        var recs = (d && Array.isArray(d.sidecars)) ? d.sidecars : [];
         var me = null;
         for (var i = 0; i < recs.length; i++) { if (recs[i] && recs[i].id === EXT) { me = recs[i]; break; } }
-        if (!me || !me.sidecars || !me.sidecars.length) return true;
-        for (var k = 0; k < me.sidecars.length; k++) {
-          var p = me.sidecars[k] && me.sidecars[k].proxy;
-          if (p && p.consent_required) return false;
-        }
-        return true;
+        var proxy = me && me.proxy;
+        return !!(proxy && proxy.consented && !proxy.consent_required);
       }).catch(function () { return false; });
   }
 
@@ -67,6 +91,18 @@
      The WebUI sidecar proxy stamps no-store on responses, which would defeat
      normal HTTP caching — this sidesteps it with zero persistent storage. */
   var _blobByUrl = Object.create(null);   // source url → object URL
+  function _pruneBlobCache() {
+    var live = Object.create(null);
+    Object.keys(_byProfile).forEach(function (name) {
+      var url = _byProfile[name] && _byProfile[name].url;
+      if (url) live[url] = true;
+    });
+    Object.keys(_blobByUrl).forEach(function (url) {
+      if (live[url]) return;
+      URL.revokeObjectURL(_blobByUrl[url]);
+      delete _blobByUrl[url];
+    });
+  }
   function _prefetchImages() {
     var jobs = [];
     Object.keys(_byProfile).forEach(function (name) {
@@ -97,8 +133,8 @@
     ]).then(function (res) {
       var data = res[0], amap = (res[1] && res[1].avatars) || {};
       if (!data) return;
-      _activeName = data.active || _activeName;
       var profiles = Array.isArray(data.profiles) ? data.profiles : [];
+      _syncRosterIdentity(data, profiles);
       for (var k in _byProfile) delete _byProfile[k];
       for (var i = 0; i < profiles.length; i++) {
         var p = profiles[i];
@@ -107,6 +143,7 @@
         if (p.is_default) _record(p.name, url, { is_default: true, label: window._botName || 'Hermes' });
         else _record(p.name, url);
       }
+      _pruneBlobCache();
       _loaded = true;
       _broadcast();                            // initial bubbles render immediately
       return _prefetchImages().then(_broadcast);  // images swap in once fetched (once each)
@@ -152,10 +189,11 @@
   }
   function _renderInitial(el, name) {
     el.innerHTML = '';
+    var e = name ? _byProfile[name] : null;
     var span = document.createElement('span');
     span.className = 'pa-avatar__initial';
-    span.textContent = _initial(name);
-    span.style.background = name ? _hashColor(name) : '#888';
+    span.textContent = e ? e.initial : _initial(name);
+    span.style.background = e ? e.color : (name ? _hashColor(name) : '#888');
     span.title = name || '';
     el.appendChild(span);
   }
@@ -166,6 +204,9 @@
   function _renderBadges() {
     var e = _activeName ? _byProfile[_activeName] : null;
     document.querySelectorAll('.role-icon.assistant').forEach(function (el) {
+      // The shipped custom-avatar extension owns this exact slot when its image
+      // is active. Do not stack or replace a second image on top of it.
+      if (el.classList.contains('hwx-avatar-set')) return;
       if (e && e.blob) {
         var img = el.querySelector('img.pa-badge-img');
         if (img && img.getAttribute('src') === e.blob) return;   // already right
@@ -203,16 +244,18 @@
     var now = Date.now();
     if (!force && now - _sessProfAt < _SESS_TTL) return Promise.resolve();
     if (_sessProfInflight) return _sessProfInflight;
-    // core /api/sessions honours only ?all_profiles=1 (limit/offset/archived
-    // params are ignored — verified in source), so we don't send them.
-    _sessProfInflight = fetch('/api/sessions?all_profiles=1', { credentials: 'same-origin' })
+    // Include archived rows: core /api/sessions honours all_profiles + the
+    // include_archived/archived_limit params (verified in api/models.py), so a
+    // visible archived row still gets its owner's avatar instead of falling
+    // through to the no-avatar path. archived_limit is generous but bounded.
+    _sessProfInflight = fetch('/api/sessions?all_profiles=1&include_archived=1&archived_limit=2000', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         var arr = (d && Array.isArray(d.sessions)) ? d.sessions : [];
         _sessProf = Object.create(null);
         for (var i = 0; i < arr.length; i++) {
           var s = arr[i];
-          if (s && s.session_id) _sessProf[s.session_id] = s.profile || 'default';
+          if (s && s.session_id) _sessProf[s.session_id] = _canonicalProfileName(s.profile);
         }
         _sessProfAt = Date.now();
       })
@@ -378,6 +421,21 @@
   var _switchDebounce = null;
 
   /* ---- Manager modal: upload / remove an avatar per profile ---- */
+  var _managerRestoreFocus = null;
+  function _showAvatarError(message) {
+    if (typeof window.showToast === 'function') window.showToast(message, 3000, 'error');
+    else window.alert(message);
+  }
+  function _confirmAvatarRemoval(name) {
+    var message = 'Remove the stored avatar for ' + name + '?';
+    if (typeof window.showConfirmDialog === 'function') {
+      return window.showConfirmDialog({
+        title: 'Remove profile avatar?', message: message,
+        confirmText: 'Remove', danger: true, focusCancel: true,
+      });
+    }
+    return Promise.resolve(window.confirm(message));
+  }
   function _renderManagerList() {
     var wrap = document.getElementById('paAvatarManagerList');
     if (!wrap) return;
@@ -410,8 +468,13 @@
         var rm = document.createElement('button');
         rm.type = 'button'; rm.className = 'pa-m-btn pa-m-btn--danger'; rm.textContent = 'Remove';
         rm.onclick = function () {
-          rm.disabled = true;
-          remove(p.name).catch(function (e) { alert(e.message); }).then(function () { rm.disabled = false; });
+          _confirmAvatarRemoval(p.label || p.name).then(function (approved) {
+            if (!approved) return;
+            rm.disabled = true;
+            return remove(p.name)
+              .catch(function (e) { _showAvatarError(e.message); })
+              .then(function () { rm.disabled = false; });
+          });
         };
         actions.appendChild(rm);
       }
@@ -427,8 +490,8 @@
       if (!f) return;
       // 512 KiB matches the core sidecar-proxy's hard response cap — anything
       // larger uploads "ok" then 502s on read, so reject it up front.
-      if (f.size > 512 * 1024) { alert('Image too large (max 512 KiB). Resize to 256–512px first.'); return; }
-      upload(name, f).catch(function (e) { alert(e.message); });
+      if (f.size > 512 * 1024) { _showAvatarError('Image too large (max 512 KiB). Resize to 256–512px first.'); return; }
+      upload(name, f).catch(function (e) { _showAvatarError(e.message); });
     };
     inp.click();
   }
@@ -439,7 +502,7 @@
     ov.className = 'pa-m-overlay';
     ov.style.display = 'none';
     ov.innerHTML =
-      '<div class="pa-m-card" role="dialog" aria-label="Profile avatars">' +
+      '<div class="pa-m-card" role="dialog" aria-modal="true" aria-label="Profile avatars">' +
         '<div class="pa-m-topbar"><span class="pa-m-brand">Profile avatars</span>' +
           '<button type="button" class="pa-m-close" id="paAvatarClose" aria-label="Close">&times;</button></div>' +
         '<div class="pa-m-hint">PNG / JPEG / WebP, ≤ 512 KiB. 256–512px square looks best.</div>' +
@@ -449,17 +512,33 @@
     ov.addEventListener('click', function (e) { if (e.target === ov) _closeManager(); });
     document.getElementById('paAvatarClose').addEventListener('click', _closeManager);
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && ov.style.display !== 'none') _closeManager();
-    });
+      if (ov.style.display === 'none') return;
+      if (e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation(); _closeManager(); return;
+      }
+      if (e.key !== 'Tab') return;
+      var focusable = ov.querySelectorAll('button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      var first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }, true);
   }
   function openManager() {
     _buildManager();
-    document.getElementById('paAvatarManager').style.display = 'flex';
+    _managerRestoreFocus = document.activeElement;
+    var ov = document.getElementById('paAvatarManager');
+    ov.style.display = 'flex';
+    var close = document.getElementById('paAvatarClose');
+    if (close) close.focus();
     (_loaded ? Promise.resolve() : refresh()).then(_renderManagerList);
   }
   function _closeManager() {
     var ov = document.getElementById('paAvatarManager');
     if (ov) ov.style.display = 'none';
+    var restore = _managerRestoreFocus;
+    _managerRestoreFocus = null;
+    if (restore && restore.isConnected && typeof restore.focus === 'function') restore.focus();
   }
   window.paOpenAvatars = openManager;
 

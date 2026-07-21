@@ -8,7 +8,7 @@
   justify-content: center;
   flex: 0 0 auto;
   overflow: hidden;
-  background: var(--surface-2, #2a2a2e);
+  background: var(--surface, #2a2a2e);
   color: #fff;
   font-weight: 600;
   line-height: 1;
@@ -136,5 +136,10 @@
 }
 .pa-m-btn:hover { border-color: var(--accent, #6ea8fe); }
 .pa-m-btn:disabled { opacity: .5; cursor: default; }
-.pa-m-btn--danger { color: #ff7b7b; }
-.pa-m-btn--danger:hover { border-color: #ff7b7b; }
+.pa-m-btn--danger { color: var(--error, #ff7b7b); }
+.pa-m-btn--danger:hover { border-color: var(--error, #ff7b7b); }
+
+@media (max-width: 700px) {
+  .pa-m-close { width: 44px; height: 44px; }
+  .pa-m-btn { min-height: 44px; }
+}
