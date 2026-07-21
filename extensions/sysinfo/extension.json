@@ -1,0 +1,69 @@
+{
+  "id": "sysinfo",
+  "name": "System Info",
+  "description": "Insights add-ons under System health: internet speed test (on-demand + auto-schedule) and a full Docker card \u2014 live container stats, compose-stack grouping, start/stop/restart, and one-click image updates \u2014 via a loopback sidecar.",
+  "version": "0.1.0",
+  "author": "asorourx",
+  "assets": {
+    "scripts": [
+      "assets/sysinfo.js"
+    ],
+    "stylesheets": [
+      "assets/sysinfo.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "requires_local_app": true,
+    "local_app_label": "System Info sidecar",
+    "summary": "Run the bundled sidecar (sidecar/sysinfo.py) on 127.0.0.1:17796, then approve the sidecar proxy in Settings \u2192 Extensions. Speed test needs `speedtest-cli`; the Docker card needs the docker CLI."
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": [
+        "/api/extensions/sidecar-proxy-consent"
+      ]
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "mc.docker.expanded",
+        "mc.docker.group.*",
+        "mc.docker.updates"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  },
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17796",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  }
+}

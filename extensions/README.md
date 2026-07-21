@@ -47,3 +47,6 @@ need it and maintainers agree on the shared contract.
 - `profile-avatars`: per-profile avatar images across profile chips, transcript
   assistant badges, and the session list; server-stored via a loopback sidecar
   so they sync across devices with zero localStorage.
+- `sysinfo`: Insights add-ons under System health — an on-demand/scheduled
+  internet speed test and a full Docker card (live container stats, compose
+  grouping, start/stop/restart, one-click image updates) via a loopback sidecar.
