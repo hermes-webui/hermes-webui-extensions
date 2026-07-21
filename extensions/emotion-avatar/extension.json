@@ -1,0 +1,62 @@
+{
+  "id": "emotion-avatar",
+  "name": "Emotion Avatar",
+  "description": "Modular companion avatar with 5 built-in characters + import your own Live2D (.moc3/.zip) or Spine (.skel) models. Emotion detection from FAC/LLM/agent state. Swappable renderers.",
+  "version": "0.8.0",
+  "author": "ChonSong",
+  "icon": "https://emojicdn.elk.sh/%F0%9F%91%8B",
+  "assets": {
+    "scripts": [
+      "assets/core/presets.js",
+      "assets/core/visemes.js",
+      "assets/core/pipeline.js",
+      "assets/core/model-store.js",
+      "assets/inputs/agent-state.js",
+      "assets/inputs/llm-tags.js",
+      "assets/inputs/fac-emotion.js",
+      "assets/renderers/canvas-2d.js",
+      "assets/renderers/live2d.js",
+      "assets/renderers/spine.js",
+      "assets/renderers/model-manager.js",
+      "assets/renderers/vrm.js",
+      "assets/emotion-avatar.js"
+    ],
+    "stylesheets": [
+      "assets/emotion-avatar.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "settings_schema": [],
+  "screenshots": [],
+  "permissions": {
+    "storage": {
+      "owned": true
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "network_external": false,
+    "embeds_iframe": false
+  },
+  "dependencies": []
+}
