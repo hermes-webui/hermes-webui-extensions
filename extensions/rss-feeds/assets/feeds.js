@@ -413,8 +413,8 @@
   // forces a real refresh so the page updates without a manual reload. Cheap:
   // no-ops when no timer element is mounted (feeds view not visible).
   let _feedTimerInterval = null;
-  let _autoRefreshInFlight = false;
-  let _autoRefreshCooldownUntil = 0;
+  let _autoObserveBusy = false;
+  let _autoObserveUntil = 0;
 
   // mm:ss (or h:mm:ss) so the countdown visibly ticks every second.
   function _fmtCountdown(sec) {
@@ -448,12 +448,30 @@
       e.classList.toggle('has-ring', !st.off);   // hide ring when auto-fetch is off
       if (e.id === 'feedsTimerTop') e.hidden = !!st.off;   // header slot only when auto is on
     });
+    // The SIDECAR daemon is the sole automatic-refresh scheduler. The browser
+    // never fires its own auto-refresh (that raced the daemon into overlapping
+    // fetches) — on expiry we just OBSERVE the sidecar's state and reflect it.
+    if (st.expired) _maybeObserveAutoRefresh();
+  }
+
+  // Countdown expired: poll settings (throttled) and reload the view once the
+  // sidecar's auto_fetch_last_at advances — i.e. after its daemon finished the
+  // refresh. Reflect only; never POST a refresh from here.
+  function _maybeObserveAutoRefresh() {
     const now = Date.now();
-    if (st.expired && !_autoRefreshInFlight && now >= _autoRefreshCooldownUntil) {
-      _autoRefreshInFlight = true;
-      _autoRefreshCooldownUntil = now + 30000;   // bound retries if a refresh keeps failing
-      _autoRefreshFeeds().finally(() => { _autoRefreshInFlight = false; });
-    }
+    if (_autoObserveBusy || now < _autoObserveUntil) return;
+    _autoObserveBusy = true;
+    _autoObserveUntil = now + 10000;   // at most one settings poll per 10s
+    fetch('/api/extensions/rss-feeds/sidecar/api/feeds/settings', { credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((s) => {
+        if (s && Number(s.auto_fetch_last_at || 0) > Number(_settings.auto_fetch_last_at || 0)) {
+          _settings = s;
+          return Promise.resolve(refreshSidebar()).then(() => _rerenderActiveView());
+        }
+      })
+      .catch(() => {})
+      .finally(() => { _autoObserveBusy = false; });
   }
 
   function _rerenderActiveView() {
@@ -465,20 +483,20 @@
     return renderAllEntries();
   }
 
-  async function _autoRefreshFeeds() {
-    // Auto / initial-load / after-restart refresh — same live SSE bar as the manual
-    // button, then a light reload (sidebar + active view) so the countdown resets
-    // from the server's fresh auto_fetch_last_at without a full panel rebuild.
-    await _streamRefresh(async () => {
-      try { await refreshSidebar(); await _rerenderActiveView(); } catch (_) {}
-    });
-  }
-
   function _startFeedTimer() {
     if (_feedTimerInterval) return;
     _feedTimerInterval = setInterval(_tickFeedTimer, 1000);
     _tickFeedTimer();
   }
+
+  // Stop the display/observe timer when the overlay is torn down/hidden — it must
+  // not keep polling in the background after the user closes Feeds.
+  function _stopFeedTimer() {
+    if (_feedTimerInterval) { clearInterval(_feedTimerInterval); _feedTimerInterval = null; }
+    _autoObserveBusy = false;
+    _autoObserveUntil = 0;
+  }
+  window.mcFeedsStopTimer = _stopFeedTimer;
 
   function _renderSidebarFeeds(sidebar) {
     const totalEntries = _feeds.reduce((s, f) => s + (f.entry_count || 0), 0);

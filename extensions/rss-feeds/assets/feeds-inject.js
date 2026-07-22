@@ -139,6 +139,8 @@
   }
   function closeOverlay() {
     if (window.mcFeedsTeardownPopups) window.mcFeedsTeardownPopups();
+    // Stop the countdown/observe timer so it isn't left polling while hidden.
+    if (window.mcFeedsStopTimer) window.mcFeedsStopTimer();
     var ov = document.getElementById('hxFeedsOverlay');
     if (ov) ov.style.display = 'none';
   }

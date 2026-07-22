@@ -64,6 +64,8 @@ _FETCH_TIMEOUT = 10        # per-feed socket timeout
 _REFRESH_WORKERS = 8       # parallel fetches; servers tolerate a few in-flight
 _MAX_ENTRIES_PER_FETCH = 80
 _MAX_FEED_BYTES = 5 * 1024 * 1024   # cap per-feed response so one huge/hostile feed can't OOM us
+_SUMMARY_MAX_CHARS = 32000          # cap stored model output so a summary can't blow the proxy cap
+_DONE_IDS_LIMIT = 2000              # cap done_entry_ids in the summaries payload
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -2210,6 +2212,10 @@ def _summary_worker(summary_id: int, entries: list[dict], scope: str) -> None:
     try:
         prompt = _build_summary_prompt(entries, scope)
         content, model = _summarize_llm(prompt)
+        # Bound per-item model output: a runaway model response must not later
+        # blow the 512 KiB proxy envelope when the summary is fetched/listed.
+        if content and len(content) > _SUMMARY_MAX_CHARS:
+            content = content[:_SUMMARY_MAX_CHARS] + "\n\n…(truncated)"
         conn = _open()
         try:
             conn.execute(
@@ -2254,10 +2260,15 @@ def list_summaries(limit: int = 50) -> dict:
         total = conn.execute("SELECT COUNT(*) FROM summaries").fetchone()[0]
         clicked = conn.execute(
             "SELECT COUNT(*) FROM entries WHERE read_at IS NOT NULL").fetchone()[0]
+        # Bound this list — it rides in every summaries payload. Newest-summarized
+        # first, capped, so it can't grow without limit as the archive does (it
+        # only needs to cover entries currently on screen).
         done_entry_ids = [
             r[0] for r in conn.execute(
-                "SELECT DISTINCT entry_id FROM summaries "
-                "WHERE entry_id IS NOT NULL AND status='done'").fetchall()
+                "SELECT entry_id FROM summaries "
+                "WHERE entry_id IS NOT NULL AND status='done' "
+                "GROUP BY entry_id ORDER BY MAX(created_at) DESC LIMIT ?",
+                (_DONE_IDS_LIMIT,)).fetchall()
         ]
     finally:
         conn.close()
