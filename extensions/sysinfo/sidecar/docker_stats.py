@@ -55,6 +55,21 @@ def docker_present() -> bool:
     return _DOCKER != "docker" or shutil.which("docker") is not None
 
 
+def _path_within(child: str, root: str) -> bool:
+    """True if `child` is `root` or a descendant, using a real path-boundary
+    check (os.path.commonpath) — NOT str.startswith, which would wrongly treat
+    ``/opt/stack-evil`` as inside ``/opt/stack``. Both are normalized first so
+    ``..`` segments can't escape. Returns False on any malformed input."""
+    if not child or not root:
+        return False
+    try:
+        child_n = os.path.normpath(os.path.realpath(child))
+        root_n = os.path.normpath(os.path.realpath(root))
+        return os.path.commonpath([child_n, root_n]) == root_n
+    except (ValueError, OSError):
+        return False
+
+
 def _docker_allow(name: str | None, labels: str | None) -> bool:
     """Filter the System Health container list to the stack amrx cares about.
 
@@ -78,7 +93,7 @@ def _docker_allow(name: str | None, labels: str | None) -> bool:
     if prefix:
         for kv in (labels or "").split(","):
             if kv.startswith("com.docker.compose.project.working_dir="):
-                if kv.split("=", 1)[1].startswith(prefix):
+                if _path_within(kv.split("=", 1)[1], prefix):
                     return True
                 break
     # case-insensitive: real names are mixed-case (Cybersec-Toolkit, SEARXNG, FreqTrade)
@@ -92,6 +107,7 @@ def _docker_allow(name: str | None, labels: str | None) -> bool:
 # polls return instantly; only one poll per TTL pays the subprocess cost.
 _STATS_TTL = float(os.environ.get("MC_DOCKER_STATS_TTL", "5") or 5)
 _stats_cache: dict[str, Any] = {"ts": 0.0, "data": None}
+_stats_lock = _threading.Lock()  # single-flight the cache refresh across concurrent SSE polls
 
 
 _LABEL_UNSAFE = _re.compile(r"[^A-Za-z0-9_.\-]")
@@ -124,15 +140,25 @@ def _compose_meta(labels: str | None) -> tuple[str, str]:
 
 
 def docker_stats() -> dict[str, Any]:
-    """Cached wrapper around :func:`_docker_stats_uncached` (see ``_STATS_TTL``)."""
+    """Cached wrapper around :func:`_docker_stats_uncached` (see ``_STATS_TTL``).
+
+    On a cache miss, concurrent callers single-flight through ``_stats_lock`` so
+    only ONE pays the ~2s triple-subprocess cost; the rest get the fresh snapshot
+    the winner just stored (double-checked: the cache is re-read under the lock)."""
     now = _time.monotonic()
     cached = _stats_cache.get("data")
     if cached is not None and (now - float(_stats_cache.get("ts") or 0.0)) < _STATS_TTL:
         return cached
-    data = _docker_stats_uncached()
-    _stats_cache["ts"] = now
-    _stats_cache["data"] = data
-    return data
+    with _stats_lock:
+        # Re-check under the lock: another thread may have refreshed while we waited.
+        now = _time.monotonic()
+        cached = _stats_cache.get("data")
+        if cached is not None and (now - float(_stats_cache.get("ts") or 0.0)) < _STATS_TTL:
+            return cached
+        data = _docker_stats_uncached()
+        _stats_cache["ts"] = now
+        _stats_cache["data"] = data
+        return data
 
 
 def _docker_stats_uncached() -> dict[str, Any]:
@@ -503,9 +529,13 @@ def docker_update(container_id: str) -> dict[str, Any]:
     # pull/up can only run in a sanctioned project dir (defence-in-depth on top of
     # the inventory-membership check above).
     _root = os.environ.get("MC_DOCKER_WORKDIR_PREFIX", "").strip()
-    if _root and not os.path.realpath(workdir).startswith(os.path.realpath(_root)):
+    if _root and not _path_within(workdir, _root):
         return {"ok": False, "error": "workdir_outside_root"}
-    if not _re.fullmatch(r"[a-zA-Z0-9_.\-]{1,128}", project) or not _re.fullmatch(r"[a-zA-Z0-9_.\-]{1,128}", service):
+    # First char must NOT be '-' so a hostile compose label (service=--privileged)
+    # can't be parsed by `docker compose` as a CLI option (argv injection). Docker
+    # project/service names never begin with a hyphen, so this rejects nothing legit.
+    _COMPOSE_REF = r"[a-zA-Z0-9_.][a-zA-Z0-9_.\-]{0,127}"
+    if not _re.fullmatch(_COMPOSE_REF, project) or not _re.fullmatch(_COMPOSE_REF, service):
         return {"ok": False, "error": "invalid_compose_ref"}
     old_digest = _image_local_digest(image)
     # Pull the new image, then recreate only this service.
@@ -675,6 +705,18 @@ def _inventory_projects() -> set[str]:
         return set()
 
 
+def _inventory_ids_for_project(project: str) -> list[str]:
+    """Snapshot container IDs that belong to `project` AND are in the filtered
+    inventory. Group actions act only on these — never on containers hidden from
+    the UI that merely share the compose-project label (which a raw
+    ``docker ps --filter label=…project=`` query would also return)."""
+    try:
+        return [c.get("id") for c in docker_stats().get("containers", [])
+                if c.get("id") and c.get("compose_project") == project]
+    except Exception:
+        return []
+
+
 _HEX_ID = _re.compile(r"[0-9a-fA-F]{12,64}")
 
 
@@ -730,14 +772,11 @@ def docker_group_action(project: str, action: str) -> dict[str, Any]:
         return {"ok": False, "error": "unknown_project"}
     if not docker_present():
         return {"ok": False, "error": "docker_not_installed"}
-    try:
-        r = subprocess.run(
-            [_DOCKER, "ps", "-a", "--filter", f"label=com.docker.compose.project={project}", "--format", "{{.ID}}"],
-            capture_output=True, text=True, timeout=10,
-        )
-        ids = [x for x in r.stdout.split() if x]
-    except Exception as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}"}
+    # Target IDs come from the FILTERED snapshot, intersected to this project —
+    # not a raw `docker ps --filter`, which would also return sibling containers
+    # the inventory hides. The single-action authz path (docker_action) already
+    # intersects with _inventory_ids(); this closes the same gap for group actions.
+    ids = _inventory_ids_for_project(project)
     if not ids:
         return {"ok": False, "error": "no_containers"}
     results = []

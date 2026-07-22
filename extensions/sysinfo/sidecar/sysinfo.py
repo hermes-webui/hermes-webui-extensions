@@ -110,6 +110,25 @@ def _st_run_bg() -> None:
         _st_running = False
 
 
+def _start_speedtest() -> bool:
+    """The SOLE place a background speed-test run is reserved + spawned. Flips
+    _st_running True and starts the worker atomically under _st_run_lock, so a
+    manual POST and the auto-scheduler can never double-start (two concurrent
+    speedtests contend for the link and corrupt each other's readings). Returns
+    True if this call started the run, False if one was already in flight."""
+    global _st_run_thread, _st_running, _st_started_at, _st_last_error
+    with _st_run_lock:
+        if _st_running:
+            return False
+        _st_running = True
+        _st_started_at = time.time()
+        _st_last_error = ""
+        _st_run_thread = threading.Thread(target=_st_run_bg,
+                                          name="sysinfo-speedtest-run", daemon=True)
+        _st_run_thread.start()
+        return True
+
+
 def handle_speedtest(method: str):
     """GET → last reading + {running, error}; POST → kick off a background run and
     return 202 immediately (the proxy's ~10s cap makes the job+poll shape
@@ -135,16 +154,8 @@ def handle_speedtest(method: str):
     # POST = kick off a fresh run (idempotent while one is already running)
     if not _speedtest_exe():
         return {"error": "speedtest-cli not installed"}, 503
-    with _st_run_lock:
-        if not _st_running:
-            _st_running = True
-            _st_started_at = time.time()
-            _st_last_error = ""
-            _st_run_thread = threading.Thread(target=_st_run_bg,
-                                              name="sysinfo-speedtest-run", daemon=True)
-            _st_run_thread.start()
-        started = int(_st_started_at)
-    return {"running": True, "started_at": started}, 202
+    _start_speedtest()  # no-op if one is already in flight; single source of truth
+    return {"running": True, "started_at": int(_st_started_at)}, 202
 
 
 # ── Speed-test auto-schedule (daemon thread) ────────────────────────────────
@@ -188,13 +199,15 @@ def _st_auto_loop() -> None:
                 if datetime.now().strftime("%H:%M") == at and _st_auto_last_daily != today:
                     due = True
                     _st_auto_last_daily = today
-            if not due or _st_running:
+            if not due:
+                continue
+            # Go through the one locked starter — never call _run_speedtest_once
+            # directly here, or an auto-fire could race a manual POST into two
+            # concurrent runs. If a run is already in flight, skip this tick.
+            if not _start_speedtest():
                 continue
             print(f"[sysinfo/speedtest-auto] firing (interval={iv}m at={at or '-'})", flush=True)
-            r = _run_speedtest_once()
-            if r:
-                _st_auto_last_run = time.time()
-                print(f"[sysinfo/speedtest-auto] ↓{r['download_mbps']} ↑{r['upload_mbps']} Mbps", flush=True)
+            _st_auto_last_run = time.time()  # anchor to start; the bg worker persists the reading
         except Exception:
             pass
 
