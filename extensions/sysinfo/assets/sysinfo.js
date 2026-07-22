@@ -71,7 +71,7 @@
       '</button>' +
       '<div class="mc-speedtest-body" id="mcSpeedtestBody" hidden>' +
         '<div class="mc-speedtest-head">' +
-          '<button type="button" class="mc-speedtest-btn" id="mcSpeedtestBtn" onclick="mcRunSpeedtest()">\u26a1 Run test</button>' +
+          '<button type="button" class="mc-speedtest-btn" id="mcSpeedtestBtn" onclick="mcRunSpeedtest()">Run test</button>' +
           '<button type="button" class="mc-speedtest-auto" id="mcSpeedtestAutoBtn" onclick="mcSpeedtestAutoConfig()" title="Schedule automatic speed tests">Auto: Off</button>' +
         '</div>' +
         '<div class="mc-speedtest-metrics">' +
