@@ -115,6 +115,10 @@ def register(app) -> None:
     def g_sumteststatus(req):
         return _dispatch(app, feeds.handle_get, req, _parsed(req))
 
+    @app.route("GET", "/api/feeds/add-status")
+    def g_addstatus(req):
+        return _dispatch(app, feeds.handle_get, req, _parsed(req))
+
     @app.route("GET", "/api/feeds/entries")
     def g_entries(req):
         return _dispatch(app, feeds.handle_get, req, _parsed(req))

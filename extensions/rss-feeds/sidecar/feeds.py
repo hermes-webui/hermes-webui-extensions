@@ -1558,6 +1558,51 @@ def summary_test_status() -> dict:
         return out
 
 
+# ── Add-feed validation as a background job (POST starts, GET polls) ─────────
+# The one validating fetch of a new feed can hit the per-feed 10s socket timeout,
+# which brushes the proxy's ~10s limit. Create the row, validate in the
+# background, and let the Add dialog poll GET /api/feeds/add-status?id=<id>.
+_add_job_lock = _threading_af.Lock()
+_add_jobs: dict[int, dict] = {}   # feed_id -> {validating|ok|error|status|new_entries}
+
+
+def _validate_worker(feed_id: int) -> None:
+    check = fetch_feed(feed_id)
+    status = str(check.get("status", ""))
+    if not status.startswith("ok"):
+        delete_feed(feed_id)  # roll back a feed that doesn't validate
+        reason = check.get("error") or status or "unreachable"
+        if status.startswith("http_"):
+            reason = status.replace("http_", "HTTP ")
+        elif status == "no_entries":
+            reason = "URL responded but is not a valid RSS/Atom feed (no entries)"
+        result = {"validating": False, "ok": False, "error": str(reason)[:200]}
+    else:
+        result = {"validating": False, "ok": True, "status": status,
+                  "new_entries": int(check.get("new_entries", 0) or 0)}
+    with _add_job_lock:
+        _add_jobs[feed_id] = result
+
+
+def start_feed_validation(feed_id: int) -> None:
+    with _add_job_lock:
+        _add_jobs[feed_id] = {"validating": True}
+    __import__("threading").Thread(
+        target=_validate_worker, args=(feed_id,), name="feeds-add-validate", daemon=True).start()
+
+
+def add_status(feed_id: int) -> dict:
+    """Poll payload for an add-validation. Pops the record once terminal so the
+    map can't grow without bound across many adds."""
+    with _add_job_lock:
+        rec = _add_jobs.get(feed_id)
+        if rec is None:
+            return {"validating": False, "ok": False, "error": "unknown feed"}
+        if not rec.get("validating"):
+            _add_jobs.pop(feed_id, None)  # terminal — client reads it once
+        return dict(rec)
+
+
 def _refresh_all_locked(only_ids: list[int] | None = None, progress_cb=None) -> list[dict]:
     """Refresh feeds in parallel via a thread pool. Each fetch has a 10s
     socket timeout, so 42 feeds finish in ~10-30s instead of 3-5 minutes.
@@ -1853,6 +1898,13 @@ def handle_get(handler, parsed) -> bool:
         return j(handler, refresh_status())
     if path == "/api/feeds/summary-test-status":
         return j(handler, summary_test_status())
+    if path == "/api/feeds/add-status":
+        from urllib.parse import parse_qs
+        try:
+            fid = int(parse_qs(parsed.query).get("id", [""])[0])
+        except (TypeError, ValueError):
+            return _err(handler, 400, "id must be an integer")
+        return j(handler, add_status(fid))
     if path == "/api/feeds/entries":
         from urllib.parse import parse_qs
         qs = parse_qs(parsed.query)
@@ -1941,22 +1993,12 @@ def handle_post(handler, parsed, body: dict) -> bool:
             )
         except ValueError as e:
             return _err(handler, 400, str(e))
-        # Validate IMMEDIATELY: fetch the feed once so a bad URL / non-feed
-        # page is reported right in the Add dialog instead of failing silently
-        # on the next refresh. On failure the feed is rolled back.
-        check = fetch_feed(f["id"])
-        status = str(check.get("status", ""))
-        if not status.startswith("ok"):
-            delete_feed(f["id"])
-            reason = check.get("error") or status or "unreachable"
-            if status.startswith("http_"):
-                reason = status.replace("http_", "HTTP ")
-            elif status == "no_entries":
-                reason = "URL responded but is not a valid RSS/Atom feed (no entries)"
-            return _err(handler, 422, f"Feed check failed: {str(reason)[:200]}")
-        f["check"] = {"status": status,
-                      "new_entries": int(check.get("new_entries", 0) or 0)}
-        return j(handler, f, status=201)
+        # Validate the new feed in the BACKGROUND: the one fetch can hit the 10s
+        # per-feed timeout and brush the proxy's ~10s limit. Create the row, start
+        # validation, and let the Add dialog poll GET /api/feeds/add-status?id=.
+        # The worker rolls the feed back if it doesn't validate.
+        start_feed_validation(f["id"])
+        return j(handler, {"feed": f, "id": f["id"], "validating": True}, status=202)
     if path == "/api/feeds/refresh":
         # Start a background job + return 202 immediately. A synchronous refresh
         # (~10-30s) would exceed the proxy's 10s timeout; the UI polls

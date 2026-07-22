@@ -1896,18 +1896,43 @@
       return;
     }
     try {
-      const r = await fetch('/api/extensions/rss-feeds/sidecar/api/feeds', {
+      const base = '/api/extensions/rss-feeds/sidecar/api/feeds';
+      const r = await fetch(base, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         credentials: 'same-origin',
       });
-      if (!r.ok) throw new Error(((await r.json()).error) || ('HTTP ' + r.status));
+      if (!r.ok && r.status !== 202) throw new Error(((await r.json().catch(() => ({}))).error) || ('HTTP ' + r.status));
       const created = await r.json().catch(() => ({}));
-      _closeModal();
+      // Back-compat: an older sidecar validated synchronously and returned the
+      // feed with an embedded .check. The current sidecar returns 202 + an id and
+      // validates in the background — poll add-status for the outcome.
       if (created && created.check) {
+        _closeModal();
         _summaryToast(`✓ Feed OK — ${created.check.new_entries} entr${created.check.new_entries === 1 ? 'y' : 'ies'} fetched`);
+        await loadFeedsPanel();
+        return;
       }
+      const fid = created && created.id;
+      if (!fid) { _closeModal(); await loadFeedsPanel(); return; }
+      _showModalErr('Validating feed…');
+      const result = await new Promise((resolve, reject) => {
+        let n = 0;
+        const tick = () => {
+          fetch(base + '/add-status?id=' + encodeURIComponent(fid), { credentials: 'same-origin' })
+            .then(rr => rr.ok ? rr.json() : Promise.reject(new Error('HTTP ' + rr.status)))
+            .then(s => {
+              if (s.validating) { if (++n > 60) return reject(new Error('validation timed out')); setTimeout(tick, 1000); return; }
+              resolve(s);
+            })
+            .catch(reject);
+        };
+        setTimeout(tick, 500);
+      });
+      if (!result.ok) { _showModalErr('Feed check failed: ' + (result.error || 'unreachable')); return; }
+      _closeModal();
+      _summaryToast(`✓ Feed OK — ${result.new_entries} entr${result.new_entries === 1 ? 'y' : 'ies'} fetched`);
       await loadFeedsPanel();
     } catch (e) {
       _showModalErr(e.message);
