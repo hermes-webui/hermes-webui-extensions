@@ -80,23 +80,30 @@ def register(app) -> None:
         result = docker_stats.docker_update_bulk(body.get("scope") or "", body.get("project"))
         return app.json(result, 200 if result.get("ok") else 400)
 
+    # container action (15s), group action (10+40s*n), and single update (≤900s)
+    # exceed the ~10s proxy timeout, so each starts a serialized background job
+    # and returns immediately; the UI polls /api/system/docker/op-status.
+    @app.route("GET", "/api/system/docker/op-status")
+    def docker_op_status(req):
+        return app.json(docker_stats.docker_op_status())
+
     @app.route("POST", "/api/system/docker/action")
     def docker_action(req):
         body = _json_body(req)
-        result = docker_stats.docker_action(body.get("container_id"), body.get("action"))
-        return app.json(result, 200 if result.get("ok") else 400)
+        result = docker_stats.docker_action_job(body.get("container_id"), body.get("action"))
+        return app.json(result, 202 if result.get("ok") else (409 if result.get("error") == "busy" else 400))
 
     @app.route("POST", "/api/system/docker/group-action")
     def docker_group_action(req):
         body = _json_body(req)
-        result = docker_stats.docker_group_action(body.get("project"), body.get("action"))
-        return app.json(result, 200 if result.get("ok") else 400)
+        result = docker_stats.docker_group_action_job(body.get("project"), body.get("action"))
+        return app.json(result, 202 if result.get("ok") else (409 if result.get("error") == "busy" else 400))
 
     @app.route("POST", "/api/system/docker/update")
     def docker_update(req):
         body = _json_body(req)
-        result = docker_stats.docker_update(body.get("container_id"))
-        return app.json(result, 200 if result.get("ok") else 400)
+        result = docker_stats.docker_update_job(body.get("container_id"))
+        return app.json(result, 202 if result.get("ok") else (409 if result.get("error") == "busy" else 400))
 
 
 def start_background(app) -> None:

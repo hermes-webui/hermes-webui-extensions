@@ -36,7 +36,8 @@
         "/api/extensions/sysinfo/sidecar/api/system/speedtest/auto",
         "/api/extensions/sysinfo/sidecar/api/system/docker",
         "/api/extensions/sysinfo/sidecar/api/system/docker/groups",
-        "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk"
+        "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/op-status"
       ],
       "write": [
         "/api/extensions/sysinfo/sidecar/api/system/speedtest",

@@ -680,7 +680,8 @@ def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]
     if scope == "stack" and not project:
         return {"ok": False, "error": "missing_project"}
     with _bulk_lock:
-        if _bulk_state.get("running"):
+        if _bulk_state.get("running") or _op_state.get("running"):
+            # Serialize with single/group/update ops too — no overlapping compose ops.
             return {"ok": False, "error": "already_running", "state": dict(_bulk_state)}
         _bulk_state["running"] = True   # reserve under the lock so a concurrent call can't double-start
     n = len(_updatable_targets(project if scope == "stack" else None))
@@ -697,6 +698,86 @@ def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]
 def docker_update_bulk_status() -> dict[str, Any]:
     with _bulk_lock:
         return dict(_bulk_state)
+
+
+# ── Single/group/update mutations as serialized background jobs ──────────────
+# container action (15s), group action (10 + 40s*n), and single update (up to
+# 900s) all exceed the ~10s proxy timeout run synchronously. Run each on a bg
+# thread; the UI polls docker_op_status(). All three — AND the bulk updater —
+# share _bulk_lock as the single reservation gate, so no two host mutations
+# (single/group/update/bulk) can run compose operations concurrently.
+_op_state: dict[str, Any] = {
+    "running": False, "kind": "", "target": "", "action": "",
+    "result": None, "started_at": 0, "finished_at": 0, "id": 0,
+}
+_op_seq = 0
+
+
+def _mutation_busy_locked() -> bool:
+    """True if any host mutation (single/group/update op OR bulk) is active.
+    Caller MUST hold _bulk_lock."""
+    return bool(_op_state["running"] or _bulk_state["running"])
+
+
+def _start_op(kind: str, runner, target: str = "", action: str = "") -> dict[str, Any]:
+    """Reserve the single mutation slot (rejecting if any mutation is running) and
+    run `runner()` (which returns a result dict) on a daemon thread."""
+    global _op_seq
+    with _bulk_lock:
+        if _mutation_busy_locked():
+            busy = {"kind": _op_state["kind"] or ("bulk" if _bulk_state["running"] else ""),
+                    "target": _op_state["target"], "action": _op_state["action"]}
+            return {"ok": False, "error": "busy", "state": busy}
+        _op_seq += 1
+        jid = _op_seq
+        _op_state.update(running=True, kind=kind, target=target, action=action,
+                         result=None, started_at=int(_time.time()), finished_at=0, id=jid)
+
+    def _run():
+        try:
+            res = runner()
+        except Exception as exc:  # pragma: no cover - defensive
+            res = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        with _bulk_lock:
+            _op_state["result"] = res
+            _op_state["running"] = False
+            _op_state["finished_at"] = int(_time.time())
+        _stats_cache["ts"] = 0.0  # reflect the new container state on the next poll
+
+    _threading_du.Thread(target=_run, name=f"docker-op-{kind}", daemon=True).start()
+    return {"ok": True, "started": True, "id": jid, "kind": kind}
+
+
+def docker_action_job(container_id: str, action: str) -> dict[str, Any]:
+    return _start_op("action", lambda: docker_action(container_id, action),
+                     target=str(container_id or "")[:64], action=str(action or ""))
+
+
+def docker_group_action_job(project: str, action: str) -> dict[str, Any]:
+    return _start_op("group-action", lambda: docker_group_action(project, action),
+                     target=str(project or "")[:128], action=str(action or ""))
+
+
+def docker_update_job(container_id: str) -> dict[str, Any]:
+    return _start_op("update", lambda: docker_update(container_id),
+                     target=str(container_id or "")[:64], action="update")
+
+
+def docker_op_status() -> dict[str, Any]:
+    """Poll payload for the single/group/update job. Result is included once the
+    job finishes (running:false)."""
+    with _bulk_lock:
+        out: dict[str, Any] = {
+            "running": bool(_op_state["running"]),
+            "kind": _op_state["kind"],
+            "target": _op_state["target"],
+            "action": _op_state["action"],
+            "id": _op_state["id"],
+            "started_at": _op_state["started_at"],
+        }
+        if not _op_state["running"] and _op_state["result"] is not None:
+            out["result"] = _op_state["result"]
+        return out
 
 
 def _inventory_ids() -> set[str]:
