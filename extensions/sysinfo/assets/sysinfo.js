@@ -248,11 +248,26 @@ window.mcSpeedtestAutoConfig = function(){
       </div>
     </div>`;
   document.body.appendChild(ov);
-  // Escape to close + focus the dialog on open (click-outside is wired below)
-  const _onKey = (e) => { if (e.key === 'Escape') close(); };
+  // Remember the trigger so focus returns to it on close (a11y).
+  const _prevFocus = document.activeElement;
+  const _focusables = () => Array.from(ov.querySelectorAll('input,button,[tabindex]:not([tabindex="-1"])'))
+    .filter(el => !el.disabled && el.offsetParent !== null);
+  // Escape closes; Tab is trapped inside the dialog (wraps at both ends).
+  const _onKey = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    if (e.key !== 'Tab') return;
+    const f = _focusables(); if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
   document.addEventListener('keydown', _onKey);
   (ov.querySelector('input,button') || {}).focus?.();
-  const close = () => { ov.remove(); document.removeEventListener('keydown', _onKey); };
+  const close = () => {
+    ov.remove();
+    document.removeEventListener('keydown', _onKey);
+    if (_prevFocus && typeof _prevFocus.focus === 'function') { try { _prevFocus.focus(); } catch (_) {} }
+  };
   ov.addEventListener('click', e => { if (e.target === ov) close(); });
   ov.querySelector('#stAutoCancel').onclick = close;
   ov.querySelector('#stAutoSave').onclick = async () => {
@@ -524,13 +539,25 @@ window.mcDockerMenu = function(btn, ev) {
   if (menu && !wasOpen) {
     menu.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
-    const close = (e) => {
-      if (!menu.contains(e.target) && e.target !== btn) {
-        menu.hidden = true; btn.setAttribute('aria-expanded', 'false');
-        document.removeEventListener('click', close, true);
+    // Focus the first enabled item so keyboard users land inside the menu.
+    const first = menu.querySelector('[role="menuitem"]:not([disabled])');
+    if (first) { try { first.focus(); } catch (_) {} }
+    const teardown = () => {
+      menu.hidden = true; btn.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('click', close, true);
+      document.removeEventListener('keydown', onKey, true);
+    };
+    const close = (e) => { if (!menu.contains(e.target) && e.target !== btn) teardown(); };
+    // Escape closes the menu and returns focus to the kebab trigger.
+    const onKey = (e) => {
+      if (e.key === 'Escape' && !menu.hidden) {
+        e.preventDefault(); teardown(); try { btn.focus(); } catch (_) {}
       }
     };
-    setTimeout(() => document.addEventListener('click', close, true), 0);
+    setTimeout(() => {
+      document.addEventListener('click', close, true);
+      document.addEventListener('keydown', onKey, true);
+    }, 0);
   }
 };
 
