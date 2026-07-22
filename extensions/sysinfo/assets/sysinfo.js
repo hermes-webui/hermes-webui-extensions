@@ -146,6 +146,12 @@
 }
 function _stCountUp(el, target){
   if (!el) return;
+  // Respect reduced-motion: skip the 700ms tween and set the final value at once
+  // (the CSS media query already stops the bar animation; the JS must match).
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = target.toFixed(1);
+    return;
+  }
   const start = parseFloat(el.textContent) || 0, t0 = performance.now(), dur = 700;
   (function step(now){
     const p = Math.min(1, (now - t0) / dur);
@@ -647,19 +653,35 @@ window.mcDockerGroupAction = async function(idx, action, btnEl) {
 // Bulk image updates (dependency-first). The backend runs pull+recreate on a
 // daemon thread; we POST to start, then poll status → progress toasts → re-check.
 async function _mcBulkUpdatePoll(label){
+  // Progress is shown by the inline done/total header (via _mcBulkUpdating +
+  // _mcRefreshDockerBusy), NOT the singleton toast — replacing the app toast
+  // every 3s for minutes would suppress unrelated notifications. Toast only on
+  // completion/failure (the caller toasts on start). Tolerate transient proxy
+  // errors until a bounded deadline rather than aborting on the first one.
+  let fails = 0;
+  const deadline = Date.now() + 16 * 60 * 1000;   // ~16min ceiling
   for(;;){
-    let s; try { s = await api('/api/system/docker/update-bulk'); } catch(_) { break; }
-    if (!s) break;
-    window._mcBulkUpdating = s.running ? s : null;
-    _mcRefreshDockerBusy();
-    if (s.running) {
-      showToast(`${label}: ${s.done}/${s.total}${s.current ? ' — ' + s.current : ''}`, undefined, 'info');
-    } else {
-      const okN = (s.results||[]).filter(r=>r.ok).length;
-      const failN = (s.results||[]).filter(r=>!r.ok).length;
-      showToast(`${label} — ${okN} updated${failN ? ', ' + failN + ' failed' : ''}`, undefined, failN ? 'error' : 'info');
-      break;
+    let s;
+    try { s = await api('/api/system/docker/update-bulk'); fails = 0; }
+    catch(_) {
+      if (++fails > 20 || Date.now() > deadline) {
+        showToast(`${label} — lost track of the update (it may still be running)`, undefined, 'error');
+        break;
+      }
+      await new Promise(r => setTimeout(r, 3000));
+      continue;
     }
+    if (s) {
+      window._mcBulkUpdating = s.running ? s : null;
+      _mcRefreshDockerBusy();
+      if (!s.running) {
+        const okN = (s.results||[]).filter(r=>r.ok).length;
+        const failN = (s.results||[]).filter(r=>!r.ok).length;
+        showToast(`${label} — ${okN} updated${failN ? ', ' + failN + ' failed' : ''}`, undefined, failN ? 'error' : 'info');
+        break;
+      }
+    }
+    if (Date.now() > deadline) { showToast(`${label} — timed out`, undefined, 'error'); break; }
     await new Promise(r => setTimeout(r, 3000));
   }
   window._mcBulkUpdating = null;
@@ -709,7 +731,9 @@ function _mcDockerSyncUpdatePill() {
   }
   pill.classList.remove('mc-docker-upd-busy');
   const n = Object.values(_mcDockerUpdates).filter(u => u && u.update_available).length;
-  if (n > 0) { pill.hidden = false; pill.textContent = `${n} update${n === 1 ? '' : 's'}`; }
+  // Label it as the ACTION it is ("Update all (N)"), not a passive "N updates"
+  // status badge — it triggers the destructive all-stacks confirmation.
+  if (n > 0) { pill.hidden = false; pill.textContent = `⬆ Update all (${n})`; }
   else { pill.hidden = true; pill.textContent = ''; }
 }
 // Re-paint the busy spinner on the pill + stack badges from window._mcBulkUpdating.
@@ -777,7 +801,14 @@ window.mcDockerCheckUpdates = async function(btn) {
         data = await r.json().catch(() => data);
       } catch (_) { /* transient proxy hiccup — keep polling */ }
     }
-    _mcDockerApplyUpdatesData(data);
+    _mcDockerApplyUpdatesData(data);   // apply whatever badges we have so far
+    if (data.sweeping) {
+      // The deadline expired while the sweep is STILL running — never stamp
+      // "checked just now" on partial/stale data; report that it's still going.
+      if (whenEl) whenEl.textContent = 'still checking… (taking longer than usual)';
+      if (typeof showToast === 'function') showToast('Update check is still running — check back shortly', undefined, 'info');
+      return;
+    }
     const n = data.updatable || 0;
     const rl = data.rate_limited || 0;
     const rlNote = rl > 0 ? ` · ${rl} rate-limited by Docker Hub` : '';

@@ -357,7 +357,10 @@
 .mc-docker-mi--update { color: var(--blue, #3b9ddb); }
 /* image-update affordances */
 .mc-docker-update-pill {
-  appearance: none; font: inherit; min-height: 24px; display: inline-flex; align-items: center; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); white-space: nowrap; }
+  appearance: none; font: inherit; min-height: 24px; display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); white-space: nowrap;
+  /* It's an action button (triggers Update all), so make it read as one. */
+  cursor: pointer; border: 1px solid rgba(59,157,219,.5); }
+.mc-docker-update-pill:focus-visible { outline: 2px solid var(--accent, #3b9ddb); outline-offset: 1px; }
 /* header row: Docker toggle (grows) + last-checked text + Check-now button, one line */
 .mc-docker-toprow { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .mc-docker-toprow .mc-docker-toggle { flex: 1 1 auto; width: auto; margin-top: 0; }
