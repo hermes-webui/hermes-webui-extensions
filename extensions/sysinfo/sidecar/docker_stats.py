@@ -118,6 +118,7 @@ def _docker_allow(name: str | None, labels: str | None) -> bool:
 _STATS_TTL = float(os.environ.get("MC_DOCKER_STATS_TTL", "5") or 5)
 _stats_cache: dict[str, Any] = {"ts": 0.0, "data": None}
 _stats_lock = _threading.Lock()  # single-flight the cache refresh across concurrent SSE polls
+_MAX_CONTAINERS = 200  # cap the inventory list so a churn-heavy host can't exceed the 512 KiB proxy cap
 
 
 _LABEL_UNSAFE = _re.compile(r"[^A-Za-z0-9_.\-]")
@@ -256,10 +257,19 @@ def _docker_stats_uncached() -> dict[str, Any]:
             if cid and cid in stats_by_id:
                 entry.update(stats_by_id[cid])
             containers.append(entry)
+        # Cap the list so a churn-heavy / show-all host can't blow the buffered
+        # 512 KiB proxy response. Running containers sort first so the cap keeps
+        # the most relevant rows.
+        containers.sort(key=lambda c: 0 if (c.get("state") == "running") else 1)
+        truncated = len(containers) > _MAX_CONTAINERS
+        containers = containers[:_MAX_CONTAINERS]
         # Tell the UI whether the operator has opted any containers in, so an
         # empty list can distinguish "no allowlist configured" from "nothing ran".
-        return {"available": True, "containers": containers,
-                "allowlist_configured": _allowlist_configured()}
+        out = {"available": True, "containers": containers,
+               "allowlist_configured": _allowlist_configured()}
+        if truncated:
+            out["truncated"] = True
+        return out
     except Exception:
         return {"available": False, "reason": "stats_failed"}
 

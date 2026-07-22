@@ -223,7 +223,7 @@ function _mcSpeedtestAutoLabel(cfg){
   if (cfg && cfg.interval_minutes > 0){ const m = cfg.interval_minutes; b.textContent = 'Auto: ' + (m % 60 === 0 ? (m/60 + 'h') : (m + 'm')); }
   else if (cfg && cfg.at_time){ b.textContent = 'Auto: ' + cfg.at_time; }
   else b.textContent = 'Auto: Off';
-  b.style.color = on ? '#5fd08a' : '';
+  b.style.color = on ? 'var(--success, #3fb950)' : '';
 }
 window.mcLoadSpeedtestAuto = async function(){
   try { const r = await api('/api/system/speedtest/auto'); window._mcSpeedtestAuto = r; _mcSpeedtestAutoLabel(r); } catch(_){}
@@ -469,7 +469,7 @@ function _mcRenderDockerCard(payload) {
       // Visible per-stack controls: rename + Start all / Restart all / Stop all.
       const controls = isStack ? `
           <button type="button" class="mc-docker-group-rename" title="Rename group"
-                  aria-label="Rename group" onclick="mcDockerRenameGroup(${idx}, event)">✎</button>
+                  aria-label="Rename group" onclick="event.stopPropagation();mcDockerRenameGroup(${idx}, event)">✎</button>
           <span class="mc-docker-group-actions">
             <button type="button" class="mc-docker-startall" title="Start all in this stack"
                     aria-label="Start all" onclick="event.stopPropagation();mcDockerGroupAction(${idx}, 'start', this)">▶</button>
@@ -482,7 +482,7 @@ function _mcRenderDockerCard(payload) {
       <div class="mc-docker-group">
         <div class="mc-docker-group-hd" role="button" tabindex="0" aria-expanded="${expanded ? 'true' : 'false'}"
              onclick="mcDockerGroupToggle(${idx})"
-             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();mcDockerGroupToggle(${idx});}">
+             onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===event.currentTarget){event.preventDefault();mcDockerGroupToggle(${idx});}">
           <span class="mc-docker-group-chev">${expanded ? '▾' : '▸'}</span>
           <span class="mc-docker-dot ${gDot}" aria-hidden="true"></span>
           <span class="mc-docker-group-name">${esc(_mcGroupLabel(key))}</span>

@@ -292,6 +292,27 @@ def handle_docker_groups(method: str, body: dict | None = None):
     stack ({project,name}) or a container ({container,name}); empty name clears.
     Returns (payload, status)."""
     data = _load_docker_groups()
+    inv = docker_stats.docker_stats().get("containers", []) if docker_stats.docker_present() else []
+    inv_names = {c.get("name") for c in inv}
+    inv_projects = {c.get("compose_project") for c in inv if c.get("compose_project")}
+
+    # Prune stale rename entries (containers/stacks no longer in the filtered
+    # inventory) so the map can't grow without bound on a churn-heavy host. Guard
+    # against a TRANSIENT-empty inventory (docker down / nothing matched) wiping
+    # the user's labels: only prune when we actually see containers. Also hard-cap
+    # each map defensively.
+    if inv:
+        before = (len(data.get("renames", {})), len(data.get("containers", {})))
+        data["renames"] = {k: v for k, v in data.get("renames", {}).items() if k in inv_projects}
+        data["containers"] = {k: v for k, v in data.get("containers", {}).items() if k in inv_names}
+        if (len(data["renames"]), len(data["containers"])) != before:
+            try:
+                _save_docker_groups(data)
+            except Exception:
+                pass
+    data["renames"] = dict(list(data.get("renames", {}).items())[:500])
+    data["containers"] = dict(list(data.get("containers", {}).items())[:500])
+
     if method == "GET":
         return data, 200
     body = body or {}
@@ -299,9 +320,6 @@ def handle_docker_groups(method: str, body: dict | None = None):
     # Bound renames to the real inventory so the store can't be spammed with
     # entries for containers/projects that don't exist. (Clearing a rename —
     # empty name — is always allowed so stale entries can be removed.)
-    inv = docker_stats.docker_stats().get("containers", []) if docker_stats.docker_present() else []
-    inv_names = {c.get("name") for c in inv}
-    inv_projects = {c.get("compose_project") for c in inv if c.get("compose_project")}
     if body.get("container") is not None:
         key, bucket = str(body.get("container") or "").strip()[:128], "containers"
         if name and key not in inv_names:
