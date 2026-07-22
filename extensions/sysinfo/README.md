@@ -3,8 +3,10 @@
 System Info is a Hermes WebUI extension that extends the **Insights → System
 health** area with two operational cards, rendered directly under the native
 panel: an **internet speed test** and a **Docker containers** card. Everything
-is served by a bundled loopback sidecar — no core WebUI code is modified, so
-WebUI and Agent updates can never break it.
+is served by a bundled loopback sidecar. No core WebUI code is modified, but the
+cards do inject relative to the core `#systemHealthPanel` in Insights, so a WebUI
+update that restructures that area could require the injector to be adjusted — it
+is decoupled, not update-proof.
 
 ## What It Does
 
@@ -16,8 +18,10 @@ WebUI and Agent updates can never break it.
   sidecar; config persisted server-side).
 
 **Docker** (collapsible; appears only when the docker CLI is reachable)
-- Full inventory (running + stopped) with live CPU / RAM per container and a
+- Opted-in inventory (running + stopped) with live CPU / RAM per container and a
   status dot (green pulse = running, amber = paused/restarting, grey = exited).
+  Deny-by-default: only containers matching your configured allowlist are shown
+  (see `MC_DOCKER_NAME_ALLOW` / `MC_DOCKER_WORKDIR_PREFIX` / `MC_DOCKER_SHOW_ALL`).
 - Compose-project grouping into collapsible stacks, with per-stack
   Start / Restart / Stop-all actions.
 - Custom display names for stacks and containers (rename via the ✎ button;
@@ -42,8 +46,10 @@ WebUI sidecar proxy (after consent)
 
 ## Supported WebUI version / API surface
 
-Built and tested against Hermes WebUI ≥ 0.16 (extension gallery /
-sidecar-proxy API). Required surface:
+Requires a WebUI build containing the `token-v1` sidecar-proxy authentication
+boundary (core [#6331](https://github.com/nesquena/hermes-webui/pull/6331), first
+in `exp-v0.52.129`) — not any `≥ 0.16` release. Until #6331 promotes to stable,
+run an `exp-v0.52.129`+ build. Required surface:
 
 - manifest-bundled asset injection (`manifest.json` scripts/stylesheets)
 - `token-v1` sidecar proxy at `/api/extensions/<id>/sidecar/*` (core injects
@@ -125,14 +131,26 @@ where core and the sidecar share a network namespace and the state dir.
 
 - Creates extension-owned DOM (one `insights-card` section after the native
   System-health panel).
-- Talks only to its loopback sidecar through the WebUI's consented proxy path;
-  no other WebUI APIs are read or written.
-- The sidecar shells out to `speedtest-cli` and the `docker` CLI **on the host
-  it runs on** — container start/stop/restart/update are real operations, the
-  same trust level as running `docker` in a terminal. Container names/ids are
-  validated before use; no arbitrary shell.
-- No cookies read, no external network access from the browser (the speed test
-  runs server-side), no native host.
+- Talks to its loopback sidecar through the WebUI's consented proxy path, and
+  also reads `/api/extensions/status` (to check its own sidecar consent). Docker
+  reads and every host-mutating route go through that proxy; `docker/updates`
+  (the update sweep) and the action/update/bulk routes are **writes** — they
+  start work and persist results.
+- Deny-by-default inventory: no container is shown until the operator opts in via
+  `MC_DOCKER_NAME_ALLOW` (name prefixes), `MC_DOCKER_WORKDIR_PREFIX` (a compose
+  workdir root), or `MC_DOCKER_SHOW_ALL=1`. Docker updates run
+  `docker compose pull/up` **from each stack's host-derived compose working_dir**,
+  so the sidecar reads that stack's compose files/`.env` and uses whatever
+  registry/Docker credentials the daemon has — hence `filesystem.arbitrary:true`
+  and `network_external:true`. Constrain the workdir with `MC_DOCKER_WORKDIR_PREFIX`.
+- The sidecar shells out to `speedtest-cli` (which reaches external speed-test
+  servers) and the `docker` CLI **on the host it runs on** — container
+  start/stop/restart/update are real operations, the same trust level as running
+  `docker` in a terminal. Compose project/service refs are validated (list-form
+  argv, no `shell=True`, leading-hyphen rejected); container ids must be hex and
+  belong to the filtered inventory.
+- No cookies read; no external network access **from the browser** (the speed
+  test + registry calls run server-side in the sidecar); no native host.
 
 ## Manual verification
 
