@@ -30,9 +30,23 @@
   "screenshots": [],
   "permissions": {
     "webui_api": {
-      "read": [],
+      "read": [
+        "/api/extensions/status",
+        "/api/extensions/sysinfo/sidecar/api/system/speedtest",
+        "/api/extensions/sysinfo/sidecar/api/system/speedtest/auto",
+        "/api/extensions/sysinfo/sidecar/api/system/docker",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/groups",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk"
+      ],
       "write": [
-        "/api/extensions/sidecar-proxy-consent"
+        "/api/extensions/sysinfo/sidecar/api/system/speedtest",
+        "/api/extensions/sysinfo/sidecar/api/system/speedtest/auto",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/groups",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/updates",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/action",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/group-action",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/update"
       ]
     },
     "webui_navigation": false,
@@ -51,10 +65,11 @@
     "loopback_sidecar": true,
     "native_host": false,
     "filesystem": {
-      "arbitrary": false,
-      "serves_bundled_assets": true
+      "arbitrary": true,
+      "serves_bundled_assets": true,
+      "note": "Runs `docker compose pull/up` from each stack's host-derived compose working_dir, so it reads that stack's compose files/.env and whatever Docker credentials the daemon uses. Constrained to MC_DOCKER_WORKDIR_PREFIX when set."
     },
-    "network_external": false
+    "network_external": true
   },
   "sidecar": {
     "type": "loopback",
