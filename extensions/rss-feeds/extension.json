@@ -41,9 +41,26 @@
   "screenshots": [],
   "permissions": {
     "webui_api": {
-      "read": [],
+      "read": [
+        "/api/extensions/status",
+        "/api/extensions/rss-feeds/sidecar/api/feeds",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/settings",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/entries",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/summaries",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/summary-status",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/refresh-status",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/summary-test-status",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/favicon"
+      ],
       "write": [
-        "/api/extensions/sidecar-proxy-consent"
+        "/api/extensions/rss-feeds/sidecar/api/feeds",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/refresh",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/read",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/summarize",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/summary-test",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/settings",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/{fid}",
+        "/api/extensions/rss-feeds/sidecar/api/feeds/summaries/{sid}"
       ]
     },
     "webui_navigation": false,

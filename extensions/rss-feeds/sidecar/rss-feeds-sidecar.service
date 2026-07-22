@@ -12,6 +12,11 @@ Type=simple
 WorkingDirectory=%h/.hermes/webui/extensions/rss-feeds/sidecar
 Environment=HERMES_WEBUI_STATE_DIR=%h/.hermes/webui
 ExecStart=/usr/bin/python3 -S -u sidecar.py
+# To use the OpenRouter/Gemini summary fallback, supply OPENROUTER_API_KEY /
+# GEMINI_API_KEY via a user drop-in (this canonical unit intentionally carries no
+# secrets): `systemctl --user edit rss-feeds-sidecar` and add an
+# [Service] EnvironmentFile=%h/.hermes/.env — systemd loads it; the sidecar only
+# ever reads keys from its process env (never a file). Local ollama needs no key.
 Restart=on-failure
 
 [Install]

@@ -37,22 +37,22 @@
         <div class="main-view-empty-sub">Pick a feed from the sidebar to read its entries. Tap <strong>+</strong> to add one.</div>
       </div>`;
 
-  // Consent is granted by the user in Settings -> Extensions; we NEVER auto-grant it.
-  // Resolves true only when the proxy reports this extension's sidecar as consented.
-  function sidecarConsented() {
+  // Consent is granted by the user in Settings -> Extensions; we NEVER auto-grant
+  // it. Core reports sidecar consent under TOP-LEVEL `status.sidecars` (an array of
+  // {id, proxy:{consented, posture}}). Resolve {consented, posture}, matching our
+  // record by id. FAIL CLOSED (consented:false) when the record is absent so a
+  // shape/label mismatch can't make an un-approved sidecar look consented.
+  function sidecarStatus() {
     return fetch('/api/extensions/status', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        var recs = (d && (d.extensions || d.records)) || (Array.isArray(d) ? d : []);
+        var list = (d && Array.isArray(d.sidecars)) ? d.sidecars : [];
         var me = null;
-        for (var i = 0; i < recs.length; i++) { if (recs[i] && recs[i].id === EXT) { me = recs[i]; break; } }
-        if (!me || !me.sidecars || !me.sidecars.length) return true;
-        for (var k = 0; k < me.sidecars.length; k++) {
-          var p = me.sidecars[k] && me.sidecars[k].proxy;
-          if (p && p.consent_required) return false;
-        }
-        return true;
-      }).catch(function () { return false; });
+        for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === EXT) { me = list[i]; break; } }
+        if (!me) return { consented: false, posture: '', found: false };
+        var p = me.proxy || {};
+        return { consented: p.consented === true, posture: p.posture || '', found: true };
+      }).catch(function () { return { consented: false, posture: '', found: false }; });
   }
 
   function buildOverlay() {
@@ -121,10 +121,17 @@
     buildOverlay();
     var ov = document.getElementById('hxFeedsOverlay');
     if (ov) ov.style.display = 'flex';
-    sidecarConsented().then(function (ok) {
+    sidecarStatus().then(function (st) {
       var body = document.getElementById('feedsViewBody');
-      if (!ok) {
-        if (body) body.innerHTML = '<div class="main-view-empty"><div class="main-view-empty-title">Approval needed</div><div class="main-view-empty-sub">Enable the RSS&nbsp;Feeds sidecar in <strong>Settings&nbsp;\u2192&nbsp;Extensions</strong>, then reopen.</div></div>';
+      // token-v1 fails closed with 403 while WebUI auth is off (posture
+      // "local_unprotected"), so proxied calls would fail even if consented \u2014
+      // name the full remedy: turn on a password FIRST, then approve.
+      if (st.posture === 'local_unprotected') {
+        if (body) body.innerHTML = '<div class="main-view-empty"><div class="main-view-empty-title">Approval needed</div><div class="main-view-empty-sub">The RSS&nbsp;Feeds sidecar is blocked while WebUI has no password. Enable <strong>Settings&nbsp;\u2192&nbsp;Password</strong>, then approve the sidecar under <strong>Settings&nbsp;\u2192&nbsp;Extensions</strong>, then reopen.</div></div>';
+        return;
+      }
+      if (!st.consented) {
+        if (body) body.innerHTML = '<div class="main-view-empty"><div class="main-view-empty-title">Approval needed</div><div class="main-view-empty-sub">Approve the RSS&nbsp;Feeds sidecar under <strong>Settings&nbsp;\u2192&nbsp;Extensions</strong>, then reopen.</div></div>';
         return;
       }
       if (typeof window.mcLoadFeedsPanel === 'function') { try { window.mcLoadFeedsPanel(); } catch (_) {} }

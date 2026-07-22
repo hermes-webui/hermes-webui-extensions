@@ -34,6 +34,7 @@ import http.client
 import ipaddress
 import json
 import logging
+import os
 import re
 import socket
 import sqlite3
@@ -127,31 +128,16 @@ def _read_capped(resp, max_bytes: int) -> bytes:
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 _OPENROUTER_TIMEOUT = 90
-# Where the shared OpenRouter key lives if it isn't already in os.environ.
-_ENV_FILES = (
-    __import__("pathlib").Path.home() / ".hermes" / ".env",
-)
 
 
 def _openrouter_key() -> str | None:
-    """OPENROUTER_API_KEY from the process env, else parsed from the shared
-    ~/.hermes/.env. Never hardcoded; returns None if genuinely absent."""
-    import os
+    """OPENROUTER_API_KEY from the PROCESS ENVIRONMENT only. We deliberately do
+    NOT read ~/.hermes/.env or any other file — the sidecar declares
+    filesystem.arbitrary:false, so credentials must be supplied via the
+    environment (e.g. an EnvironmentFile= on the systemd unit, the operator's
+    choice). Returns None if absent."""
     k = os.environ.get("OPENROUTER_API_KEY")
-    if k:
-        return k.strip()
-    for ef in _ENV_FILES:
-        try:
-            for line in ef.read_text().splitlines():
-                line = line.strip()
-                if line.startswith("#") or "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                if key.strip() == "OPENROUTER_API_KEY":
-                    return val.strip().strip('"').strip("'") or None
-        except Exception:
-            continue
-    return None
+    return k.strip() if k else None
 
 
 def _port_open(host: str, port: int, timeout: float = 0.6) -> bool:
@@ -227,25 +213,12 @@ _GEMINI_MODEL = "gemini-2.5-flash"  # free tier — third fallback, independent 
 
 
 def _gemini_key() -> str | None:
-    """GEMINI_API_KEY / GOOGLE_API_KEY from env, else the shared ~/.hermes/.env."""
-    import os
+    """GEMINI_API_KEY / GOOGLE_API_KEY from the PROCESS ENVIRONMENT only (see
+    _openrouter_key — no file reads, keeps filesystem.arbitrary:false honest)."""
     for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
         k = os.environ.get(name)
         if k:
             return k.strip()
-    for ef in _ENV_FILES:
-        try:
-            for line in ef.read_text().splitlines():
-                line = line.strip()
-                if line.startswith("#") or "=" not in line:
-                    continue
-                key, _, val = line.partition("=")
-                if key.strip() in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
-                    v = val.strip().strip('"').strip("'")
-                    if v:
-                        return v
-        except Exception:
-            continue
     return None
 
 

@@ -43,7 +43,7 @@ makes no direct external requests. All outbound network access happens in the
 
 | Destination | When | Data sent |
 |---|---|---|
-| **Feed hosts you subscribe to** | on refresh / add-feed | plain GET of the feed URL; no query params, no identifiers |
+| **Feed hosts you subscribe to** | on refresh / add-feed | GET of the exact feed URL you subscribed — including any query string that URL already contains (the sidecar adds none of its own, and sends no cookies/identifiers) |
 | **Article URLs from those feeds** | only when you Summarize an article | plain GET of the article URL to extract its text |
 | **`icons.duckduckgo.com`, then `www.google.com/s2/favicons`** | first time a feed's favicon is needed | the feed's domain, to fetch a 16px site icon (cached on disk after) |
 | **`openrouter.ai`** | only when a Summarize action routes to OpenRouter | article text + `OPENROUTER_API_KEY` (Authorization header) |
@@ -81,8 +81,10 @@ The sidecar reads/writes only:
 
 ## Supported WebUI version / API surface
 
-Built and tested against Hermes WebUI ≥ 0.16 (the current extension gallery /
-sidecar-proxy API). Required surface:
+Requires a WebUI build containing the `token-v1` sidecar-proxy authentication
+boundary (core [#6331](https://github.com/nesquena/hermes-webui/pull/6331), first
+in `exp-v0.52.129`) — not any `≥ 0.16` release. Until #6331 reaches the stable
+channel, run an `exp-v0.52.129`+ build. Required surface:
 
 - manifest-bundled asset injection (`manifest.json` scripts/stylesheets)
 - `token-v1` sidecar proxy at `/api/extensions/<id>/sidecar/*` (core injects
@@ -179,15 +181,21 @@ where core and the sidecar share a network namespace and the state dir.
 
 ## AI summary backends (optional)
 
-Summaries never use paid models. Configure in the feeds **Settings** popup:
+The defaults target free tiers, but this is **not enforced** — a paid or
+billing-enabled key still works. In particular a `GEMINI_API_KEY` inherits
+whatever tier its Google Cloud project is on, so a project with billing enabled
+**can incur charges**. Use a free-tier key if you want a hard no-cost guarantee.
+Configure in the feeds **Settings** popup:
 
 - **Local (ollama)** — an Ollama instance on `localhost:<port>` (default
   `11434`). The model dropdown lists whatever is installed on that Ollama. If
   your model runs on another host, set up your own port-forward to that local
   port — the extension does not open any tunnel itself.
-- **OpenRouter free** — needs `OPENROUTER_API_KEY` in the sidecar's env (or
-  `~/.hermes/.env`).
-- **Gemini free** — needs `GEMINI_API_KEY` / `GOOGLE_API_KEY` likewise.
+- **OpenRouter** — needs `OPENROUTER_API_KEY` in the sidecar's **process
+  environment** (e.g. via the unit's `EnvironmentFile=`); the sidecar never reads
+  it from a file itself. Defaults to a `:free` model.
+- **Gemini** — needs `GEMINI_API_KEY` / `GOOGLE_API_KEY` in the process
+  environment likewise. Defaults to the free tier (but see the billing note above).
 - **Auto** — local → OpenRouter → Gemini fallback chain.
 
 ## Storage
