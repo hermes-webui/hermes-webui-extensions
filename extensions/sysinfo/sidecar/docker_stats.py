@@ -70,26 +70,36 @@ def _path_within(child: str, root: str) -> bool:
         return False
 
 
-def _docker_allow(name: str | None, labels: str | None) -> bool:
-    """Filter the System Health container list to the stack amrx cares about.
+def _allowlist_configured() -> bool:
+    """True when the operator has opted in via any of the three knobs — so the UI
+    can show a 'configure an allowlist' hint on an empty inventory rather than a
+    bare empty card."""
+    return bool(
+        os.environ.get("MC_DOCKER_SHOW_ALL", "").strip() == "1"
+        or os.environ.get("MC_DOCKER_NAME_ALLOW", "").strip()
+        or os.environ.get("MC_DOCKER_WORKDIR_PREFIX", "").strip()
+    )
 
-    Include a container if its name matches one of ``MC_DOCKER_NAME_ALLOW``
-    (prefix match; default ``cybersec-toolkit,searxng,freqtrade`` — covers
-    searxng-valkey, freqtrade-vpn, etc.) OR its compose working_dir is under
-    ``MC_DOCKER_WORKDIR_PREFIX`` (default empty / off). The explicit name list is
-    the reliable rule: a path prefix like /Volumes/stack/projects also catches
-    unrelated stacks (openclaw-mission-control), and the cared-about containers
-    don't all carry a compose working_dir label. This hides incidental containers
-    (open-webui) and stale stacks. Set ``MC_DOCKER_SHOW_ALL=1`` to disable.
+
+def _docker_allow(name: str | None, labels: str | None) -> bool:
+    """Filter the System Health container list to the stacks the OPERATOR opts in.
+
+    DENY-BY-DEFAULT: with nothing configured, no container is shown (the card
+    renders a "configure an allowlist" message). This is a host-control surface,
+    so it must not ship a curated allowlist of anyone's specific stack. Include a
+    container only when the operator has configured one of:
+      - ``MC_DOCKER_SHOW_ALL=1`` — show every container, or
+      - ``MC_DOCKER_NAME_ALLOW`` — comma-separated name prefixes to include, or
+      - ``MC_DOCKER_WORKDIR_PREFIX`` — a compose working_dir root to include under.
     """
     import os
     if os.environ.get("MC_DOCKER_SHOW_ALL", "").strip() == "1":
         return True
     prefix = os.environ.get("MC_DOCKER_WORKDIR_PREFIX", "").strip()
     allow = [a.strip().lower() for a in os.environ.get(
-        "MC_DOCKER_NAME_ALLOW", "cybersec-toolkit,searxng,freqtrade").split(",") if a.strip()]
+        "MC_DOCKER_NAME_ALLOW", "").split(",") if a.strip()]
     if not prefix and not allow:
-        return True  # nothing configured → no filtering
+        return False  # nothing configured → deny all (opt-in required)
     if prefix:
         for kv in (labels or "").split(","):
             if kv.startswith("com.docker.compose.project.working_dir="):
@@ -246,7 +256,10 @@ def _docker_stats_uncached() -> dict[str, Any]:
             if cid and cid in stats_by_id:
                 entry.update(stats_by_id[cid])
             containers.append(entry)
-        return {"available": True, "containers": containers}
+        # Tell the UI whether the operator has opted any containers in, so an
+        # empty list can distinguish "no allowlist configured" from "nothing ran".
+        return {"available": True, "containers": containers,
+                "allowlist_configured": _allowlist_configured()}
     except Exception:
         return {"available": False, "reason": "stats_failed"}
 
