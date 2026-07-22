@@ -25,7 +25,7 @@
   "post_install": {
     "requires_local_app": true,
     "local_app_label": "System Info sidecar",
-    "summary": "Run the bundled sidecar (sidecar/sysinfo.py) on 127.0.0.1:17796, then approve the sidecar proxy in Settings \u2192 Extensions. Speed test needs `speedtest-cli`; the Docker card needs the docker CLI."
+    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17796, then approve the sidecar proxy in Settings \u2192 Extensions. Speed test needs `speedtest-cli`; the Docker card needs the docker CLI. By default no containers are shown until you set an allowlist (MC_DOCKER_NAME_ALLOW / MC_DOCKER_WORKDIR_PREFIX) or MC_DOCKER_SHOW_ALL=1."
   },
   "screenshots": [],
   "permissions": {

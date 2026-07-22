@@ -22,22 +22,23 @@
   };
   var showToast = (typeof window.showToast === 'function') ? window.showToast : function () {};
 
-  // Consent is granted by the user in Settings -> Extensions; we NEVER auto-grant it.
-  // Resolves true only when the proxy reports this extension's sidecar as consented.
-  function sidecarConsented() {
+  // Consent is granted by the user in Settings -> Extensions; we NEVER auto-grant
+  // it. Core reports sidecar consent under TOP-LEVEL `status.sidecars`. This card
+  // controls Docker, so require BOTH proxy.available AND proxy.consented, matched
+  // by id. FAIL CLOSED when the record is absent. Also surface proxy.posture so
+  // the auth-off ("local_unprotected") case names the full remedy.
+  function sidecarStatus() {
     return fetch('/api/extensions/status', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        var recs = (d && (d.extensions || d.records)) || (Array.isArray(d) ? d : []);
+        var list = (d && Array.isArray(d.sidecars)) ? d.sidecars : [];
         var me = null;
-        for (var i = 0; i < recs.length; i++) { if (recs[i] && recs[i].id === EXT) { me = recs[i]; break; } }
-        if (!me || !me.sidecars || !me.sidecars.length) return true;
-        for (var k = 0; k < me.sidecars.length; k++) {
-          var p = me.sidecars[k] && me.sidecars[k].proxy;
-          if (p && p.consent_required) return false;
-        }
-        return true;
-      }).catch(function () { return false; });
+        for (var i = 0; i < list.length; i++) { if (list[i] && list[i].id === EXT) { me = list[i]; break; } }
+        if (!me) return { consented: false, posture: '', found: false };
+        var p = me.proxy || {};
+        return { consented: (p.available === true && p.consented === true),
+                 posture: p.posture || '', found: true };
+      }).catch(function () { return { consented: false, posture: '', found: false }; });
   }
 
   // Minimal fetch wrapper matching the call-shape the ported code expects:
@@ -486,6 +487,16 @@ function _mcRenderDockerCard(payload) {
         <div class="mc-docker-group-body" ${expanded ? '' : 'hidden'}>${rows}</div>
       </div>`;
     }).join('');
+  } else if (docker && docker.available && Array.isArray(docker.containers)
+             && !docker.containers.length && docker.allowlist_configured === false) {
+    // Available but the operator hasn't opted any containers in (deny-by-default
+    // on a host-control surface). Guide them instead of showing a blank card.
+    wrap.hidden = false;
+    if (countEl) countEl.textContent = '0/0';
+    list.innerHTML = '<div class="mc-docker-empty-hint" style="padding:12px;color:var(--muted);font-size:12px;line-height:1.5">'
+      + 'No containers are shown yet — this card is <strong>deny-by-default</strong>. Opt stacks in by setting '
+      + '<code>MC_DOCKER_NAME_ALLOW</code> (comma-separated name prefixes) or <code>MC_DOCKER_WORKDIR_PREFIX</code> '
+      + 'on the sidecar service, or <code>MC_DOCKER_SHOW_ALL=1</code> to show everything, then restart it.</div>';
   } else {
     wrap.hidden = true;
     list.innerHTML = '';
@@ -798,13 +809,19 @@ window.mcDockerUpdate = async function(cid, btnEl) {
 
   // ── Boot: wait for the Insights panel, keep the card fresh ─────────────
   function _siTick() {
-    sidecarConsented().then(function (ok) {
+    sidecarStatus().then(function (st) {
+      var ok = st.consented;
       var prev = _siConsent; _siConsent = ok;
       if (ok && prev === false) { var old = document.getElementById('siSysinfoCard'); if (old) old.remove(); }
       if (!_siEnsureCard()) return;
       if (!ok) {
         var card = document.getElementById('siSysinfoCard');
-        if (card) card.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:13px">Approve the System&nbsp;Info sidecar in <strong>Settings&nbsp;\u2192&nbsp;Extensions</strong> to show speedtest &amp; Docker.</div>';
+        // token-v1 fails closed with 403 while WebUI auth is off \u2014 name the full
+        // remedy (password FIRST, then approve) in that posture.
+        var msg = (st.posture === 'local_unprotected')
+          ? 'System&nbsp;Info is blocked while WebUI has no password. Enable <strong>Settings&nbsp;\u2192&nbsp;Password</strong>, then approve the sidecar under <strong>Settings&nbsp;\u2192&nbsp;Extensions</strong>.'
+          : 'Approve the System&nbsp;Info sidecar in <strong>Settings&nbsp;\u2192&nbsp;Extensions</strong> to show speedtest &amp; Docker.';
+        if (card) card.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:13px">' + msg + '</div>';
         return;
       }
       _siPollDocker();
