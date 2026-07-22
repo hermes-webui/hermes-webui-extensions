@@ -66,7 +66,7 @@
     '<div class="mc-speedtest" id="mcSpeedtest">' +
       '<button type="button" class="mc-docker-toggle" id="mcSpeedtestToggle" onclick="mcSpeedtestToggle()" aria-expanded="false">' +
         '<span class="mc-docker-toggle-chevron" aria-hidden="true">\u25b8</span>' +
-        '<span class="insights-card-title" style="margin:0">\u26a1 Speed test</span>' +
+        '<span class="insights-card-title" style="margin:0">Speed test</span>' +
         '<span class="mc-docker-toggle-count" id="mcSpeedtestWhen"></span>' +
       '</button>' +
       '<div class="mc-speedtest-body" id="mcSpeedtestBody" hidden>' +
