@@ -32,6 +32,9 @@
   border: 1px solid var(--border, rgba(255,255,255,.12));
   border-radius: 14px; overflow: hidden;
   box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  /* Under window-controls-overlay the card's top strip could otherwise become a
+     native titlebar drag surface — opt the whole card out of dragging. */
+  -webkit-app-region: no-drag;
 }
 .hx-feeds-topbar {
   display: flex; align-items: center; justify-content: space-between;
@@ -1278,6 +1281,14 @@ mark.mc-feed-hl {
      order — accessibility override, so !important is warranted. */
   .mc-feed-progress-fill,
   .mc-feed-progress--busy .mc-feed-progress-fill { animation: none !important; transition: width .2s linear; }
+  /* Silence every remaining infinite animation for reduced-motion users: the
+     title marquee, summarize pulse, the due-timer ring, and the spinner. */
+  .mc-feeds-title-inner { animation: none !important; padding-left: 0 !important; }
+  .mc-sum-run,
+  .mc-feed-count-live,
+  .mc-feeds-timer.is-due.has-ring::before,
+  .mc-feed-timer.is-due.has-ring::before,
+  .mc-feed-spinning svg { animation: none !important; }
 }
 /* RSS Feeds — overlay-model overrides (concatenated LAST so they win, and so
    re-extracting feeds-content.css never clobbers them). */

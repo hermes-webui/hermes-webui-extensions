@@ -63,7 +63,7 @@
     ov.className = 'hx-feeds-overlay';
     ov.style.display = 'none';
     ov.innerHTML =
-      '<div class="hx-feeds-card" role="dialog" aria-label="Feeds">' +
+      '<div class="hx-feeds-card" role="dialog" aria-modal="true" aria-label="Feeds" tabindex="-1">' +
         '<div class="hx-feeds-topbar">' +
           '<span class="hx-feeds-brand">' +
             '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/></svg>' +
@@ -75,16 +75,16 @@
           // always stay in the top bar.
           '<span class="hx-feeds-topbar-actions">' +
             '<span class="hx-feeds-actions-move" id="hxFeedsActionsMove">' +
-              '<button type="button" class="panel-head-btn" id="feedsSearchBtn" onclick="mcToggleSearchBar()" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>' +
-              '<button type="button" class="panel-head-btn" id="feedsToolsBtn" onclick="mcToggleMobileTools()" aria-label="Filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>' +
-              '<button type="button" class="panel-head-btn" id="feedsAllBtn" onclick="mcSelectFeed(null)" aria-label="All feeds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></button>' +
-              '<button type="button" class="panel-head-btn" id="feedsClickedBtnM" onclick="mcSelectRead()" aria-label="Clicked articles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></button>' +
-              '<button type="button" class="panel-head-btn" id="feedsSummariesBtnM" onclick="mcSelectSummaries()" aria-label="Summaries"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.4L22 18.3l-2.1.9L19 21l-.9-1.8-2.1-.9 2.1-.9z"/></svg></button>' +
-              '<button type="button" class="panel-head-btn" id="feedsGearBtnM" onclick="mcOpenFeedSettings(event)" aria-label="RSS settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>' +
+              '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsSearchBtn" onclick="mcToggleSearchBar()" data-tooltip="Search" aria-label="Search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>' +
+              '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsToolsBtn" onclick="mcToggleMobileTools()" data-tooltip="Filters" aria-label="Filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg></button>' +
+              '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsAllBtn" onclick="mcSelectFeed(null)" data-tooltip="All feeds" aria-label="All feeds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></button>' +
+              '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsClickedBtnM" onclick="mcSelectRead()" data-tooltip="Clicked articles" aria-label="Clicked articles"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></button>' +
+              '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsSummariesBtnM" onclick="mcSelectSummaries()" data-tooltip="Summaries" aria-label="Summaries"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.4L22 18.3l-2.1.9L19 21l-.9-1.8-2.1-.9 2.1-.9z"/></svg></button>' +
+              '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsGearBtnM" onclick="mcOpenFeedSettings(event)" data-tooltip="Settings" aria-label="RSS settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>' +
             '</span>' +
             '<span class="hx-feeds-nav-slot" id="hxFeedsNavSlot"></span>' +
-            '<button type="button" class="panel-head-btn" id="feedsAddBtnM" onclick="mcOpenAddFeed()" aria-label="Add feed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>' +
-            '<button type="button" class="panel-head-btn" id="feedsRefreshBtnM" onclick="mcRefreshAllFeeds()" aria-label="Refresh all feeds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>' +
+            '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsAddBtnM" onclick="mcOpenAddFeed()" data-tooltip="Add feed" aria-label="Add feed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>' +
+            '<button type="button" class="panel-head-btn has-tooltip has-tooltip--bottom" id="feedsRefreshBtnM" onclick="mcRefreshAllFeeds()" data-tooltip="Refresh" aria-label="Refresh all feeds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>' +
           '</span>' +
           '<button type="button" class="hx-feeds-close" id="hxFeedsClose" aria-label="Close">&times;</button>' +
         '</div>' +
@@ -108,19 +108,29 @@
         setTimeout(window.mcCloseActionMenu, 0);
       }
     });
+    // Capture-phase so we CONSUME Escape before host handlers underneath (which
+    // would otherwise also close Settings/search/dropdowns beneath the overlay).
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape' || ov.style.display === 'none') return;
+      e.preventDefault();
+      e.stopPropagation();
       // Peel the frontmost body-mounted popup first; only close the overlay
       // itself once nothing is stacked above it.
       if (window.mcFeedsDismissTopPopup && window.mcFeedsDismissTopPopup()) return;
       closeOverlay();
-    });
+    }, true);
   }
 
+  var _lastFocus = null;
   function openOverlay() {
     buildOverlay();
     var ov = document.getElementById('hxFeedsOverlay');
     if (ov) ov.style.display = 'flex';
+    // Remember what had focus so we can restore it on close, then move initial
+    // focus into the dialog (accessibility: a modal should own focus).
+    _lastFocus = document.activeElement;
+    var card = ov && ov.querySelector('.hx-feeds-card');
+    if (card) { try { card.focus(); } catch (_) {} }
     sidecarStatus().then(function (st) {
       var body = document.getElementById('feedsViewBody');
       // token-v1 fails closed with 403 while WebUI auth is off (posture
@@ -143,14 +153,18 @@
     if (window.mcFeedsStopTimer) window.mcFeedsStopTimer();
     var ov = document.getElementById('hxFeedsOverlay');
     if (ov) ov.style.display = 'none';
+    // Restore focus to wherever it was (the launcher), not left on a now-hidden
+    // element — falls back to the launcher button explicitly.
+    var back = _lastFocus || document.getElementById('hxFeedsLauncher');
+    if (back && typeof back.focus === 'function') { try { back.focus(); } catch (_) {} }
+    _lastFocus = null;
   }
   window.hxOpenFeeds = openOverlay;
   window.hxCloseFeeds = closeOverlay;
 
   function addLauncher() {
     if (document.getElementById('hxFeedsLauncher')) return;
-    var host = document.querySelector('.app-titlebar-right')
-      || document.querySelector('.app-titlebar')
+    var host = document.querySelector('.app-titlebar')
       || document.querySelector('header')
       || document.body;
     var btn = document.createElement('button');

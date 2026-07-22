@@ -2052,12 +2052,14 @@
     _paint() {
       if (this.fill) this.fill.style.width = this.pct.toFixed(1) + '%';
     },
-    done() {
+    done(msg) {
       this._stop();
       if (this.el) this.el.classList.remove('mc-feed-progress--busy');
       if (this.fill) this.fill.style.width = '100%';
       const el = this.el;
       setTimeout(() => { if (el) { el.classList.add('mc-feed-progress-fade'); setTimeout(() => el.remove(), 500); } }, 900);
+      // Surface the computed "N/M feeds · K new" result instead of dropping it.
+      if (msg && typeof _summaryToast === 'function') _summaryToast(msg);
     },
     fail() {
       // No text — the persistent failures panel reports what went wrong.
