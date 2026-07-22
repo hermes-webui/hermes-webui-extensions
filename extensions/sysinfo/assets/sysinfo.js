@@ -752,16 +752,34 @@ function _mcDockerSyncUpdatePill() {
   const bu = window._mcBulkUpdating;
   if (bu && bu.running && bu.scope === 'all') {
     pill.hidden = false;
-    pill.classList.add('mc-docker-upd-busy');
+    pill.disabled = true;
+    pill.className = 'mc-docker-update-pill mc-docker-upd-busy';
     pill.textContent = `⟳ updating ${bu.done||0}/${bu.total||'?'}`;
     return;
   }
-  pill.classList.remove('mc-docker-upd-busy');
   const n = Object.values(_mcDockerUpdates).filter(u => u && u.update_available).length;
-  // Label it as the ACTION it is ("Update all (N)"), not a passive "N updates"
-  // status badge — it triggers the destructive all-stacks confirmation.
-  if (n > 0) { pill.hidden = false; pill.textContent = `⬆ Update all (${n})`; }
-  else { pill.hidden = true; pill.textContent = ''; }
+  if (n > 0) {
+    // Updates available → green + actionable ("Update all (N)").
+    pill.hidden = false;
+    pill.disabled = false;
+    pill.className = 'mc-docker-update-pill mc-docker-has-updates';
+    pill.textContent = `⬆ Update all (${n})`;
+    pill.title = `Update all ${n} — dependency-first`;
+  } else if (_mcDockerCheckedAt) {
+    // Checked, nothing to update → greyed-out, non-actionable update icon
+    // (not a hidden/empty pill leaking as a weird circle).
+    pill.hidden = false;
+    pill.disabled = true;
+    pill.className = 'mc-docker-update-pill';
+    pill.textContent = '⬆';
+    pill.title = 'All container images up to date';
+  } else {
+    // Not checked yet → show nothing until "Check updates" runs.
+    pill.hidden = true;
+    pill.disabled = true;
+    pill.className = 'mc-docker-update-pill';
+    pill.textContent = '';
+  }
 }
 // Re-paint the busy spinner on the pill + stack badges from window._mcBulkUpdating.
 function _mcRefreshDockerBusy() {

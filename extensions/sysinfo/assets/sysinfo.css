@@ -357,9 +357,18 @@
 .mc-docker-mi--update { color: var(--blue, #3b9ddb); }
 /* image-update affordances */
 .mc-docker-update-pill {
-  appearance: none; font: inherit; min-height: 24px; display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding: 1px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); white-space: nowrap;
-  /* It's an action button (triggers Update all), so make it read as one. */
-  cursor: pointer; border: 1px solid rgba(59,157,219,.5); }
+  appearance: none; font: inherit; min-height: 22px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; white-space: nowrap;
+  /* Default (no updates): a quiet, greyed, non-actionable update icon — NOT a
+     bordered pill (an empty one used to leak as a weird circle). */
+  background: transparent; border: 1px solid transparent; color: var(--muted, #8b93a7); cursor: default; }
+/* `hidden` must actually hide — beat the `display:inline-flex` above (same
+   specificity as [hidden], and the author rule would otherwise win). */
+.mc-docker-update-pill[hidden] { display: none; }
+.mc-docker-update-pill:disabled { opacity: .6; }
+/* Updates available → green + actionable. */
+.mc-docker-update-pill.mc-docker-has-updates {
+  color: var(--success, #3fb950); border-color: rgba(63,185,80,.5); background: rgba(63,185,80,.14); cursor: pointer; }
+.mc-docker-update-pill.mc-docker-has-updates:hover { background: rgba(63,185,80,.24); }
 .mc-docker-update-pill:focus-visible { outline: 2px solid var(--accent, #3b9ddb); outline-offset: 1px; }
 /* header row: Docker toggle (grows) + last-checked text + Check-now button, one line */
 .mc-docker-toprow { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
@@ -373,7 +382,6 @@
 /* stack-header roll-up: N image updates available inside this collapsed group */
 .mc-docker-group-upd { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); border: 0; cursor: pointer; font-family: inherit; line-height: 1.7; }
 .mc-docker-group-upd:hover { background: rgba(59,157,219,.34); }
-.mc-docker-update-pill:hover { background: rgba(59,157,219,.34); }
 /* Kill the dead space above/below the collapsed Speed test row */
   .mc-speedtest { margin-top: 8px; padding-top: 0; }
 .mc-speedtest .mc-docker-toggle { margin-top: 0; }
