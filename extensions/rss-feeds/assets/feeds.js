@@ -2219,7 +2219,9 @@
   function _renderSources(sources) {
     const list = _parseSources(sources).filter(s => s && s.link);
     if (!list.length) return '';
-    const link = (s) => `<a href="${_attr(s.link)}" target="_blank" rel="noopener noreferrer">` +
+    // _safeUrl sanitizes on read: legacy rows may hold javascript:/data: links
+    // (older writes didn't validate scheme), so gate every stored link here.
+    const link = (s) => `<a href="${_attr(_safeUrl(s.link))}" target="_blank" rel="noopener noreferrer">` +
       `${esc(s.feed || '?')}: ${esc(s.title || 'article')}</a>`;
     if (list.length === 1) {
       return `<div class="mc-summary-source">Source: ${link(list[0])}</div>`;

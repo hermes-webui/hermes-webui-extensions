@@ -110,6 +110,18 @@ _OLLAMA_TIMEOUT = 240          # 14b on a full article can take a while; it's a 
 _ARTICLE_TIMEOUT = 12
 _ARTICLE_MAX_BYTES = 3 * 1024 * 1024
 _ARTICLE_MAX_CHARS = 8000
+# Cap every model-backend / API response read so a hostile or oversized peer
+# can't exhaust memory (summaries are small text; 2 MiB is generous).
+_MODEL_RESP_BYTES = 2 * 1024 * 1024
+
+
+def _read_capped(resp, max_bytes: int) -> bytes:
+    """Read at most ``max_bytes`` from a response, raising if the peer exceeds it.
+    Shared by every backend/redirect read so no path does an unbounded resp.read()."""
+    body = resp.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        raise ValueError(f"response exceeds {max_bytes} byte cap")
+    return body
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 _OPENROUTER_TIMEOUT = 90
@@ -163,7 +175,7 @@ def _ollama_summarize(prompt: str, model: str = None, local_port: int = 11434) -
         headers={"Content-Type": "application/json"}, method="POST",
     )
     with urllib.request.urlopen(req, timeout=_OLLAMA_TIMEOUT) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+        data = json.loads(_read_capped(resp, _MODEL_RESP_BYTES).decode("utf-8"))
     out = (data.get("response") or "").strip()
     if not out:
         raise RuntimeError("ollama returned empty response")
@@ -202,7 +214,7 @@ def _openrouter_summarize(prompt: str) -> str:
         },
     )
     with _NOREDIR_OPENER.open(req, timeout=_OPENROUTER_TIMEOUT) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+        data = json.loads(_read_capped(resp, _MODEL_RESP_BYTES).decode("utf-8"))
     out = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
     if not out:
         raise RuntimeError("openrouter returned empty response")
@@ -254,7 +266,7 @@ def _gemini_summarize(prompt: str) -> str:
         headers={"Content-Type": "application/json", "x-goog-api-key": key},
     )
     with _NOREDIR_OPENER.open(req, timeout=_OPENROUTER_TIMEOUT) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+        data = json.loads(_read_capped(resp, _MODEL_RESP_BYTES).decode("utf-8"))
     try:
         out = (data["candidates"][0]["content"]["parts"][0]["text"] or "").strip()
     except Exception:
@@ -328,7 +340,7 @@ def _summary_status() -> dict:
             req = urllib.request.Request(f"http://127.0.0.1:{lp}/api/tags")
             with urllib.request.urlopen(req, timeout=3) as resp:
                 tags = [m.get("name", "") for m in
-                        json.loads(resp.read().decode("utf-8")).get("models", [])]
+                        json.loads(_read_capped(resp, _MODEL_RESP_BYTES).decode("utf-8")).get("models", [])]
             models = sorted(t for t in tags if t)
             model_present = any(t == model or t.split(":")[0] == model for t in tags)
         except Exception:
@@ -728,6 +740,14 @@ _auto_fetch_lock = _threading_af.Lock()
 _auto_fetch_stop = _threading_af.Event()
 _auto_fetch_last_run: float = 0.0  # epoch seconds; in-memory, resets on restart
 
+# --- Concurrency bounds ----------------------------------------------------
+# A burst of summarize requests (each is its own daemon thread) or overlapping
+# auto+manual refreshes (each an 8-worker pool) could otherwise spawn unbounded
+# threads. Cap concurrent summaries and serialize refreshes (single-flight).
+_MAX_CONCURRENT_SUMMARIES = 3
+_summary_sem = _threading_af.BoundedSemaphore(_MAX_CONCURRENT_SUMMARIES)
+_refresh_lock = _threading_af.Lock()  # single-flight: one refresh_all() at a time
+
 
 def _auto_fetch_loop() -> None:
     global _auto_fetch_last_run
@@ -760,6 +780,15 @@ def _auto_fetch_loop() -> None:
             if _auto_fetch_stop.wait(min(30.0, due - now)):
                 break
             continue
+        # Skip this tick if a manual refresh is mid-flight rather than blocking
+        # the daemon behind it — the single-flight lock guarantees no overlap,
+        # and we'll re-fire on the next slice.
+        if not _refresh_lock.acquire(blocking=False):
+            logger.info("[feeds] auto-fetch skipped (refresh already running)")
+            if _auto_fetch_stop.wait(30):
+                break
+            continue
+        _refresh_lock.release()
         logger.info("[feeds] auto-fetch firing (interval=%dm)", interval_min)
         try:
             results = refresh_all()
@@ -1127,7 +1156,7 @@ def _safe_fetch(url: str, headers: dict, timeout: float, max_bytes: int,
             resp = conn.getresponse()
             if resp.status in (301, 302, 303, 307, 308):
                 loc = resp.getheader("Location")
-                resp.read()  # drain before closing
+                resp.read(65536)  # drain (bounded) before closing; conn.close() discards the rest
                 if not loc:
                     raise ValueError("redirect without Location")
                 current = urljoin(current, loc)
@@ -1307,8 +1336,19 @@ def _record_fetch_failure(feed_id: int, status: str, error: str,
 
 
 def refresh_all(only_ids: list[int] | None = None, progress_cb=None) -> list[dict]:
+    """Single-flight guard around the real refresh. Auto (daemon) and manual
+    (POST) refreshes must never overlap — two 8-worker pools writing the same
+    SQLite rows at once causes lock contention and doubled fetch load. If a
+    refresh is already running, block until it finishes, then run this one
+    (serialized), rather than launching an overlapping set of workers."""
+    with _refresh_lock:
+        return _refresh_all_locked(only_ids, progress_cb)
+
+
+def _refresh_all_locked(only_ids: list[int] | None = None, progress_cb=None) -> list[dict]:
     """Refresh feeds in parallel via a thread pool. Each fetch has a 10s
     socket timeout, so 42 feeds finish in ~10-30s instead of 3-5 minutes.
+    Callers must hold _refresh_lock (see refresh_all).
 
     progress_cb(done, total) is called as each feed completes (for the live
     refresh progress bar). Exceptions in the callback are swallowed so a slow/
@@ -1497,9 +1537,12 @@ def _fetch_favicon(domain: str) -> bytes | None:
     for url in (f"https://icons.duckduckgo.com/ip3/{domain}.ico",
                 f"https://www.google.com/s2/favicons?sz=64&domain={domain}"):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": _BROWSER_UA})
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                data = resp.read(200_000)
+            # SSRF-safe: _safe_fetch validates every hop resolves to a global
+            # address and pins the IP for the connection, so a provider redirect
+            # can't reach an internal host (defense-in-depth even for DDG/Google).
+            _status, _hdrs, data = _safe_fetch(
+                url, {"User-Agent": _BROWSER_UA},
+                timeout=6, max_bytes=200_000, truncate=True)
             # DDG returns a 1x1 placeholder for unknown sites — treat tiny as miss.
             if data and len(data) > 70:
                 return data
@@ -1854,28 +1897,42 @@ def _handle_summarize(handler, body: dict) -> bool:
         for e in entries
     ]
 
-    now = time.time()
-    conn = _open()
-    try:
-        # Rerun semantics for a single article: one article = one current
-        # summary. Drop any prior summary for this entry so a re-run replaces
-        # it (no duplicates piling up) and the inline card shows only the new one.
-        if scope == "entry" and inline_entry_id is not None:
-            conn.execute("DELETE FROM summaries WHERE entry_id = ? AND scope = 'entry'",
-                         (inline_entry_id,))
-        cur = conn.execute(
-            "INSERT INTO summaries (scope, target, entry_id, title, status, "
-            "entry_count, sources, created_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)",
-            (scope, json.dumps(target) if target is not None else None,
-             inline_entry_id, label[:200], len(entries), json.dumps(sources), now),
-        )
-        summary_id = cur.lastrowid
-        conn.commit()
-    finally:
-        conn.close()
+    # Bound concurrent summarize jobs so a burst can't spawn unlimited daemon
+    # threads (each one holds an LLM connection). Reject once the cap is hit.
+    if not _summary_sem.acquire(blocking=False):
+        return _err(handler, 429, "too many summaries in progress — try again shortly")
 
-    t = __import__("threading").Thread(
-        target=_summary_worker, args=(summary_id, work_entries, scope), daemon=True)
+    try:
+        now = time.time()
+        conn = _open()
+        try:
+            # Rerun semantics for a single article: one article = one current
+            # summary. Drop any prior summary for this entry so a re-run replaces
+            # it (no duplicates piling up) and the inline card shows only the new one.
+            if scope == "entry" and inline_entry_id is not None:
+                conn.execute("DELETE FROM summaries WHERE entry_id = ? AND scope = 'entry'",
+                             (inline_entry_id,))
+            cur = conn.execute(
+                "INSERT INTO summaries (scope, target, entry_id, title, status, "
+                "entry_count, sources, created_at) VALUES (?, ?, ?, ?, 'running', ?, ?, ?)",
+                (scope, json.dumps(target) if target is not None else None,
+                 inline_entry_id, label[:200], len(entries), json.dumps(sources), now),
+            )
+            summary_id = cur.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        _summary_sem.release()  # never leak a permit if setup fails before the thread starts
+        raise
+
+    def _run_summary():
+        try:
+            _summary_worker(summary_id, work_entries, scope)
+        finally:
+            _summary_sem.release()
+
+    t = __import__("threading").Thread(target=_run_summary, daemon=True)
     t.start()
 
     return j(handler, {
