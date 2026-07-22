@@ -1477,6 +1477,69 @@ def refresh_all(only_ids: list[int] | None = None, progress_cb=None) -> list[dic
         return _refresh_all_locked(only_ids, progress_cb)
 
 
+# ── Refresh as a background job (POST starts, GET polls) ────────────────────
+# A full refresh is ~10-30s, which exceeds the core sidecar-proxy's hard 10s
+# timeout — a synchronous POST always 502s at the proxy even though the sidecar
+# finishes fine. So POST kicks off a background run and returns 202 immediately;
+# the UI polls GET /api/feeds/refresh-status until {running:false} for results.
+_refresh_job_lock = _threading_af.Lock()
+_refresh_job: dict[str, Any] = {
+    "running": False, "done": 0, "total": 0, "results": [],
+    "started_at": 0.0, "finished_at": 0.0, "error": "",
+}
+
+
+def _refresh_worker(only_ids: list[int] | None) -> None:
+    def _progress(done: int, total: int) -> None:
+        with _refresh_job_lock:
+            _refresh_job["done"] = done
+            _refresh_job["total"] = total
+    results: list[dict] = []
+    err = ""
+    try:
+        results = refresh_all(only_ids, progress_cb=_progress)
+    except Exception as exc:  # pragma: no cover - defensive
+        err = f"{type(exc).__name__}: {exc}"
+    with _refresh_job_lock:
+        _refresh_job["results"] = results
+        _refresh_job["error"] = err
+        _refresh_job["running"] = False
+        _refresh_job["finished_at"] = time.time()
+
+
+def start_refresh(only_ids: list[int] | None = None) -> dict:
+    """Reserve + start ONE background refresh job (idempotent while one runs).
+    Returns a status snapshot. Refresh itself is single-flight (refresh_all holds
+    _refresh_lock), so at most one refresh executes regardless of callers."""
+    with _refresh_job_lock:
+        if _refresh_job["running"]:
+            return dict(_refresh_job)
+        _refresh_job.update(running=True, done=0, total=0, results=[],
+                            started_at=time.time(), finished_at=0.0, error="")
+        snap = dict(_refresh_job)
+    t = __import__("threading").Thread(
+        target=_refresh_worker, args=(only_ids,), name="feeds-refresh", daemon=True)
+    t.start()
+    return snap
+
+
+def refresh_status() -> dict:
+    """Poll payload for the refresh job. Results are only included once the run
+    has finished (running:false), so a poll stays small mid-refresh."""
+    with _refresh_job_lock:
+        out: dict[str, Any] = {
+            "running": bool(_refresh_job["running"]),
+            "done": int(_refresh_job["done"]),
+            "total": int(_refresh_job["total"]),
+            "started_at": int(_refresh_job["started_at"] or 0),
+        }
+        if not _refresh_job["running"]:
+            out["results"] = list(_refresh_job["results"])
+            if _refresh_job["error"]:
+                out["error"] = _refresh_job["error"]
+        return out
+
+
 def _refresh_all_locked(only_ids: list[int] | None = None, progress_cb=None) -> list[dict]:
     """Refresh feeds in parallel via a thread pool. Each fetch has a 10s
     socket timeout, so 42 feeds finish in ~10-30s instead of 3-5 minutes.
@@ -1742,6 +1805,8 @@ def handle_get(handler, parsed) -> bool:
         return j(handler, get_settings())
     if path == "/api/feeds/summary-status":
         return j(handler, _summary_status())
+    if path == "/api/feeds/refresh-status":
+        return j(handler, refresh_status())
     if path == "/api/feeds/entries":
         from urllib.parse import parse_qs
         qs = parse_qs(parsed.query)
@@ -1832,9 +1897,13 @@ def handle_post(handler, parsed, body: dict) -> bool:
                       "new_entries": int(check.get("new_entries", 0) or 0)}
         return j(handler, f, status=201)
     if path == "/api/feeds/refresh":
+        # Start a background job + return 202 immediately. A synchronous refresh
+        # (~10-30s) would exceed the proxy's 10s timeout; the UI polls
+        # GET /api/feeds/refresh-status for progress + results.
         ids = body.get("feed_ids")
-        results = refresh_all(ids if isinstance(ids, list) else None)
-        return j(handler, {"results": results})
+        snap = start_refresh(ids if isinstance(ids, list) else None)
+        return j(handler, {"running": True, "started_at": int(snap.get("started_at", 0))},
+                 status=202)
     if path == "/api/feeds/read":
         # Server-side read state (cross-device). {id, read?} or {ids:[...], read?}.
         read = body.get("read", True)

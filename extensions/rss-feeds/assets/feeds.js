@@ -2010,53 +2010,55 @@
     stop() { this._stop(); const e = $('mcFeedProgress'); if (e) e.remove(); this.el = this.fill = this.label = null; },
   };
 
-  // Shared refresh: streams real per-feed progress (SSE) into the eased bar, then
-  // reloads via reloadFn. Falls back to the plain POST if EventSource is missing.
+  // Shared refresh: starts a background refresh job then polls /refresh-status,
+  // feeding real per-feed progress (done/total) into the eased bar, then reloads
+  // via reloadFn. Job+poll avoids the proxy's 10s timeout on a full refresh.
   function _streamRefresh(reloadFn) {
     return new Promise((resolve) => {
       _feedProgress.start();
-      let settled = false, es = null;
+      let settled = false;
       // ok message auto-fades; the failures panel (if any) STAYS until dismissed.
       const finish = (ok, msg, failures) => {
         if (settled) return; settled = true;
-        try { if (es) es.close(); } catch (_) {}
         if (ok) {
           Promise.resolve(reloadFn && reloadFn())
             .catch(() => {})
             .then(() => { _feedProgress.done(msg); _showFeedFailures(failures); resolve(); });
         } else { _feedProgress.fail(msg); resolve(); }
       };
-      // ALWAYS use the plain POST. The WebUI sidecar-proxy buffers the
-      // response body, so the SSE /refresh/stream can't deliver live progress —
-      // the POST has identical timing and drives the indeterminate bar cleanly.
-      if (true) {
-        fetch('/api/extensions/rss-feeds/sidecar/api/feeds/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' })
+      // A full refresh takes ~10-30s, longer than the sidecar-proxy's hard 10s
+      // timeout, so a synchronous POST would 502. Instead the POST starts a
+      // background job (202) and we poll GET /refresh-status for live progress +
+      // the final results — no proxy timeout, and the bar tracks done/total.
+      const base = '/api/extensions/rss-feeds/sidecar/api/feeds';
+      const summarize = (results) => {
+        const oks = results.filter(x => String(x.status).startsWith('ok'));
+        const totalNew = oks.reduce((s, x) => s + (x.new_entries || 0), 0);
+        const fails = results.filter(x => !String(x.status).startsWith('ok'))
+          .map(x => ({ name: x.feed_name || ('feed #' + (x.feed_id || '?')), status: x.status, error: x.error || '' }));
+        finish(true, `${oks.length}/${results.length} feeds · ${totalNew} new` + (fails.length ? ` · ${fails.length} failed` : ''), fails);
+      };
+      let _polls = 0;
+      const poll = () => {
+        fetch(base + '/refresh-status', { credentials: 'same-origin' })
           .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
           .then(d => {
-            const results = Array.isArray(d.results) ? d.results : [];
-            const oks = results.filter(x => String(x.status).startsWith('ok'));
-            const totalNew = oks.reduce((s, x) => s + (x.new_entries || 0), 0);
-            const fails = results.filter(x => !String(x.status).startsWith('ok'))
-              .map(x => ({ name: x.feed_name || ('feed #' + (x.feed_id || '?')), status: x.status, error: x.error || '' }));
-            finish(true, `${oks.length}/${results.length} feeds · ${totalNew} new` + (fails.length ? ` · ${fails.length} failed` : ''), fails);
+            if (typeof d.total === 'number' && d.total > 0) _feedProgress.setProgress(d.done || 0, d.total);
+            if (d.running) {
+              // Safety valve: ~5 min of polling (200 × 1.5s) then give up cleanly.
+              if (++_polls > 200) { finish(false, 'Refresh timed out'); return; }
+              setTimeout(poll, 1500);
+              return;
+            }
+            if (d.error) { finish(false, 'Refresh failed: ' + d.error); return; }
+            summarize(Array.isArray(d.results) ? d.results : []);
           })
           .catch(e => finish(false, 'Refresh failed: ' + e.message));
-        return;
-      }
-      try {
-        es = new EventSource('/api/extensions/rss-feeds/sidecar/api/feeds/refresh/stream');
-        es.addEventListener('progress', (e) => { try { const d = JSON.parse(e.data); _feedProgress.setProgress(d.done, d.total); } catch (_) {} });
-        es.addEventListener('done', (e) => {
-          let m = 'Feeds updated', fails = [];
-          try {
-            const d = JSON.parse(e.data);
-            m = `${d.ok}/${d.total} feeds · ${d.new_entries} new` + (d.failed ? ` · ${d.failed} failed` : '');
-            if (Array.isArray(d.failures)) fails = d.failures;
-          } catch (_) {}
-          finish(true, m, fails);
-        });
-        es.addEventListener('error', () => finish(false, 'Refresh failed'));
-      } catch (e) { finish(false, 'Refresh failed'); }
+      };
+      fetch(base + '/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+        .then(() => setTimeout(poll, 800))
+        .catch(e => finish(false, 'Refresh failed: ' + e.message));
     });
   }
 
