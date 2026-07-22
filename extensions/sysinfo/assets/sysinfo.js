@@ -528,6 +528,30 @@ window.mcDockerMenu = function(btn, ev) {
   }
 };
 
+// Container action / group action / single update all run as serialized
+// background jobs now (they can exceed the ~10s proxy timeout). After the POST
+// returns 202 {id}, poll op-status until THIS job (matched by id) finishes,
+// tolerating transient errors, and return its result. Throws on busy/timeout.
+async function _mcPollDockerOp(startResp, r) {
+  if (r.status === 409 || (startResp && startResp.error === 'busy')) {
+    throw new Error('another Docker operation is already running');
+  }
+  if (!r.ok && r.status !== 202) throw new Error((startResp && startResp.error) || ('HTTP ' + r.status));
+  const myId = startResp && startResp.id;
+  for (let i = 0; i < 480; i++) {            // ~16min at 2s (single update ≤900s)
+    await new Promise(res => setTimeout(res, 2000));
+    let s = null;
+    try {
+      const pr = await fetch(BASE + '/api/system/docker/op-status', { credentials: 'same-origin' });
+      if (pr.ok) s = await pr.json();
+    } catch (_) { continue; }                // tolerate a transient proxy error
+    if (!s) continue;
+    if (s.id === myId && !s.running) return s.result || { ok: true };
+    if (typeof s.id === 'number' && s.id > myId) return { ok: true };  // ours finished; another started
+  }
+  throw new Error('operation timed out');
+}
+
 window.mcDockerAction = async function(cid, action, btnEl) {
   // Close the kebab menu the item lives in (the card re-renders after the poll).
   const _menu = btnEl && btnEl.closest('.mc-docker-menu');
@@ -542,9 +566,16 @@ window.mcDockerAction = async function(cid, action, btnEl) {
       credentials: 'same-origin',
       body: JSON.stringify({ container_id: cid, action }),
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || data.ok === false) {
-      const msg = data && data.error ? data.error : ('HTTP ' + r.status);
+    const startResp = await r.json().catch(() => ({}));
+    let data;
+    try { data = await _mcPollDockerOp(startResp, r); }
+    catch (e) {
+      if (typeof showToast === 'function') showToast(`Docker ${action} failed: ${e.message}`, undefined, 'error');
+      else if (window.showStatusToast) window.showStatusToast(`Docker ${action} failed: ${e.message}`);
+      return;
+    }
+    if (!data || data.ok === false) {
+      const msg = data && data.error ? data.error : 'failed';
       if (typeof showToast === 'function') showToast(`Docker ${action} failed: ${msg}`, undefined, 'error');
       else if (window.showStatusToast) window.showStatusToast(`Docker ${action} failed: ${msg}`);
       return;
@@ -593,9 +624,15 @@ window.mcDockerGroupAction = async function(idx, action, btnEl) {
       credentials: 'same-origin',
       body: JSON.stringify({ project: key, action }),
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || data.ok === false) {
-      const msg = data && data.error ? data.error : ('HTTP ' + r.status);
+    const startResp = await r.json().catch(() => ({}));
+    let data;
+    try { data = await _mcPollDockerOp(startResp, r); }
+    catch (e) {
+      if (typeof showToast === 'function') showToast(`Stack ${action} failed: ${e.message}`, undefined, 'error');
+      return;
+    }
+    if (!data || data.ok === false) {
+      const msg = data && data.error ? data.error : 'failed';
       if (typeof showToast === 'function') showToast(`Stack ${action} failed: ${msg}`, undefined, 'error');
     } else if (typeof showToast === 'function') {
       showToast(`Stack “${label}”: ${action} → ${data.count || 0} container(s)`);
@@ -787,9 +824,15 @@ window.mcDockerUpdate = async function(cid, btnEl) {
       credentials: 'same-origin',
       body: JSON.stringify({ container_id: cid }),
     });
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || data.ok === false) {
-      const msg = data && data.error ? data.error : ('HTTP ' + r.status);
+    const startResp = await r.json().catch(() => ({}));
+    let data;
+    try { data = await _mcPollDockerOp(startResp, r); }
+    catch (e) {
+      if (typeof showToast === 'function') showToast(`Update failed: ${e.message}`, undefined, 'error');
+      return;
+    }
+    if (!data || data.ok === false) {
+      const msg = data && data.error ? data.error : 'failed';
       if (typeof showToast === 'function') showToast(`Update failed: ${msg}`, undefined, 'error');
       return;
     }
