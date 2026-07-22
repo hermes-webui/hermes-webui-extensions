@@ -1664,7 +1664,8 @@ def mark_read(entry_id: int, read: bool = True) -> bool:
 def list_entries(feed_id: int | None = None, category: str | None = None,
                  limit: int = 50, since: float | None = None,
                  apply_filter: bool = False, read_only: bool = False,
-                 feed_ids: list | None = None, q: str | None = None) -> list[dict]:
+                 feed_ids: list | None = None, q: str | None = None,
+                 before: float | None = None) -> list[dict]:
     """Return entries matching the requested scope.
 
     read_only=True returns only entries the user has clicked (read_at set),
@@ -1700,6 +1701,11 @@ def list_entries(feed_id: int | None = None, category: str | None = None,
     if since is not None:
         sql += "AND COALESCE(e.published_at, e.fetched_at) >= ? "
         params.append(since)
+    if before is not None:
+        # Upper bound for paging OLDER (client passes the previous page's
+        # next_before). Strict < so the boundary row isn't returned twice.
+        sql += "AND COALESCE(e.published_at, e.fetched_at) < ? "
+        params.append(before)
     terms = [t for t in (q or "").split() if t.strip()]
     for term in terms:
         sql += "AND (e.title LIKE ? ESCAPE '\\' OR e.summary LIKE ? ESCAPE '\\') "
@@ -1836,6 +1842,26 @@ def handle_favicon(handler, domain: str) -> bool:
     return True
 
 
+_RESP_BYTE_BUDGET = 450_000  # keep the serialized JSON body under the proxy's 512 KiB cap
+
+
+def _cap_by_bytes(items: list[dict], budget: int = _RESP_BYTE_BUDGET):
+    """Trim a newest-first list so its serialized JSON stays under the proxy's
+    512 KiB response cap — otherwise the proxy rejects the WHOLE body and the
+    view goes blank. Keeps the leading (newest) items and reports whether it
+    trimmed, so the client can page older ones via ?before=. Always keeps at
+    least one item so a single oversized row still returns something."""
+    out: list[dict] = []
+    used = 2  # the enclosing [] brackets
+    for it in items:
+        size = len(json.dumps(it, default=str).encode("utf-8")) + 1  # + comma
+        if out and used + size > budget:
+            return out, True
+        out.append(it)
+        used += size
+    return out, False
+
+
 def handle_get(handler, parsed) -> bool:
     """Dispatch GET /api/feeds/* routes."""
     path = parsed.path
@@ -1884,7 +1910,22 @@ def handle_get(handler, parsed) -> bool:
                 return _err(handler, 400, "feed_ids must be comma-separated integers")
         if "q" in qs:
             kwargs["q"] = qs["q"][0][:200]
-        return j(handler, {"entries": list_entries(**kwargs)})
+        if "before" in qs:
+            try:
+                kwargs["before"] = float(qs["before"][0])
+            except ValueError:
+                return _err(handler, 400, "before must be epoch seconds")
+        entries = list_entries(**kwargs)
+        capped, truncated = _cap_by_bytes(entries)
+        resp: dict[str, Any] = {"entries": capped}
+        if truncated:
+            # Trimmed to fit the proxy cap — expose a cursor so the client can
+            # fetch the older remainder with ?before=<next_before>.
+            resp["truncated"] = True
+            last = capped[-1] if capped else None
+            if last is not None:
+                resp["next_before"] = last.get("published_at") or last.get("fetched_at")
+        return j(handler, resp)
     if path == "/api/feeds/summaries":
         from urllib.parse import parse_qs
         qs = parse_qs(parsed.query)
