@@ -41,7 +41,9 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as _ET
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from shim import STATE_DIR
@@ -1204,15 +1206,144 @@ def _safe_link(url: str) -> str:
     return u if lo.startswith("http://") or lo.startswith("https://") else ""
 
 
+# ── Stdlib feed parser ─────────────────────────────────────────────────────
+# The sidecar runs under `python3 -S` (no site-packages) per the token-v1
+# contract, so `import feedparser` fails at runtime. Parse RSS 2.0 / Atom /
+# RSS-1.0(RDF) with xml.etree instead — no third-party dependency, no vendoring.
+# We expose only the tiny feedparser-compatible surface fetch_feed() uses:
+# a result with .entries / .bozo / .get('bozo_exception'), each entry a dict
+# with link/title/summary/description/id/guid/published_parsed/updated_parsed.
+
+class _ParsedFeed(dict):
+    """feedparser-shaped result: attribute .entries/.bozo + dict .get()."""
+    @property
+    def entries(self) -> list:
+        return self.get("entries", [])
+
+    @property
+    def bozo(self) -> bool:
+        return bool(self.get("bozo", False))
+
+
+def _localname(tag: Any) -> str:
+    """ElementTree tags are '{namespace}local'; return the lowercased localname."""
+    if not isinstance(tag, str):
+        return ""
+    return tag.rsplit("}", 1)[-1].lower()
+
+
+def _child_text(el, *names: str) -> str:
+    """First direct child whose localname is in `names`, its stripped text."""
+    want = set(names)
+    for child in el:
+        if _localname(child.tag) in want:
+            return (child.text or "").strip()
+    return ""
+
+
+def _date_struct(datestr: str):
+    """Parse an RSS (RFC 822) or Atom (RFC 3339) date to a UTC time-tuple whose
+    [:6] is (Y, M, D, h, m, s) — the shape _parse_published() consumes. None on
+    failure so a bad date just drops the timestamp rather than the whole entry."""
+    if not datestr:
+        return None
+    datestr = datestr.strip()
+    try:  # RFC 822 (RSS pubDate)
+        dt = parsedate_to_datetime(datestr)
+        if dt is not None:
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc)
+            return dt.timetuple()
+    except (TypeError, ValueError, IndexError, OverflowError):
+        pass
+    try:  # RFC 3339 / ISO 8601 (Atom updated/published)
+        dt = datetime.fromisoformat(datestr.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc)
+        return dt.timetuple()
+    except (TypeError, ValueError):
+        return None
+
+
+def _rss_item(it) -> dict:
+    guid = _child_text(it, "guid")
+    desc = _child_text(it, "description")
+    return {
+        "title": _child_text(it, "title"),
+        "link": _child_text(it, "link"),
+        "description": desc,
+        # content:encoded (localname 'encoded') is richer than description when present
+        "summary": _child_text(it, "encoded") or desc,
+        "id": guid,
+        "guid": guid,
+        # RSS pubDate, or Dublin Core <dc:date> (localname 'date')
+        "published_parsed": _date_struct(_child_text(it, "pubdate", "date")),
+        "updated_parsed": None,
+    }
+
+
+def _atom_entry(en) -> dict:
+    link = ""
+    for child in en:
+        if _localname(child.tag) == "link":
+            href = (child.get("href") or "").strip()
+            if not href:
+                continue
+            rel = child.get("rel", "alternate")
+            if rel == "alternate":
+                link = href
+                break
+            if not link:
+                link = href  # fall back to first link if no rel=alternate
+    ident = _child_text(en, "id")
+    body = _child_text(en, "summary", "content")
+    return {
+        "title": _child_text(en, "title"),
+        "link": link,
+        "description": body,
+        "summary": body,
+        "id": ident,
+        "guid": ident,
+        "published_parsed": _date_struct(_child_text(en, "published", "issued")),
+        "updated_parsed": _date_struct(_child_text(en, "updated", "modified")),
+    }
+
+
+def _parse_feed_bytes(body: bytes) -> _ParsedFeed:
+    """Stdlib replacement for feedparser.parse() covering RSS 2.0 / Atom / RSS 1.0."""
+    result = _ParsedFeed(entries=[], bozo=False)
+    try:
+        root = _ET.fromstring(body)
+    except _ET.ParseError as exc:
+        result["bozo"] = True
+        result["bozo_exception"] = f"XML parse error: {exc}"
+        return result
+    except Exception as exc:  # pragma: no cover - defensive
+        result["bozo"] = True
+        result["bozo_exception"] = f"{type(exc).__name__}: {exc}"
+        return result
+
+    root_tag = _localname(root.tag)
+    entries: list[dict] = []
+    if root_tag == "rss":
+        channel = next((c for c in root if _localname(c.tag) == "channel"), None)
+        scope = channel if channel is not None else root
+        entries = [_rss_item(c) for c in scope if _localname(c.tag) == "item"]
+    elif root_tag == "feed":  # Atom
+        entries = [_atom_entry(c) for c in root if _localname(c.tag) == "entry"]
+    elif root_tag == "rdf":  # RSS 1.0 (items are siblings of <channel>)
+        entries = [_rss_item(c) for c in root if _localname(c.tag) == "item"]
+    else:
+        result["bozo"] = True
+        result["bozo_exception"] = f"unrecognized feed root <{root_tag}>"
+
+    result["entries"] = entries
+    return result
+
+
 def fetch_feed(feed_id: int) -> dict:
     """Fetch + parse + upsert one feed. Never raises. Returns a status dict.
     Used by both the single-feed refresh and the parallel refresh_all."""
-    try:
-        import feedparser  # type: ignore
-    except ImportError:
-        return {"status": "error", "feed_id": feed_id,
-                "error": "feedparser not installed"}
-
     conn = _open()
     try:
         row = conn.execute(
@@ -1227,7 +1358,8 @@ def fetch_feed(feed_id: int) -> dict:
 
     started = time.time()
 
-    # Fetch with our own urllib + timeout, then hand the bytes to feedparser.
+    # Fetch with our own urllib + timeout, then parse the bytes with our
+    # stdlib parser (_parse_feed_bytes).
     try:
         http_status, body = _http_get(url)
     except urllib.error.HTTPError as exc:
@@ -1253,7 +1385,7 @@ def fetch_feed(feed_id: int) -> dict:
                                      f"HTTP {http_status}", feed_name=name)
 
     try:
-        parsed = feedparser.parse(body)
+        parsed = _parse_feed_bytes(body)
     except Exception as exc:
         return _record_fetch_failure(feed_id, "parse_error",
                                      f"{type(exc).__name__}: {exc}",

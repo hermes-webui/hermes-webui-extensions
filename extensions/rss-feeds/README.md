@@ -99,7 +99,8 @@ Built on the canonical Hermes sidecar scaffold. `sidecar/sidecar.py` and
 `sidecar/sidecar_base.py` are vendored **byte-identical** from
 `examples/sidecar-scaffold/` (CI: `scripts/sync-sidecar-base.mjs --check`); this
 extension's own code is `sidecar/routes_impl.py` (a thin adapter over the reader
-logic) + `sidecar/feeds.py` (feed fetch/parse/summaries, stdlib + `feedparser`)
+logic) + `sidecar/feeds.py` (feed fetch/parse/summaries — RSS/Atom parsed with
+stdlib `xml.etree`, no third-party deps, so it runs cleanly under `python3 -S`)
 + `sidecar/shim.py` (state dir + JSON helper). `sidecar/sidecar.json` declares
 `{id, port, proxy_auth}`. Runs on `127.0.0.1:17797`; `GET /health` is the only
 tokenless route.
@@ -121,12 +122,11 @@ approve the sidecar in **Settings → Extensions**.
 | Port | `sidecar/sidecar.json` | `17797` |
 | State dir (feeds.db + token) | `HERMES_WEBUI_STATE_DIR` | `~/.hermes/webui` |
 
-Install `feedparser`, then the systemd user unit — it runs
-`/usr/bin/python3 -S -u sidecar.py` with no token in the unit (core provisions it
-in the state dir):
+Install the systemd user unit — it runs `/usr/bin/python3 -S -u sidecar.py` with
+no token in the unit (core provisions it in the state dir). No pip dependencies:
+the sidecar is stdlib-only.
 
 ```bash
-pip install feedparser
 cp sidecar/rss-feeds-sidecar.service ~/.config/systemd/user/
 systemctl --user enable --now rss-feeds-sidecar
 ```
