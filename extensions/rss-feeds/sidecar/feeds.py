@@ -1540,6 +1540,49 @@ def refresh_status() -> dict:
         return out
 
 
+# ── Summary-model connectivity test as a background job (POST starts, GET polls) ─
+# The "Test" button runs a 1-word prompt through the configured model, but the
+# model backends allow up to 240s (they're built for background summaries), so a
+# synchronous test could exceed the proxy's 10s timeout on a cold model. Start +
+# poll GET /api/feeds/summary-test-status instead.
+_sumtest_job_lock = _threading_af.Lock()
+_sumtest_job: dict[str, Any] = {"running": False, "result": None, "started_at": 0.0}
+
+
+def _sumtest_worker() -> None:
+    try:
+        content, model = _summarize_llm("Reply with exactly one word: OK.")
+        result = {"ok": True, "model": model, "sample": (content or "")[:80]}
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)[:300]}
+    with _sumtest_job_lock:
+        _sumtest_job["result"] = result
+        _sumtest_job["running"] = False
+
+
+def start_summary_test() -> dict:
+    """Start ONE background model test (idempotent while one runs)."""
+    with _sumtest_job_lock:
+        if _sumtest_job["running"]:
+            return {"running": True, "started_at": int(_sumtest_job["started_at"] or 0)}
+        _sumtest_job.update(running=True, result=None, started_at=time.time())
+        started = int(_sumtest_job["started_at"])
+    __import__("threading").Thread(
+        target=_sumtest_worker, name="feeds-summary-test", daemon=True).start()
+    return {"running": True, "started_at": started}
+
+
+def summary_test_status() -> dict:
+    """Poll payload for the model test; carries the result once finished."""
+    with _sumtest_job_lock:
+        if _sumtest_job["running"]:
+            return {"running": True}
+        out = {"running": False}
+        if _sumtest_job["result"] is not None:
+            out.update(_sumtest_job["result"])
+        return out
+
+
 def _refresh_all_locked(only_ids: list[int] | None = None, progress_cb=None) -> list[dict]:
     """Refresh feeds in parallel via a thread pool. Each fetch has a 10s
     socket timeout, so 42 feeds finish in ~10-30s instead of 3-5 minutes.
@@ -1807,6 +1850,8 @@ def handle_get(handler, parsed) -> bool:
         return j(handler, _summary_status())
     if path == "/api/feeds/refresh-status":
         return j(handler, refresh_status())
+    if path == "/api/feeds/summary-test-status":
+        return j(handler, summary_test_status())
     if path == "/api/feeds/entries":
         from urllib.parse import parse_qs
         qs = parse_qs(parsed.query)
@@ -1920,13 +1965,12 @@ def handle_post(handler, parsed, body: dict) -> bool:
                 pass
         return j(handler, {"updated": n})
     if path == "/api/feeds/summary-test":
-        # Quick connectivity/model check for the RSS-settings "Test" button. Uses
-        # the CURRENT persisted summary config (Save first, then Test).
-        try:
-            content, model = _summarize_llm("Reply with exactly one word: OK.")
-            return j(handler, {"ok": True, "model": model, "sample": (content or "")[:80]})
-        except Exception as exc:
-            return j(handler, {"ok": False, "error": str(exc)[:300]}, status=200)
+        # Connectivity/model check for the RSS-settings "Test" button. Uses the
+        # CURRENT persisted summary config (Save first, then Test). Runs as a
+        # background job (202) since the model call can exceed the 10s proxy
+        # limit on a cold model; the UI polls /api/feeds/summary-test-status.
+        snap = start_summary_test()
+        return j(handler, snap, status=202)
     if path == "/api/feeds/summarize":
         return _handle_summarize(handler, body)
     if path == "/api/feeds/settings":

@@ -1527,10 +1527,28 @@
         body: JSON.stringify({ summary_config: sc }), credentials: 'same-origin',
       });
       if (rs.ok) _settings = await rs.json();
-      const r = await fetch('/api/extensions/rss-feeds/sidecar/api/feeds/summary-test', {
+      // Start the test as a background job (202) then poll — the model call can
+      // exceed the proxy's 10s timeout on a cold model.
+      const tbase = '/api/extensions/rss-feeds/sidecar/api/feeds';
+      await fetch(tbase + '/summary-test', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin',
       });
-      const d = await r.json();
+      const d = await new Promise((resolve, reject) => {
+        let n = 0;
+        const tick = () => {
+          fetch(tbase + '/summary-test-status', { credentials: 'same-origin' })
+            .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+            .then(s => {
+              if (s.running) {
+                if (++n > 180) return reject(new Error('test timed out'));  // ~4.5min
+                setTimeout(tick, 1500); return;
+              }
+              resolve(s);
+            })
+            .catch(reject);
+        };
+        setTimeout(tick, 600);
+      });
       if (out) { out.textContent = d.ok ? ('✓ works — used ' + d.model) : ('✗ ' + (d.error || 'failed')); out.style.color = d.ok ? 'var(--success, #3fb950)' : 'var(--error, #ff7b7b)'; }
     } catch (e) {
       if (out) { out.textContent = '✗ ' + e.message; out.style.color = 'var(--error, #ff7b7b)'; }
