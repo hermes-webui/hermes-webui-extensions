@@ -1,0 +1,5 @@
+{
+  "id": "rss-feeds",
+  "port": 17797,
+  "proxy_auth": "token-v1"
+}

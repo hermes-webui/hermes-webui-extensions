@@ -1,0 +1,1629 @@
+/* RSS Feeds — overlay + launcher chrome (self-contained; uses host CSS vars
+   with safe fallbacks, scoped to #hxFeedsOverlay so it never collides with the
+   host UI). The .mc-feed-* content rules below this block come from the fork. */
+
+/* Titlebar launcher */
+.hx-feeds-launcher {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; margin: 0 4px; padding: 0;
+  background: transparent; color: var(--muted, #8a8f98);
+  border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+  transition: color .15s, background .15s, border-color .15s;
+  /* The titlebar is a native drag region; interactive children must opt out. */
+  -webkit-app-region: no-drag;
+}
+.hx-feeds-launcher:hover {
+  color: var(--text, #e6e6e6);
+  background: var(--hover-bg, rgba(255,255,255,.06));
+  border-color: var(--border, rgba(255,255,255,.12));
+}
+
+/* Overlay backdrop + card */
+.hx-feeds-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
+  padding: max(16px, env(safe-area-inset-top,0px)) 16px;
+}
+.hx-feeds-card {
+  display: flex; flex-direction: column;
+  width: min(1100px, 96vw); height: min(820px, 92vh);
+  background: var(--bg, var(--surface, #1a1b1e));
+  border: 1px solid var(--border, rgba(255,255,255,.12));
+  border-radius: 14px; overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  /* Under window-controls-overlay the card's top strip could otherwise become a
+     native titlebar drag surface — opt the whole card out of dragging. */
+  -webkit-app-region: no-drag;
+}
+.hx-feeds-topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; flex: 0 0 auto;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,.10));
+  background: var(--surface, var(--bg, #1f2023));
+}
+.hx-feeds-brand {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 14px; font-weight: 600; color: var(--text, #e6e6e6);
+}
+.hx-feeds-close {
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 20px; line-height: 1; background: transparent;
+  color: var(--muted, #8a8f98); border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+}
+.hx-feeds-close:hover { color: var(--text, #e6e6e6); background: var(--hover-bg, rgba(255,255,255,.06)); }
+
+/* Two-pane body */
+.hx-feeds-body { flex: 1 1 auto; display: flex; min-height: 0; }
+#hxFeedsOverlay .hx-feeds-sidebar {
+  flex: 0 0 288px; display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--border, rgba(255,255,255,.10));
+  background: var(--surface, var(--bg, #1c1d20));
+}
+#hxFeedsOverlay .hx-feeds-main {
+  flex: 1 1 auto; position: relative; display: flex; flex-direction: column; min-height: 0;
+  background: var(--bg, #191a1d);
+}
+
+/* Layout classes the panes use — scoped so we don't touch host styling */
+#hxFeedsOverlay .panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; flex: 0 0 auto; font-weight: 600; font-size: 13px;
+  color: var(--text, #e6e6e6); border-bottom: 1px solid var(--border, rgba(255,255,255,.08));
+}
+#hxFeedsOverlay .panel-head-actions { display: flex; gap: 4px; }
+#hxFeedsOverlay .panel-head-btn {
+  width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--muted, #8a8f98);
+  border: 1px solid transparent; border-radius: 7px; cursor: pointer; transition: all .15s;
+}
+/* Action icon lit when its view/state is active (globe=All feeds, book=Clicked,
+   sparkles=Summaries, search=box open, funnel=filters open). */
+#hxFeedsOverlay .panel-head-btn.is-active {
+  background: var(--accent-bg-strong, var(--accent-bg, rgba(127,127,127,.16)));
+  color: var(--accent-text, var(--accent, #b8860b));
+  border-color: var(--accent, transparent);
+}
+#hxFeedsOverlay .panel-head-btn:hover {
+  color: var(--text, #e6e6e6); background: var(--hover-bg, rgba(255,255,255,.06));
+  border-color: var(--border, rgba(255,255,255,.12));
+}
+#hxFeedsOverlay .panel-head-btn svg { width: 16px; height: 16px; }
+#hxFeedsOverlay .main-view-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; flex: 0 0 auto; border-bottom: 1px solid var(--border, rgba(255,255,255,.08));
+}
+#hxFeedsOverlay .main-view-title { font-size: 15px; font-weight: 600; color: var(--text, #e6e6e6); }
+#hxFeedsOverlay .main-view-actions { display: flex; gap: 4px; }
+#hxFeedsOverlay .main-view-body { flex: 1 1 auto; min-height: 0; }
+#hxFeedsOverlay .main-view-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; text-align: center;
+  color: var(--muted, #8a8f98); pointer-events: none; padding: 24px;
+}
+#hxFeedsOverlay .main-view-empty-icon { opacity: .5; margin-bottom: 6px; }
+#hxFeedsOverlay .main-view-empty-title { font-size: 15px; font-weight: 600; color: var(--text, #e6e6e6); }
+#hxFeedsOverlay .main-view-empty-sub { font-size: 13px; max-width: 320px; }
+#hxFeedsOverlay .has-tooltip { position: relative; }
+
+/* Mobile: stack the two panes (700px — matches the mobile-chrome breakpoint) */
+@media (max-width: 700px) {
+  .hx-feeds-card { width: 100vw; height: 100vh; border-radius: 0; }
+  .hx-feeds-body { flex-direction: column; }
+  #hxFeedsOverlay .hx-feeds-sidebar { flex: 0 0 auto; max-height: 42%; border-right: none;
+    border-bottom: none; background: transparent; }
+}
+/* Custom tooltip — replaces native title="" for faster, more polished display.
+     Native browser tooltips have a ~1.5s hover delay that reads as "no tooltip
+     exists" (#1775). Our custom tooltip appears at ~150ms hover, dismisses
+     instantly, and renders above all sidebar/panel stacking contexts. */
+  /* Usage: add data-tooltip="Label" and class="has-tooltip". For i18n, pair
+     with data-i18n-title; static/i18n.js will sync the localized value into
+     data-tooltip and clear any stale native title attribute. */
+  /* Design choice: no arrow/caret. At 11px text size and 5px arrow size the
+     triangle reads as visual noise rather than a connector — VS Code, Slack,
+     and Linear's rail tooltips also skip the arrow. Spatial proximity (8px
+     gap) is enough to associate the tooltip with the trigger. */
+  /* Tooltips — SCOPED to this extension's overlay only. (Previously these
+     were unscoped and restyled the CORE rail / nav tabs / agent chip, which
+     corrupted the app's Settings layout and rail; an extension must never
+     touch core chrome.) */
+  #hxFeedsOverlay .has-tooltip::after { content: attr(data-tooltip); position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%); background: var(--surface); border: 1px solid var(--accent-bg-strong); color: var(--text); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; padding: 5px 10px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 1500; box-shadow: 0 8px 24px rgba(0,0,0,.35); opacity: 0; transition: opacity .14s ease; }
+  #hxFeedsOverlay .has-tooltip:hover::after, #hxFeedsOverlay .has-tooltip:focus-visible::after { opacity: 1; transition-delay: .15s; }
+  #hxFeedsOverlay .has-tooltip--bottom::after { left: 50%; top: calc(100% + 8px); transform: translateX(-50%); }
+  #hxFeedsOverlay .has-tooltip--bottom-right::after { left: auto; right: 0; top: calc(100% + 8px); transform: none; }
+  #hxFeedsOverlay .has-tooltip--left::after { left: auto; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); }
+/* ── Feeds (RSS) ─────────────────────────────── */
+.mc-feed-sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  margin-bottom: 2px;
+}
+.mc-feed-sidebar-row:hover { background: var(--surface-subtle, var(--accent-bg)); }
+.mc-feed-sidebar-row.is-active {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+.mc-feed-sidebar-row.is-disabled { opacity: 0.5; }
+.mc-feed-sidebar-cat-head {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.mc-feed-sidebar-cat-head.is-active { color: var(--accent-text); }
+.mc-feed-sidebar-feed { padding-left: 18px; }
+.mc-feed-row-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mc-feed-count {
+  font-size: 10px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.mc-feed-spinning svg {
+  animation: mc-feed-spin 0.9s linear infinite;
+}
+/* Entry cards — Source + Category prominently visible */
+.mc-feed-entry {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  background: var(--surface-subtle, var(--accent-bg));
+  border: 1px solid var(--border, var(--surface-subtle));
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+.mc-feed-entry:hover { border-color: var(--accent-bg-strong); }
+.mc-feed-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  line-height: 1.5;
+}
+.mc-feed-badge-source {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border: 1px solid var(--accent-bg-strong);
+}
+.mc-feed-badge-cat {
+  border: 1px solid currentColor;
+  background: transparent;
+}
+/* Per-card head row: left holds source + matched-keyword chips,
+   right holds time + summarize icon. Splitting into two sub-flex
+   containers lets each side wrap independently without the right
+   column reflowing into the keyword chips on narrow widths. */
+.mc-feed-entry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.mc-feed-entry-head-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.mc-feed-entry-head-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.mc-feed-entry-source {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border: 1px solid var(--accent-bg-strong);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.mc-feed-entry-time {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+/* Icon button replacing the prior pill — same hit target via padding,
+   no text noise. Sparkle glyph signals "AI summarize" without label. */
+.mc-feed-entry-summarize-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+  background: transparent;
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  color: var(--muted);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s, transform 0.12s;
+}
+.mc-feed-entry-summarize-btn:hover {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-bg-strong);
+  transform: scale(1.08);
+}
+.mc-feed-entry-summarize-btn:active {
+  transform: scale(0.96);
+}
+/* ── per-card actions cluster (⋯ → Summarize / Share) ───── */
+.mc-feed-entry-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The Summarize/Share row stays collapsed until the ⋯ toggle opens it.
+   Collapsing via max-width + opacity keeps the layout from jumping. */
+.mc-feed-act-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: max-width 0.18s ease, opacity 0.16s ease;
+}
+.mc-feed-entry-actions.is-open .mc-feed-act-row {
+  max-width: 64px;
+  opacity: 1;
+  pointer-events: auto;
+}
+.mc-feed-entry-actions.is-open .mc-feed-act-toggle {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-bg-strong);
+}
+/* ── share fallback modal (no native Web Share API) ─────── */
+.mc-share-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mc-share-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.12s, border-color 0.12s;
+}
+.mc-share-target:hover {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-bg-strong);
+}
+.mc-share-ico { font-size: 16px; line-height: 1; }
+.mc-share-copy-row { display: flex; gap: 8px; align-items: center; }
+.mc-share-url {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--surface-subtle, rgba(127,127,127,0.08));
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  border-radius: 6px;
+}
+.mc-share-copy-btn { flex: 0 0 auto; white-space: nowrap; }
+/* ── 🧠 Summaries (free/local AI digests) ──────────────── */
+.mc-feed-count-live {
+  background: var(--accent-bg-strong);
+  color: var(--accent-text);
+  animation: mcSumPulse 1.4s ease-in-out infinite;
+}
+.mc-summary-list { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; }
+.mc-summary-item {
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface, transparent);
+}
+.mc-summary-item.is-running { opacity: 0.85; }
+.mc-summary-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+.mc-summary-item.is-running .mc-summary-item-head { cursor: default; }
+.mc-summary-item-head:hover { background: var(--accent-bg); }
+.mc-sum-ic { font-size: 13px; line-height: 1; flex: 0 0 auto; }
+.mc-sum-ok { color: var(--ok, #43c463); }
+.mc-sum-err { color: var(--danger, #e0556b); }
+.mc-sum-run { animation: mcSumPulse 1.4s ease-in-out infinite; }
+.mc-summary-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mc-summary-meta { flex: 0 0 auto; font-size: 11px; color: var(--muted); }
+.mc-summary-model {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  border-radius: 8px;
+  padding: 1px 6px;
+}
+.mc-summary-del {
+  flex: 0 0 auto;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--muted); font-size: 12px; opacity: 0.6;
+}
+.mc-summary-del:hover { opacity: 1; color: var(--danger, #e0556b); }
+.mc-summary-body {
+  padding: 4px 14px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  border-top: 1px solid var(--border, var(--accent-bg-strong));
+}
+.mc-summary-body ul { margin: 6px 0; padding-left: 20px; }
+.mc-summary-body li { margin: 2px 0; }
+.mc-summary-body p { margin: 6px 0; }
+.mc-summary-body h4 { margin: 10px 0 4px; font-size: 13px; }
+.mc-summary-loading { color: var(--muted); font-style: italic; }
+/* 'Source: AGENCY: TITLE' hyperlink(s) at the end of a summary */
+.mc-summary-source {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border, var(--accent-bg-strong));
+  font-size: 12px;
+  color: var(--muted);
+}
+.mc-summary-source a { color: var(--accent, #4F8FF0); text-decoration: none; font-weight: 600; }
+.mc-summary-source a:hover { text-decoration: underline; }
+.mc-summary-source-label { font-weight: 700; display: block; margin-bottom: 2px; }
+.mc-summary-source ul { margin: 2px 0 0; padding-left: 18px; }
+.mc-summary-source li { margin: 2px 0; }
+/* Rerun + Copy controls at the bottom-left of a summary body */
+.mc-summary-actbar {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.mc-summary-actbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.mc-summary-actbtn:hover { background: var(--accent-bg); color: var(--accent-text); border-color: var(--accent-bg-strong); }
+.mc-summary-actbtn:disabled { opacity: 0.6; cursor: default; }
+/* inline summary expander on an article card */
+.mc-entry-summary { margin-top: 8px; }
+/* Compact inline chip on the Clicked meta line (Summary · Agency · date) */
+.mc-entry-summary-compact { margin: 0; display: inline-flex; align-items: center; }
+.mc-entry-summary-compact .mc-entry-summary-toggle { padding: 1px 8px; font-size: 11px; }
+.mc-entry-summary-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mc-entry-summary-toggle:hover { background: var(--accent-bg); color: var(--accent-text); }
+.mc-entry-summary-caret { transition: transform 0.15s; display: inline-block; }
+.mc-entry-summary.is-open .mc-entry-summary-caret { transform: rotate(90deg); }
+.mc-entry-summary-body {
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  border-left: 2px solid var(--accent, var(--accent-bg-strong));
+  background: var(--surface-subtle, rgba(127,127,127,0.06));
+  border-radius: 0 6px 6px 0;
+}
+.mc-entry-summary-body ul { margin: 4px 0; padding-left: 18px; }
+.mc-entry-summary-body p { margin: 4px 0; }
+/* transient toast for summary status */
+.mc-summary-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%) translateY(16px);
+  background: var(--surface, #1c1c22);
+  color: var(--text, #fff);
+  border: 1px solid var(--accent, var(--accent-bg-strong));
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 9999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  max-width: 86vw;
+}
+.mc-summary-toast.is-show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.mc-summary-toast.is-error { border-color: var(--danger, #e0556b); }
+.mc-feed-entry-title {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text);
+  text-decoration: none;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+.mc-feed-entry-title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.mc-feed-entry-summary {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  /* Show up to 4 lines, then clip with ellipsis. Lets the card stay a
+     consistent height regardless of source verbosity — no per-card
+     char-truncation in JS. */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mc-feed-entry-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.mc-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: transparent;
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  color: var(--muted);
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.mc-btn-sm:hover {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-bg-strong);
+}
+.mc-btn-sm-primary {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-bg-strong);
+}
+.mc-feeds-empty, .mc-feeds-error {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mc-feeds-error { color: #d94343; }
+/* Sidebar status dot — one glance "did this feed fail?" */
+.mc-feed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--muted);
+}
+.mc-feed-all-row { font-weight: 700; }
+.mc-feeds-subtitle {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.mc-feeds-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* live auto-refresh countdown next to the "All feeds" title */
+.mc-feeds-timer {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+/* conic progress ring — fills clockwise as the refresh interval elapses.
+   --pct (0–100) is updated every second by feeds.js _tickFeedTimer(). */
+.mc-feeds-timer.has-ring::before,
+.mc-feed-timer.has-ring::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent, #5cdbd3) calc(var(--pct, 0) * 1%), var(--border, rgba(125,125,125,0.35)) 0);
+  -webkit-mask: radial-gradient(farthest-side, #0000 56%, #000 58%);
+          mask: radial-gradient(farthest-side, #0000 56%, #000 58%);
+}
+.mc-feeds-timer.is-due,
+.mc-feed-timer.is-due { color: var(--accent, #5cdbd3); }
+.mc-feeds-timer.is-due.has-ring::before,
+.mc-feed-timer.is-due.has-ring::before { animation: mc-ring-pulse 1s ease-in-out infinite; }
+/* ── Sidebar toolbar (filter toggle + keywords) ───────────────── */
+.mc-feed-sidebar-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 4px 10px;
+  border-bottom: 1px solid var(--border, var(--surface-subtle));
+  margin-bottom: 6px;
+}
+.mc-feed-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.mc-feed-tool-btn:hover {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  border-color: var(--accent-bg-strong);
+}
+.mc-feed-tool-btn.is-active {
+  background: var(--accent-bg-strong);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+.mc-feed-tool-btn-small { font-size: 11px; padding: 4px 10px; opacity: 0.9; }
+.mc-feed-filter-icon { font-size: 14px; line-height: 1; }
+/* Chips wrapper: COLLAPSED by default everywhere; the funnel button in the
+   Feeds header expands it in place (desktop column / mobile 2-col grid). */
+.mc-feed-tools { display: none; }
+.mc-feed-tools.is-open { display: flex; flex-direction: column; gap: 4px; }
+/* The topbar action cluster is universal now (desktop + mobile). The feed
+   dropdown is the only .mc-m-only element that stays phone-only. */
+.mc-m-only { display: inline-flex; }
+.mc-feed-nav.mc-m-only { display: none; }
+#hxFeedsOverlay .panel-head { display: none; }
+#hxFeedsOverlay .main-view-header { display: none; }
+/* Desktop sidebar: the current view's counts live at the top */
+.mc-feed-side-counts { font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px 6px 6px; }
+.mc-feed-side-counts:empty { display: none; }
+/* Desktop strip: [Expand][Collapse][Filtered] left · timer right, one row */
+.mc-feed-view-sticky { display: flex; align-items: center; gap: 10px; }
+.mc-feed-view-sticky .mc-feed-group-controls { margin: 0; padding: 0; border-bottom: none; }
+.mc-feed-view-sticky .mc-feed-meta-row { order: 2; margin: 0 0 0 auto; }
+.mc-feed-view-sticky .mc-feed-group-count { display: none; }  /* counts → sidebar */
+/* Mobile feed dropdown — replaces the long sidebar list on phones */
+.mc-feed-nav { position: relative; margin: 2px 0 4px; }
+.mc-feed-nav-select { width: 100%; appearance: none; -webkit-appearance: none; padding: 8px 30px 8px 12px; font-size: 13px; font-weight: 600; color: var(--text); background: var(--surface-subtle, var(--accent-bg)); border: 1px solid var(--border); border-radius: 10px; }
+.mc-feed-nav-caret { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: .55; font-size: 11px; }
+/* ── feeds search box (sidebar toolbar) ─────────────────── */
+/* Hidden until the 🔍 header button opens it (stays open while a query runs) */
+.mc-feed-search-wrap {
+  position: relative;
+  display: none;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 2px;
+}
+.mc-feed-search-wrap.is-open { display: flex; }
+#feedsSearchBtn.is-active, #feedsSearchBtnD.is-active { color: var(--accent-text, var(--text)); background: var(--accent-bg-strong, var(--hover-bg)); border-radius: 8px; }
+.mc-feed-search-icon {
+  position: absolute;
+  left: 9px;
+  font-size: 12px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.mc-feed-search-input {
+  width: 100%;
+  padding: 6px 26px 6px 28px;
+  background: var(--surface-subtle, rgba(127,127,127,0.08));
+  border: 1px solid var(--border, var(--accent-bg-strong));
+  color: var(--text);
+  font-size: 12px;
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mc-feed-search-input::placeholder { color: var(--text); opacity: 0.45; }
+.mc-feed-search-input:focus {
+  border-color: var(--accent);
+  background: var(--surface, var(--accent-bg));
+}
+/* hide the native search "x" so our own clear button is the only one */
+.mc-feed-search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.mc-feed-search-clear[hidden] { display: none; }
+.mc-feed-search-clear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  opacity: 0.55;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.mc-feed-search-clear:hover { opacity: 1; background: var(--accent-bg); }
+/* highlight for matched search terms inside title + summary.
+   A box (outline) around the term — NOT a filled background — so the
+   word itself stays fully legible in its normal colour. */
+mark.mc-feed-hl {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--accent, #ffd54a);
+  border-radius: 3px;
+  padding: 0 2px;
+  margin: 0 0.5px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* ── Per-feed edit/delete buttons (sidebar hover-reveal) ─────── */
+.mc-feed-sidebar-feed-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.mc-feed-sidebar-feed-wrap .mc-feed-sidebar-row { flex: 1 1 auto; min-width: 0; }
+.mc-feed-sidebar-feed-actions {
+  position: absolute;
+  right: 4px;
+  display: none;
+  gap: 2px;
+  background: var(--surface);
+  padding: 0 2px;
+  border-radius: 4px;
+}
+.mc-feed-sidebar-feed-wrap:hover .mc-feed-sidebar-feed-actions,
+.mc-feed-sidebar-feed-wrap:focus-within .mc-feed-sidebar-feed-actions {
+  display: flex;
+}
+.mc-feed-row-act {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.mc-feed-row-act:hover {
+  background: var(--accent-bg);
+  color: var(--accent-text);
+}
+.mc-feed-row-act-danger:hover {
+  background: rgba(217, 67, 67, 0.15);
+  color: #d94343;
+}
+/* ── Modal ────────────────────────────────────────────────────── */
+.mc-feed-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+}
+.mc-feed-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border, var(--surface-subtle));
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.mc-feed-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, var(--surface-subtle));
+  font-weight: 700;
+  font-size: 14px;
+}
+.mc-feed-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 22px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+.mc-feed-modal-close:hover { color: var(--text); }
+.mc-feed-modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mc-feed-modal-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 700;
+  margin-top: 4px;
+}
+.mc-feed-modal-label-inline {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.mc-feed-modal-input,
+.mc-feed-modal-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--input-bg, var(--surface-subtle));
+  color: var(--text);
+  border: 1px solid var(--border, var(--surface-subtle));
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.mc-feed-modal-input:focus,
+.mc-feed-modal-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+.mc-feed-modal-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 4px;
+  line-height: 1.5;
+}
+.mc-feed-modal-hint code {
+  background: var(--surface-subtle);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.mc-feed-modal-grid {
+  display: grid;
+  grid-template-columns: auto 1fr 80px;
+  gap: 10px;
+  align-items: center;
+  margin-top: 6px;
+}
+.mc-feed-modal-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+.mc-feed-modal-input-num { padding: 6px 8px; }
+.mc-feed-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, var(--surface-subtle));
+}
+.mc-feed-modal-err {
+  color: #d94343;
+  font-size: 12px;
+  padding: 8px 10px;
+  background: rgba(217, 67, 67, 0.1);
+  border: 1px solid rgba(217, 67, 67, 0.3);
+  border-radius: 6px;
+}
+/* ── read-tracking style for clicked entries ────────────── */
+/* Faded but still readable — the user wants to see what they've already
+   touched without it disappearing entirely. Title goes muted+normal-weight,
+   summary fades further, source label stays at low contrast. */
+.mc-feed-entry-read {
+  opacity: 0.65;
+}
+.mc-feed-entry-read .mc-feed-entry-title {
+  color: var(--muted);
+  font-weight: 500;
+}
+.mc-feed-entry-read .mc-feed-entry-title::before {
+  content: "✓ ";
+  color: var(--success);
+  font-weight: 700;
+  margin-right: 2px;
+}
+.mc-feed-entry-read .mc-feed-entry-summary {
+  opacity: 0.7;
+}
+.mc-feed-entry-read:hover {
+  opacity: 0.9;
+}
+/* ── mc-features: Add-feed "+ Add new category…" row ─────────── */
+.mc-feed-modal-cat-new-row {
+  margin-top: -8px;
+  margin-bottom: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--accent-bg-strong, rgba(120, 120, 120, 0.3));
+}
+/* ── mc-features: chip-based keyword editor ──────────────────── */
+.mc-kw-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px;
+  margin-bottom: 12px;
+  background: var(--code-bg, rgba(120, 120, 120, 0.08));
+  border: 1px solid var(--border, rgba(120, 120, 120, 0.2));
+  border-radius: 6px;
+}
+.mc-kw-empty {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  padding: 4px 2px;
+}
+.mc-kw-chip-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  background: var(--accent-bg-strong, rgba(80, 130, 200, 0.2));
+  color: var(--accent-text, var(--text));
+  border: 1px solid var(--accent, rgba(80, 130, 200, 0.5));
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.mc-kw-chip-text {
+  line-height: 1.4;
+}
+.mc-kw-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--accent-text, var(--text));
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+  opacity: 0.65;
+  transition: opacity 0.12s, background 0.12s;
+}
+.mc-kw-chip-x:hover {
+  opacity: 1;
+  background: rgba(217, 67, 67, 0.2);
+  color: #d94343;
+}
+.mc-kw-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.mc-kw-add-input {
+  flex: 1 1 auto;
+}
+.mc-kw-notice {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+/* ── Collapsible source groups in All / Category views ──────── */
+.mc-feed-group-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border, var(--surface-subtle));
+}
+.mc-feed-group-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Feeds meta row (row 2): countdown timer + source/entry count, under the title. */
+.mc-feed-meta-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -2px 0 12px; font-size: 11px; color: var(--muted); }
+.mc-feed-meta-row .mc-feed-group-count { margin-left: auto; }
+/* counter left, sources·entries right */
+.mc-feed-meta-row .mc-feeds-timer { margin-top: 0; }
+/* Expand/Collapse: full labels on desktop/iPad, short ("Expand"/"Collapse") on phones. */
+.mc-btn-short { display: none; }
+.mc-feeds-title-inner { display: inline-block; }
+@media (max-width: 640px) {
+  .mc-btn-full { display: none; }
+  .mc-btn-short { display: inline; }
+  /* RSS title ticker — SEAMLESS (price-screen style): glides in from the right, scrolls
+     across, off the left, then re-enters from the right. padding-left:100% parks it off the
+     right edge; the 0→-100% loop point is off-screen, so there's no pop/jump. */
+  .mc-feeds-title-text { overflow: hidden; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
+  .mc-feeds-title-inner { padding-left: 100%; animation: mc-feed-title-marquee 18s linear infinite; will-change: transform; }
+}
+/* Summarize popup — pick which feeds to summarize (anchored under the Summarize icon). */
+/* Both popups: flex column with a FIXED header + footer; only the list scrolls
+   (so Cancel/Save never float past while scrolling). Capped + tightened. */
+.mc-summarize-popup { position: fixed; z-index: 1000; min-width: 230px; max-width: min(320px, 92vw); max-height: 64vh; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.25); padding: 6px; }
+.mc-summarize-popup-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; padding: 4px 6px 7px; border-bottom: 1px solid var(--border); }
+/* mobile: feeds menus rise from the bottom (the action buttons live in the bottom titlebar). */
+.mc-summarize-popup.mc-popup-sheet { left: 50%; right: auto; transform: translateX(-50%); width: min(460px, calc(100vw - 16px)); max-width: none; min-width: 0; top: auto !important; bottom: calc(env(safe-area-inset-bottom, 0px) + 46px); max-height: 70vh; border-radius: 16px; padding: 8px; box-shadow: 0 -10px 32px rgba(0,0,0,.32); animation: mcPopupSheetUp .22s cubic-bezier(.22,1,.36,1); }
+.mc-summarize-popup.mc-popup-sheet .mc-summarize-popup-head { font-size: 13px; padding: 6px 8px 9px; }
+.mc-summarize-all { font-size: 11px; font-weight: 500; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; white-space: nowrap; }
+.mc-summarize-note { flex-shrink: 0; font-size: 10.5px; color: var(--accent-text, var(--accent)); padding: 6px; line-height: 1.4; }
+.mc-summarize-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding: 4px 0; }
+.mc-summarize-item { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+.mc-summarize-item:hover { background: var(--hover-bg); }
+/* Category-grouped, collapsed-by-default lists (gear + summarize popups) */
+.mc-cat-group { border-bottom: 1px solid var(--border); }
+.mc-cat-group:last-child { border-bottom: none; }
+.mc-cat-head { display: flex; align-items: center; gap: 8px; padding: 4px 6px; }
+.mc-cat-check { flex: 0 0 auto; cursor: pointer; }
+.mc-cat-toggle { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; background: none; border: none; color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; padding: 2px 0; }
+.mc-cat-caret { flex: 0 0 auto; color: var(--muted); font-size: 9px; width: 9px; }
+.mc-cat-emoji { flex: 0 0 auto; font-size: 13px; line-height: 1; }
+.mc-cat-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-cat-count { flex: 0 0 auto; color: var(--muted); font-size: 10px; font-weight: 500; }
+.mc-cat-agencies { padding: 1px 0 4px 24px; }
+.mc-cat-agency { font-weight: 400; }
+.mc-summarize-actions { flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 8px 2px 2px; margin-top: 2px; border-top: 1px solid var(--border); background: var(--surface); }
+/* RSS settings (gear) popup rows — fixed above the scrolling agency list. */
+.mc-fs-row { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 6px; font-size: 12px; }
+.mc-fs-row select, .mc-fs-row input { background: var(--input-bg, var(--code-bg)); color: var(--text); border: 1px solid var(--border2, var(--border)); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+.mc-fs-row input { width: 84px; text-align: right; }
+.mc-fs-row select { max-width: 150px; text-overflow: ellipsis; }
+.mc-fs-row label { color: var(--muted); flex: 0 0 auto; }
+/* Summary-model status line: which backend/model would run NOW. */
+.mc-fs-summ-status { flex-shrink: 0; padding: 0 6px 5px; font-size: 11px; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.mc-fs-summ-status b { color: var(--text); font-weight: 600; }
+.mc-fs-summ-status .bad { color: var(--error, #ff7b7b); }
+.mc-fs-summ-chain { opacity: .75; margin-top: 2px; }
+.mc-fs-summ-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; background: var(--muted); }
+.mc-fs-summ-dot.ok { background: var(--success, #3fb950); }
+.mc-fs-summ-dot.warn { background: var(--warning, #d29922); }
+.mc-fs-summ-dot.bad { background: var(--error, #ff7b7b); }
+.mc-fs-summ-test { flex-shrink: 0; padding: 0 6px 5px; font-size: 11px; }
+.mc-fs-summ-edit { flex-shrink: 0; display: block; padding: 0 6px 6px; font-size: 11px; color: var(--accent, #58a6ff); cursor: pointer; user-select: none; }
+.mc-fs-summ-edit:hover { text-decoration: underline; }
+/* Refresh-failures panel — persistent (stays until ✕) list of feeds that failed
+   to refresh, so the user can see + deal with them instead of a transient toast. */
+.mc-feed-failures { flex-shrink: 0; margin: 2px 0 14px; border: 1px solid var(--border); border-left: 3px solid #ef4444; border-radius: 8px; background: var(--surface); overflow: hidden; }
+.mc-feed-fail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.mc-feed-fail-title { font-size: 12px; font-weight: 600; color: #ef4444; }
+.mc-feed-fail-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 4px; }
+.mc-feed-fail-close:hover { background: var(--hover-bg); color: var(--text); }
+.mc-feed-fail-list { max-height: 220px; overflow-y: auto; }
+.mc-feed-fail-caret { display: inline-block; font-size: 10px; transition: transform .15s; transform: rotate(90deg); }
+.mc-feed-failures.is-collapsed .mc-feed-fail-caret { transform: rotate(0deg); }
+.mc-feed-failures.is-collapsed .mc-feed-fail-list { display: none; }
+.mc-feed-fail-head { cursor: pointer; }
+.mc-feed-fail-row { display: flex; align-items: baseline; gap: 10px; padding: 5px 10px; font-size: 12px; border-bottom: 1px solid var(--border); }
+.mc-feed-fail-row:last-child { border-bottom: none; }
+.mc-feed-fail-name { flex: 0 0 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.mc-feed-fail-reason { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Clicked-articles view: round agency logo (favicon → initials fallback), title → article,
+   agency chip → feed, and when it was clicked. */
+.mc-read-list { display: flex; flex-direction: column; }
+.mc-read-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border); }
+/* actions cluster (⋯ → ✦ Summarize / ⤴ Share) on a Clicked-history row */
+.mc-read-actions { flex: 0 0 auto; align-self: center; }
+/* Round agency logo — shared by the Clicked view and the main-feed group headers. */
+.mc-agency-logo { flex: 0 0 auto; position: relative; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; letter-spacing: .02em; }
+/* No opaque background: a transparent/blank favicon then shows the coloured
+   initials circle behind it instead of a blank disc that hid the initials. */
+.mc-agency-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.mc-agency-ini { line-height: 1; }
+.mc-read-logo { width: 22px; height: 22px; font-size: 9px; }
+.mc-read-side { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 0 0 auto; }
+.mc-feed-group-logo { width: 18px; height: 18px; font-size: 8px; align-self: center; }
+.mc-feed-sidebar-logo { width: 16px; height: 16px; font-size: 7px; align-self: center; }
+/* Header icon (agency logo / category emoji) — static left of the marquee title. */
+.mc-feeds-title-icon { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; }
+.mc-feeds-title-icon .mc-agency-logo { width: 20px; height: 20px; font-size: 8px; }
+.mc-feeds-title-emoji { font-size: 16px; line-height: 1; }
+/* Category emoji in the sidebar category rows. */
+.mc-feed-cat-icon { flex: 0 0 auto; font-size: 12px; line-height: 1; margin-right: 2px; }
+.mc-read-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mc-read-title { color: var(--text); text-decoration: none; font-size: var(--message-body-font-size, 13px); line-height: 1.4; }
+.mc-read-title:hover { color: var(--accent); text-decoration: underline; }
+.mc-read-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mc-read-agency { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 999px; padding: 1px 8px; font-size: 10px; cursor: pointer; white-space: nowrap; }
+.mc-read-agency:hover { border-color: var(--accent); color: var(--accent); }
+.mc-read-when { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* "Filtered" indicator — sits at the right of the Expand/Collapse row when the
+   keyword filter is on (replaces the old subtitle "(filtered)"). */
+.mc-feed-filtered-chip {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--accent-text, var(--accent));
+  background: var(--accent-bg, var(--surface));
+  border: 1px solid var(--accent-bg-strong, var(--border));
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.mc-feed-group {
+  margin-bottom: 16px;
+}
+.mc-feed-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface-subtle, var(--accent-bg));
+  border: 1px solid var(--border, var(--surface-subtle));
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+}
+.mc-feed-group-head:hover {
+  border-color: var(--accent-bg-strong);
+}
+.mc-feed-group-caret {
+  font-size: 11px;
+  color: var(--muted);
+  transition: transform 0.15s;
+  width: 10px;
+}
+.mc-feed-group.is-collapsed .mc-feed-group-caret {
+  transform: rotate(-90deg);
+}
+.mc-feed-group-count-inline {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+  padding: 1px 8px;
+  border-radius: 8px;
+}
+.mc-feed-group-body {
+  padding-left: 6px;
+}
+.mc-feed-group.is-collapsed .mc-feed-group-body {
+  display: none;
+}
+/* ── Matched-keyword chips (filter mode) — now live INSIDE the
+   .mc-feed-entry-head-left flex row, next to the source label. The
+   former wrapper .mc-feed-entry-kws is no longer emitted by the
+   renderer; chip styling stays so any other caller still works. */
+.mc-feed-kw-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background: var(--accent-bg-strong);
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
+  line-height: 1.5;
+  cursor: pointer;
+  font-family: inherit;
+  transition: filter 0.12s;
+}
+.mc-feed-kw-chip:hover { filter: brightness(1.15); }
+.mc-feed-kw-chip::before {
+  content: "⌕";
+  margin-right: 4px;
+  opacity: 0.7;
+  font-weight: 400;
+}
+/* ── auto-fetch picker + sidebar status line ────── */
+.mc-feed-tool-status {
+  font-size: 10.5px;
+  color: var(--muted);
+  padding: 4px 4px 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.mc-auto-fetch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+.mc-auto-fetch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, var(--surface-subtle));
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.mc-auto-fetch-row:hover {
+  background: var(--surface-subtle, var(--accent-bg));
+  border-color: var(--accent-bg-strong);
+}
+.mc-auto-fetch-row.is-selected {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.mc-auto-fetch-row input[type="radio"] {
+  margin: 0;
+  accent-color: var(--accent);
+}
+/* ── Feeds refresh progress bar (modern 0→100%) ──────────────────────────── */
+.mc-feed-progress { flex-shrink: 0; margin: 0 0 6px; }
+.mc-feed-progress-fade { opacity: 0; transition: opacity .5s; }
+.mc-feed-progress-err .mc-feed-progress-fill { background: #ef4444; }
+.mc-feed-progress-track {
+  height: 6px; border-radius: 999px; overflow: hidden;
+  background: var(--accent-bg, rgba(127,127,127,0.12));
+}
+.mc-feed-progress-fill {
+  height: 100%; width: 0%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--blue, #0288A8), var(--accent, #B8860B));
+  background-size: 200% 100%;
+  transition: width .35s cubic-bezier(.4, 0, .2, 1);
+  box-shadow: 0 0 10px var(--accent-bg-strong, rgba(127,127,127,0.30));
+  animation: mcFeedShimmer 1.4s linear infinite;
+}
+.mc-feed-progress-err .mc-feed-progress-fill { background: #ef4444; animation: none; box-shadow: 0 0 10px rgba(239,68,68,.45); }
+.mc-feed-progress-err .mc-feed-progress-fade { opacity: 0; transition: opacity .5s ease; }
+@media (prefers-reduced-motion: reduce) {
+  /* !important so this beats the later, higher-specificity --busy indeterminate
+     rule (.mc-feed-progress--busy .mc-feed-progress-fill) regardless of cascade
+     order — accessibility override, so !important is warranted. */
+  .mc-feed-progress-fill,
+  .mc-feed-progress--busy .mc-feed-progress-fill { animation: none !important; transition: width .2s linear; }
+  /* Silence every remaining infinite animation for reduced-motion users: the
+     title marquee, summarize pulse, the due-timer ring, and the spinner. */
+  .mc-feeds-title-inner { animation: none !important; padding-left: 0 !important; }
+  .mc-sum-run,
+  .mc-feed-count-live,
+  .mc-feeds-timer.is-due.has-ring::before,
+  .mc-feed-timer.is-due.has-ring::before,
+  .mc-feed-spinning svg { animation: none !important; }
+}
+/* RSS Feeds — overlay-model overrides (concatenated LAST so they win, and so
+   re-extracting feeds-content.css never clobbers them). */
+
+/* feeds.js appends popups to <body>; they must clear the overlay (z-index 9000).
+   The fork used z-index:1000 (it was a panel, not an overlay) → settings/summarize
+   popups rendered BEHIND our overlay and looked like they "didn't open". */
+.mc-summarize-popup,
+.mc-feed-settings-popup { z-index: 9999; }
+
+/* Scroll ↑/↓ buttons: they live in the INJECTED html (feeds-inject.js), so the
+   feeds.js-token CSS extraction never picked up .feeds-scroll-btn → they rendered
+   as an unstyled full-width bar. Restore the fork's floating circular buttons,
+   anchored to the (position:relative) main view. */
+#mainFeeds { position: relative; }
+.feeds-scroll-btn {
+  position: absolute; right: max(20px, env(safe-area-inset-right, 0px));
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 1px solid var(--border2, var(--border, rgba(128,128,128,.35)));
+  background: var(--code-bg, var(--surface, #1f2023)); color: var(--muted, #8a8f98);
+  font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25); z-index: 12;
+  transition: color .12s, border-color .12s, background .12s, transform .12s, opacity .12s;
+}
+.feeds-scroll-btn:hover { color: var(--text, #e6e6e6); border-color: var(--border, rgba(128,128,128,.5)); background: var(--hover-bg, rgba(255,255,255,.06)); transform: translateY(-1px); }
+.feeds-scroll-btn:active { transform: translateY(0); }
+.feeds-scroll-btn.is-disabled { opacity: .3; pointer-events: none; }
+.feeds-scroll-btn--top { top: 62px; }
+.feeds-scroll-btn--bottom { bottom: max(20px, env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 700px) {
+  .feeds-scroll-btn { width: 30px; height: 30px; font-size: 13px; right: max(12px, env(safe-area-inset-right, 0px)); }
+  .feeds-scroll-btn svg { width: 14px; height: 14px; }
+  .feeds-scroll-btn--top { top: 52px; }
+  .feeds-scroll-btn--bottom { bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* Indeterminate refresh bar: the WebUI sidecar-proxy BUFFERS responses, so the
+   SSE per-feed progress can't stream (it all arrives at the end, leaving the bar
+   stuck). We run the plain POST refresh instead and animate the bar so it reads
+   as "working" until done() fills it to 100%. */
+.mc-feed-progress--busy .mc-feed-progress-track { overflow: hidden; }
+.mc-feed-progress--busy .mc-feed-progress-fill {
+  width: 35% !important;
+  animation: hxFeedIndet 1.15s ease-in-out infinite;
+}
+@keyframes hxFeedIndet {
+  0%   { transform: translateX(-130%); }
+  100% { transform: translateX(330%); }
+}
+
+/* ── Mobile compaction (≤700px) ─────────────────────────────────────────────
+   Phones: the sidebar toolbar collapses from 4 stacked full-width pills into
+   a 2-column chip grid under the search box, the settings sheet tightens its
+   rows, and card/box gaps shrink so content — not chrome — fills the screen. */
+@media (max-width: 700px) {
+  /* Mobile chrome: Feeds bar (funnel/gear/add/refresh) → search → dropdown.
+     The chip toolbar is COLLAPSED behind the funnel; the long feeds list is
+     replaced by the dropdown. */
+  .mc-feed-nav.mc-m-only { display: block; }
+  .mc-feed-sidebar-list { display: none; }
+  .mc-feed-side-counts { display: none; }   /* counts live in the sticky strip */
+  /* Single top bar carries everything (Copy-mock): hide the duplicate
+     sidebar FEEDS head + the main-view header; the current view title
+     renders in the top bar next to the brand icon. */
+  #hxFeedsOverlay .panel-head { display: none; }
+  #hxFeedsOverlay .main-view-header { display: none; }
+  #hxFeedsBrandLabel { display: none; }
+  .hx-feeds-brand-title { display: none; }  /* the dropdown shows the view */
+  .hx-feeds-brand { min-width: 0; display: inline-flex; align-items: center; }
+  /* Icons were clipped under the phone's status bar / notch */
+  .hx-feeds-card { height: 100dvh; padding-top: max(6px, env(safe-area-inset-top, 0px)); }
+  /* Timer + counts stay pinned while scrolling; the Expand/Collapse/Filtered
+     controls move to a fixed bar at the BOTTOM of the screen (Feed2 mock). */
+  .mc-feed-view-sticky { position: sticky; top: -8px; z-index: 6; display: block;
+    margin: -8px -8px 2px; padding: 4px 8px 2px;
+    background: var(--surface, var(--bg, #1a1b1e));
+    border-bottom: 1px solid var(--border, rgba(255,255,255,.08)); }
+  .mc-feed-view-sticky .mc-feed-meta-row { order: 0; margin: 0 0 2px; }
+  .mc-feed-view-sticky .mc-feed-group-count { display: inline; }
+  .mc-feed-view-sticky .mc-feed-group-controls { position: fixed; left: 0; right: 0; bottom: 0;
+    z-index: 40; margin: 0; justify-content: center;
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface, var(--bg, #1a1b1e));
+    border-top: 1px solid var(--border, rgba(255,255,255,.10)); }
+  #feedsViewBody { padding-bottom: 56px !important; }
+  /* Tighter chrome: toolbar / dropdown / sidebar paddings */
+  .mc-feed-sidebar-toolbar { padding: 2px 2px 2px; margin-bottom: 0; }
+  .mc-feed-nav { margin: 2px 0 0; }
+  #feedsListSidebar { padding: 4px 6px 2px !important; }
+  #feedsViewBody { padding: 8px 8px 4px !important; }
+  .mc-feed-failures { margin: 2px 0 4px; }
+  .mc-feed-view-sticky .mc-feed-meta-row .mc-feeds-timer { display: inline-flex; }
+  .mc-feed-sidebar-toolbar { gap: 4px; padding: 4px 2px 4px; margin-bottom: 2px; border-bottom: none; }
+  .mc-feed-search-wrap { margin-bottom: 0; }
+  .mc-feed-search-input { padding: 6px 24px 6px 26px; font-size: 13px; border-radius: 10px; }
+  .mc-feed-tools { display: none; }
+  .mc-feed-tools.is-open { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; padding-top: 2px; }
+  .mc-feed-tools.is-open .mc-feed-tool-btn { width: auto; flex: 1 1 calc(50% - 2px); justify-content: center; text-align: center; padding: 5px 6px; font-size: 11px; gap: 4px; }
+  .mc-feed-filter-icon { font-size: 12px; }
+  .mc-feed-tool-status { flex: 1 1 100%; font-size: 10px; padding: 0 2px; text-align: center; }
+  #feedsToolsBtn.is-active { color: var(--accent-text, var(--text)); background: var(--accent-bg-strong, var(--hover-bg)); border-radius: 8px; }
+  #feedsListSidebar { padding: 6px !important; }
+  /* Entries: tighter cards and groups */
+  #feedsViewBody { padding: 8px !important; }
+  .mc-feed-entry { margin-bottom: 8px; padding: 9px 10px; }
+  .mc-feed-group { margin-bottom: 10px; }
+  .mc-feed-group-head { padding: 6px 8px; }
+  /* Settings / summarize sheet: compact rows, inputs, list */
+  .mc-summarize-popup.mc-popup-sheet { padding: 6px; max-height: 66vh; }
+  .mc-summarize-popup.mc-popup-sheet .mc-summarize-popup-head { font-size: 12px; padding: 4px 6px 6px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-row { padding: 3px 6px; font-size: 11.5px; gap: 8px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-row select,
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-row input { padding: 3px 6px; font-size: 12px; min-height: 26px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-summ-status { font-size: 10.5px; padding: 0 6px 3px; line-height: 1.4; }
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-summ-edit { font-size: 10.5px; padding: 0 6px 4px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-summ-test { font-size: 10.5px; padding: 0 6px 3px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-summarize-list { font-size: 12px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-cat-head { padding: 2px 4px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-summarize-item { padding: 3px 5px; font-size: 11.5px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-cat-agencies { padding: 0 0 3px 20px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-summarize-actions { padding: 6px 2px 2px; }
+}
+
+/* ── Topbar action cluster + brand title ─────────────────────── */
+.hx-feeds-topbar-actions { display: flex; align-items: center; gap: 2px; margin-left: auto; margin-right: 4px; }
+/* Desktop: current view title floats centered in the topbar (mock). */
+.hx-feeds-topbar { position: relative; }
+.hx-feeds-brand-title {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 600; color: var(--text, #e6e6e6);
+  background: var(--surface-subtle, rgba(255,255,255,.05));
+  border: 1px solid var(--border, rgba(255,255,255,.10));
+  padding: 3px 12px; border-radius: 8px;
+}
+.hx-feeds-brand-title:empty { display: none; }
+#hxFeedsOverlay .main-view-title { display: none; }
+#hxFeedsOverlay .main-view-actions { margin-left: auto; }
+.mc-feeds-timer-top { display: none; }
+#feedsToolsBtn.is-active { color: var(--accent-text, var(--text)); background: var(--accent-bg-strong, var(--hover-bg)); border-radius: 8px; }
+
+/* ── Pagination (Clicked + Summaries) ─────────────────────────── */
+.mc-page-size-wrap { margin-left: auto; font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.mc-page-size { background: var(--input-bg, var(--code-bg)); color: var(--text); border: 1px solid var(--border2, var(--border)); border-radius: 6px; padding: 2px 6px; font-size: 11px; }
+.mc-feed-meta-row { display: flex; align-items: center; gap: 8px; }
+.mc-pager { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px; padding: 10px 0 16px; }
+.mc-pager-num, .mc-pager-nav {
+  min-width: 30px; padding: 5px 9px; font-size: 12px; font-weight: 600; cursor: pointer;
+  background: var(--surface-subtle, var(--accent-bg)); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.mc-pager-num.is-active { background: var(--accent-bg-strong); color: var(--accent-text); border-color: var(--accent); }
+.mc-pager-nav:disabled { opacity: .4; cursor: default; }
+.mc-pager-gap { color: var(--muted); padding: 0 2px; }
+
+/* ── Clicked view: green read mark ────────────────────────────── */
+.mc-read-check {
+  flex: 0 0 auto; width: 16px; height: 16px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(63, 185, 80, .18); color: var(--success, #3fb950); font-size: 10px; font-weight: 800;
+  align-self: center;
+}
+
+/* ── Swipe-left → Delete button (Clicked rows + Summary items) ── */
+.mc-read-row, .mc-summary-item { touch-action: pan-y; will-change: transform; position: relative; }
+/* .mc-summary-item clips children (rounded corners) — lift it while swiping */
+.mc-summary-item.mc-swiping, .mc-summary-item.mc-swipe-open { overflow: visible; }
+.mc-swipe-del-btn {
+  position: absolute; top: 3px; bottom: 3px; right: -88px; width: 80px;
+  display: flex; align-items: center; justify-content: center;
+  background: #ef4444; color: #fff; font-size: 12px; font-weight: 700;
+  border: none; border-radius: 10px; cursor: pointer; opacity: 0;
+  transition: opacity .12s ease;
+}
+.mc-summary-del-link { margin-top: 8px; color: var(--error, #ff7b7b); }
+
+
+/* ── Filter pill (replaces the old "FILTERED" label) ───────────── */
+.mc-feed-filter-pill {
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+  padding: 3px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--border, rgba(127,127,127,.3));
+  font-family: inherit; transition: background .15s, color .15s, border-color .15s, opacity .15s;
+}
+.mc-feed-filter-pill.is-on {
+  background: var(--accent-bg-strong, var(--accent-bg)); color: var(--accent-text, var(--accent));
+  border-color: var(--accent);
+}
+.mc-feed-filter-pill.is-off {
+  background: transparent; color: var(--muted, #8a8f98); opacity: .7;
+}
+.mc-feed-filter-pill.is-off:hover { opacity: 1; border-color: var(--accent); color: var(--text); }
+
+/* ── Mobile: movable action icons → bottom-right thumb cluster ────
+   Only Close / Refresh / Add stay in the top bar; the rest ride a
+   rounded vertical stack at the bottom-right, within thumb reach. */
+@media (max-width: 700px) {
+  /* The action icons hide behind the burger; the menu floats above it. */
+  .hx-feeds-actions-move {
+    position: fixed; z-index: 46;
+    right: max(14px, env(safe-area-inset-right, 0px));
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));   /* above the FAB */
+    display: none; flex-direction: column; gap: 6px;
+    padding: 6px; border-radius: 999px;
+    background: var(--surface, var(--bg, #1a1b1e));
+    border: 1px solid var(--border, rgba(255,255,255,.14));
+    box-shadow: 0 6px 20px rgba(0,0,0,.28);
+    animation: mcMenuPop .16s ease;
+  }
+  .hx-feeds-card.is-menu-open .hx-feeds-actions-move { display: flex; }
+  .hx-feeds-actions-move .panel-head-btn { width: 38px; height: 38px; border-radius: 50%; }
+  /* Scroll jump buttons move to bottom-LEFT so they don't collide with the cluster */
+  .feeds-scroll-btn { left: max(10px, env(safe-area-inset-left, 0px)); right: auto; }
+}
+
+
+/* ── Settings sheet/popup: compact + self-consistent ─────────────
+   Same look desktop + mobile; the backend/model selects size to their text
+   (ellipsis past ~150px) instead of clipping to a fixed width. */
+.mc-summarize-popup .mc-summarize-popup-head { padding: 5px 8px 6px; }
+.mc-summarize-popup .mc-fs-summ-status,
+.mc-summarize-popup .mc-fs-summ-edit,
+.mc-summarize-popup .mc-fs-summ-test { padding-top: 0; padding-bottom: 3px; }
+@media (max-width: 700px) {
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-row { padding: 4px 6px; }
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-row select { max-width: 46vw; }
+  .mc-summarize-popup.mc-popup-sheet .mc-fs-row input { width: 72px; }
+}
+
+
+/* ── Feed dropdown relocated into the top bar (mobile) ──────────── */
+.hx-feeds-nav-slot { display: none; }
+@media (max-width: 700px) {
+  .hx-feeds-topbar-actions { margin-left: 6px; flex: 1 1 auto; min-width: 0; gap: 3px; }
+  .hx-feeds-nav-slot { display: block; flex: 1 1 auto; min-width: 0; margin-right: 2px; }
+  .hx-feeds-nav-slot .mc-feed-nav { margin: 0; }
+  .hx-feeds-nav-slot .mc-feed-nav-select { padding: 6px 24px 6px 10px; font-size: 12.5px; font-weight: 600; border-radius: 9px; }
+  .hx-feeds-nav-slot .mc-feed-nav-caret { right: 9px; }
+  /* the in-sidebar dropdown is gone on mobile now; sidebar shrinks to its
+     (mostly hidden) search + chips content */
+  #hxFeedsOverlay .hx-feeds-sidebar { max-height: 50%; }
+  /* Nothing open (search + chips collapsed, list/nav moved out) → zero height,
+     so there's no empty band under the top bar. */
+  #hxFeedsOverlay .hx-feeds-sidebar { padding: 0; }
+  .mc-feed-sidebar-toolbar { padding: 0; gap: 0; }
+  #feedsListSidebar { padding: 0 !important; }
+  .mc-feed-search-wrap.is-open { margin: 4px 6px; }
+  .mc-feed-tools.is-open { margin: 2px 6px 6px; }
+}
+
+
+/* ── Batch select mode (Clicked + Summaries, desktop) ──────────── */
+.mc-d-only { display: inline-flex; }
+@media (max-width: 700px) { .mc-d-only { display: none !important; } }
+.mc-sel-select-btn {
+  font-size: 11px; font-weight: 600; padding: 3px 12px; border-radius: 999px; cursor: pointer;
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  font-family: inherit; margin-left: 4px;
+}
+.mc-sel-select-btn:hover { border-color: var(--accent); color: var(--text); }
+.mc-sel-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 6px; padding: 6px 2px 2px; border-top: 1px dashed var(--border);
+}
+.mc-sel-count { font-size: 12px; color: var(--muted); }
+.mc-btn-sm-danger { color: #fff; background: #ef4444; border-color: #ef4444; }
+.mc-btn-sm-danger:hover { background: #dc2626; }
+.mc-btn-sm-danger:disabled { opacity: .5; cursor: default; }
+.mc-sel-cb { width: 16px; height: 16px; flex: 0 0 auto; cursor: pointer; accent-color: var(--accent, #6ea8fe); }
+.mc-summary-item.is-selected, .mc-read-row.is-selected { background: var(--accent-bg, rgba(110,168,254,.12)); }
+.mc-read-row.is-selectable { cursor: default; }
+
+/* Summary card: Delete pushed to the far right of the action bar */
+.mc-summary-actbtn-del { margin-left: auto; color: var(--error, #ff7b7b); }
+.mc-summary-actbtn-del:hover { border-color: var(--error, #ff7b7b); }
+
+/* Green summary (sparkles) status icon sizing */
+.mc-sum-ic.mc-sum-ok { display: inline-flex; align-items: center; }
+.mc-sum-ic.mc-sum-ok svg { display: block; }
+
+
+/* ── Burger menu button (mobile) ───────────────────────────────── */
+.hx-feeds-burger { display: none; }             /* desktop: cluster is inline, no burger */
+.hx-feeds-burger.is-active { color: var(--accent-text, var(--accent)); }
+@keyframes mcMenuPop { from { opacity: 0; transform: translateY(6px) scale(.96); } to { opacity: 1; transform: none; } }
+@media (max-width: 700px) {
+  /* Bar burger: sits in the Expand/Collapse/Filter bar on grouped pages */
+  .hx-feeds-burger-bar {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: 4px; width: 34px; height: 26px; border-radius: 7px;
+    background: transparent; color: var(--text); border: 1px solid var(--border); cursor: pointer;
+  }
+  .hx-feeds-burger-bar.is-active { background: var(--accent-bg-strong, var(--hover-bg)); color: var(--accent-text, var(--text)); }
+  /* Floating burger FAB: only on pages WITHOUT the controls bar (Summaries/Clicked) */
+  .hx-feeds-burger-fab {
+    position: fixed; z-index: 45;
+    right: max(18px, env(safe-area-inset-right, 0px));
+    bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+    width: 40px; height: 32px; border-radius: 9px;
+    display: none; align-items: center; justify-content: center;
+    background: var(--surface, var(--bg, #1a1b1e)); color: var(--text);
+    border: 1px solid var(--border, rgba(255,255,255,.14));
+    box-shadow: 0 6px 18px rgba(0,0,0,.28); cursor: pointer;
+  }
+  .hx-feeds-card:not(.has-controls-bar) .hx-feeds-burger-fab { display: inline-flex; }
+  .hx-feeds-burger-fab.is-active { color: var(--accent-text, var(--accent)); border-color: var(--accent); }
+  .hx-feeds-burger-fab svg { width: 18px; height: 18px; }
+  /* menu aligns under the (now left-nudged) FAB */
+  .hx-feeds-card:not(.has-controls-bar) .hx-feeds-actions-move { right: max(18px, env(safe-area-inset-right, 0px)); }
+  /* When the bar burger exists, the FAB stays hidden (has-controls-bar rule above) */
+}
+
+
+@media (max-width: 700px) {
+  .hx-feeds-card.has-controls-bar .hx-feeds-actions-move { bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+}
+
+
+/* ── RSS settings popup: compact (was oversized) ───────────────── */
+.mc-feed-settings-popup .mc-summarize-popup-head { font-size: 11.5px; padding: 4px 6px 5px; }
+.mc-feed-settings-popup .mc-fs-row { padding: 3px 6px; font-size: 11.5px; }
+.mc-feed-settings-popup .mc-fs-row label { font-size: 11.5px; }
+.mc-feed-settings-popup .mc-fs-row select,
+.mc-feed-settings-popup .mc-fs-row input { padding: 3px 7px; font-size: 11.5px; }
+.mc-feed-settings-popup .mc-fs-row input { width: 68px; }
+.mc-feed-settings-popup .mc-fs-summ-status,
+.mc-feed-settings-popup .mc-fs-summ-edit,
+.mc-feed-settings-popup .mc-fs-summ-test { font-size: 10.5px; }
+.mc-feed-settings-popup .mc-summarize-item,
+.mc-feed-settings-popup .mc-cat-head { padding: 2px 6px; font-size: 11.5px; }
+.mc-feed-settings-popup .mc-cat-emoji, .mc-feed-settings-popup .mc-cat-icon { font-size: 12px; }
+.mc-feed-settings-popup .mc-summarize-all { font-size: 11px; }
+.mc-feed-settings-popup .mc-btn-sm { padding: 4px 12px; font-size: 12px; }
+.mc-feed-settings-popup .mc-summarize-actions { padding: 6px 2px 2px; }
+/* Narrow the mobile sheet to the content width */
+@media (max-width: 700px) {
+  .mc-summarize-popup.mc-popup-sheet.mc-feed-settings-popup { width: min(400px, calc(100vw - 16px)); }
+}
