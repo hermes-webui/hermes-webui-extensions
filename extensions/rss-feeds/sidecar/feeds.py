@@ -1457,18 +1457,42 @@ def refresh_all(only_ids: list[int] | None = None, progress_cb=None) -> list[dic
 # timeout — a synchronous POST always 502s at the proxy even though the sidecar
 # finishes fine. So POST kicks off a background run and returns 202 immediately;
 # the UI polls GET /api/feeds/refresh-status until {running:false} for results.
+from collections import OrderedDict as _OrderedDict
+
+# Background jobs carry an id and retain their terminal record in a bounded, TTL-
+# capped buffer, so a slow poller always reads ITS OWN job's outcome — never a later
+# job's. Without this, job B finishing before A's client polls would overwrite A's
+# result and the UI would render B's status against A's poll (PR #64 review).
+_JOB_RESULTS_MAX = 32
+_JOB_RESULTS_TTL = 600.0        # seconds; comfortably longer than any poll's lifetime
+
+
+def _prune_job_results(store: "_OrderedDict[int, dict]") -> None:
+    """Evict expired, then oldest, keeping the map bounded. Caller holds the lock."""
+    now = time.time()
+    while store:
+        oldest = next(iter(store))
+        if len(store) > _JOB_RESULTS_MAX or now - store[oldest].get("_ts", now) > _JOB_RESULTS_TTL:
+            store.popitem(last=False)
+        else:
+            break
+
+
 _refresh_job_lock = _threading_af.Lock()
 _refresh_job: dict[str, Any] = {
     "running": False, "done": 0, "total": 0, "results": [],
-    "started_at": 0.0, "finished_at": 0.0, "error": "",
+    "started_at": 0.0, "finished_at": 0.0, "error": "", "id": 0,
 }
+_refresh_seq = 0
+_refresh_results: "_OrderedDict[int, dict]" = _OrderedDict()
 
 
-def _refresh_worker(only_ids: list[int] | None) -> None:
+def _refresh_worker(only_ids: list[int] | None, jid: int) -> None:
     def _progress(done: int, total: int) -> None:
         with _refresh_job_lock:
-            _refresh_job["done"] = done
-            _refresh_job["total"] = total
+            if _refresh_job["id"] == jid:   # only the live job updates the shared progress
+                _refresh_job["done"] = done
+                _refresh_job["total"] = total
     results: list[dict] = []
     err = ""
     try:
@@ -1480,28 +1504,58 @@ def _refresh_worker(only_ids: list[int] | None) -> None:
         _refresh_job["error"] = err
         _refresh_job["running"] = False
         _refresh_job["finished_at"] = time.time()
+        _refresh_results[jid] = {
+            "id": jid, "results": results, "error": err,
+            "done": _refresh_job["done"], "total": _refresh_job["total"],
+            "started_at": _refresh_job["started_at"],
+            "finished_at": _refresh_job["finished_at"], "_ts": time.time(),
+        }
+        _refresh_results.move_to_end(jid)
+        _prune_job_results(_refresh_results)
 
 
 def start_refresh(only_ids: list[int] | None = None) -> dict:
     """Reserve + start ONE background refresh job (idempotent while one runs).
-    Returns a status snapshot. Refresh itself is single-flight (refresh_all holds
-    _refresh_lock), so at most one refresh executes regardless of callers."""
+    Returns a status snapshot INCLUDING its `id`. Refresh itself is single-flight
+    (refresh_all holds _refresh_lock), so at most one refresh executes regardless of
+    callers; a caller arriving mid-run gets the live job's id to poll."""
+    global _refresh_seq
     with _refresh_job_lock:
         if _refresh_job["running"]:
             return dict(_refresh_job)
+        _refresh_seq += 1
+        jid = _refresh_seq
         _refresh_job.update(running=True, done=0, total=0, results=[],
-                            started_at=time.time(), finished_at=0.0, error="")
+                            started_at=time.time(), finished_at=0.0, error="", id=jid)
         snap = dict(_refresh_job)
     t = __import__("threading").Thread(
-        target=_refresh_worker, args=(only_ids,), name="feeds-refresh", daemon=True)
+        target=_refresh_worker, args=(only_ids, jid), name="feeds-refresh", daemon=True)
     t.start()
     return snap
 
 
-def refresh_status() -> dict:
-    """Poll payload for the refresh job. Results are only included once the run
-    has finished (running:false), so a poll stays small mid-refresh."""
+def refresh_status(job_id: int | None = None) -> dict:
+    """Poll payload for the refresh job.
+
+    With ``job_id`` (the UI path): return THAT job's own state — progress while it is
+    the live job, its retained terminal record once done, or ``{unknown:true}`` if the
+    id never ran / aged out. It never returns a later job's result. Without ``job_id``:
+    legacy single-slot snapshot (back-compat)."""
     with _refresh_job_lock:
+        if job_id is not None:
+            if _refresh_job["running"] and _refresh_job["id"] == job_id:
+                return {"running": True, "id": job_id,
+                        "done": int(_refresh_job["done"]), "total": int(_refresh_job["total"]),
+                        "started_at": int(_refresh_job["started_at"] or 0)}
+            rec = _refresh_results.get(job_id)
+            if rec is not None:
+                out = {"running": False, "id": job_id, "done": int(rec["done"]),
+                       "total": int(rec["total"]), "started_at": int(rec["started_at"] or 0),
+                       "results": list(rec["results"])}
+                if rec["error"]:
+                    out["error"] = rec["error"]
+                return out
+            return {"running": False, "id": job_id, "unknown": True}
         out: dict[str, Any] = {
             "running": bool(_refresh_job["running"]),
             "done": int(_refresh_job["done"]),
@@ -1521,10 +1575,12 @@ def refresh_status() -> dict:
 # synchronous test could exceed the proxy's 10s timeout on a cold model. Start +
 # poll GET /api/feeds/summary-test-status instead.
 _sumtest_job_lock = _threading_af.Lock()
-_sumtest_job: dict[str, Any] = {"running": False, "result": None, "started_at": 0.0}
+_sumtest_job: dict[str, Any] = {"running": False, "result": None, "started_at": 0.0, "id": 0}
+_sumtest_seq = 0
+_sumtest_results: "_OrderedDict[int, dict]" = _OrderedDict()
 
 
-def _sumtest_worker() -> None:
+def _sumtest_worker(jid: int) -> None:
     try:
         content, model = _summarize_llm("Reply with exactly one word: OK.")
         result = {"ok": True, "model": model, "sample": (content or "")[:80]}
@@ -1533,23 +1589,43 @@ def _sumtest_worker() -> None:
     with _sumtest_job_lock:
         _sumtest_job["result"] = result
         _sumtest_job["running"] = False
+        rec = dict(result)
+        rec["_ts"] = time.time()
+        _sumtest_results[jid] = rec
+        _sumtest_results.move_to_end(jid)
+        _prune_job_results(_sumtest_results)
 
 
 def start_summary_test() -> dict:
-    """Start ONE background model test (idempotent while one runs)."""
+    """Start ONE background model test (idempotent while one runs). Returns its id."""
+    global _sumtest_seq
     with _sumtest_job_lock:
         if _sumtest_job["running"]:
-            return {"running": True, "started_at": int(_sumtest_job["started_at"] or 0)}
-        _sumtest_job.update(running=True, result=None, started_at=time.time())
+            return {"running": True, "id": _sumtest_job["id"],
+                    "started_at": int(_sumtest_job["started_at"] or 0)}
+        _sumtest_seq += 1
+        jid = _sumtest_seq
+        _sumtest_job.update(running=True, result=None, started_at=time.time(), id=jid)
         started = int(_sumtest_job["started_at"])
     __import__("threading").Thread(
-        target=_sumtest_worker, name="feeds-summary-test", daemon=True).start()
-    return {"running": True, "started_at": started}
+        target=_sumtest_worker, args=(jid,), name="feeds-summary-test", daemon=True).start()
+    return {"running": True, "id": jid, "started_at": started}
 
 
-def summary_test_status() -> dict:
-    """Poll payload for the model test; carries the result once finished."""
+def summary_test_status(job_id: int | None = None) -> dict:
+    """Poll payload for the model test; carries THAT test's own result once finished.
+    With ``job_id`` a concurrent test can't display another test's result; ``{unknown:
+    true}`` if the id never ran / aged out. Without ``job_id``: legacy snapshot."""
     with _sumtest_job_lock:
+        if job_id is not None:
+            if _sumtest_job["running"] and _sumtest_job["id"] == job_id:
+                return {"running": True, "id": job_id}
+            rec = _sumtest_results.get(job_id)
+            if rec is not None:
+                out = {"running": False, "id": job_id}
+                out.update({k: v for k, v in rec.items() if k != "_ts"})
+                return out
+            return {"running": False, "id": job_id, "unknown": True}
         if _sumtest_job["running"]:
             return {"running": True}
         out = {"running": False}
@@ -1895,9 +1971,19 @@ def handle_get(handler, parsed) -> bool:
     if path == "/api/feeds/summary-status":
         return j(handler, _summary_status())
     if path == "/api/feeds/refresh-status":
-        return j(handler, refresh_status())
+        from urllib.parse import parse_qs
+        try:
+            rjid = int(parse_qs(parsed.query).get("id", [""])[0])
+        except (TypeError, ValueError):
+            rjid = None
+        return j(handler, refresh_status(rjid))
     if path == "/api/feeds/summary-test-status":
-        return j(handler, summary_test_status())
+        from urllib.parse import parse_qs
+        try:
+            sjid = int(parse_qs(parsed.query).get("id", [""])[0])
+        except (TypeError, ValueError):
+            sjid = None
+        return j(handler, summary_test_status(sjid))
     if path == "/api/feeds/add-status":
         from urllib.parse import parse_qs
         try:
@@ -2005,8 +2091,8 @@ def handle_post(handler, parsed, body: dict) -> bool:
         # GET /api/feeds/refresh-status for progress + results.
         ids = body.get("feed_ids")
         snap = start_refresh(ids if isinstance(ids, list) else None)
-        return j(handler, {"running": True, "started_at": int(snap.get("started_at", 0))},
-                 status=202)
+        return j(handler, {"running": True, "id": snap.get("id"),
+                           "started_at": int(snap.get("started_at", 0))}, status=202)
     if path == "/api/feeds/read":
         # Server-side read state (cross-device). {id, read?} or {ids:[...], read?}.
         read = body.get("read", True)

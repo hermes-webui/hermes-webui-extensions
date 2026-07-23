@@ -1548,15 +1548,19 @@
       // Start the test as a background job (202) then poll — the model call can
       // exceed the proxy's 10s timeout on a cold model.
       const tbase = '/api/extensions/rss-feeds/sidecar/api/feeds';
-      await fetch(tbase + '/summary-test', {
+      const tstart = await fetch(tbase + '/summary-test', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin',
-      });
+      }).then(r => r.ok ? r.json() : {});
+      const testId = tstart && typeof tstart.id === 'number' ? tstart.id : undefined;
+      const tq = (typeof testId === 'number') ? ('?id=' + encodeURIComponent(testId)) : '';
       const d = await new Promise((resolve, reject) => {
         let n = 0;
         const tick = () => {
-          fetch(tbase + '/summary-test-status', { credentials: 'same-origin' })
+          // Poll our own test by id — a concurrent test can't surface its result as ours.
+          fetch(tbase + '/summary-test-status' + tq, { credentials: 'same-origin' })
             .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
             .then(s => {
+              if (s.unknown) return reject(new Error('test result unavailable'));
               if (s.running) {
                 if (++n > 180) return reject(new Error('test timed out'));  // ~4.5min
                 setTimeout(tick, 1500); return;
@@ -2102,15 +2106,19 @@
         finish(true, `${oks.length}/${results.length} feeds · ${totalNew} new` + (fails.length ? ` · ${fails.length} failed` : ''), fails);
       };
       let _polls = 0;
-      const poll = () => {
-        fetch(base + '/refresh-status', { credentials: 'same-origin' })
+      // Poll ONLY our own job by id, so a refresh started elsewhere can't have its
+      // status rendered as ours (and a stale record can't fake success).
+      const poll = (jobId) => {
+        const q = (typeof jobId === 'number') ? ('?id=' + encodeURIComponent(jobId)) : '';
+        fetch(base + '/refresh-status' + q, { credentials: 'same-origin' })
           .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
           .then(d => {
+            if (d.unknown) { finish(false, 'Refresh status unavailable'); return; }
             if (typeof d.total === 'number' && d.total > 0) _feedProgress.setProgress(d.done || 0, d.total);
             if (d.running) {
               // Safety valve: ~5 min of polling (200 × 1.5s) then give up cleanly.
               if (++_polls > 200) { finish(false, 'Refresh timed out'); return; }
-              setTimeout(poll, 1500);
+              setTimeout(() => poll(jobId), 1500);
               return;
             }
             if (d.error) { finish(false, 'Refresh failed: ' + d.error); return; }
@@ -2120,7 +2128,7 @@
       };
       fetch(base + '/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' })
         .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-        .then(() => setTimeout(poll, 800))
+        .then(d => { const jid = d && typeof d.id === 'number' ? d.id : undefined; setTimeout(() => poll(jid), 800); })
         .catch(e => finish(false, 'Refresh failed: ' + e.message));
     });
   }

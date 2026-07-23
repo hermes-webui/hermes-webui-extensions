@@ -68,11 +68,11 @@ The sidecar reads/writes only:
 - **`$HERMES_FEEDS_STATE_DIR/feeds.db`** (default `~/.hermes/webui/feeds.db`) —
   its SQLite store (feeds, entries, summaries, settings) and the on-disk favicon
   cache alongside it.
-- **`~/.hermes/.env`** — read-only, and *only* to look up `OPENROUTER_API_KEY` /
-  `GEMINI_API_KEY` / `GOOGLE_API_KEY` when a Summarize action needs one and it
-  isn't already in the sidecar's own environment. No other keys are read and the
-  file is never written.
 - **`sidecar/feeds_seed.txt`** (bundled) — read-only starter subscription list.
+
+Summarize credentials (`OPENROUTER_API_KEY` / `GEMINI_API_KEY` / `GOOGLE_API_KEY`)
+are read **only from the sidecar's own process environment** — the sidecar does not
+read `~/.hermes/.env` or any other credential file.
 
 ## Capabilities
 
