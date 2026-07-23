@@ -38,7 +38,10 @@
     "local_app_label": "RSS Feeds sidecar",
     "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17797, then approve the sidecar proxy in Settings \u2192 Extensions."
   },
-  "screenshots": [],
+  "screenshots": [
+    "screenshots/reader-light.png",
+    "screenshots/reader-dark.png"
+  ],
   "permissions": {
     "webui_api": {
       "read": [
