@@ -563,24 +563,28 @@ window.mcDockerMenu = function(btn, ev) {
 
 // Container action / group action / single update all run as serialized
 // background jobs now (they can exceed the ~10s proxy timeout). After the POST
-// returns 202 {id}, poll op-status until THIS job (matched by id) finishes,
-// tolerating transient errors, and return its result. Throws on busy/timeout.
+// returns 202 {id}, poll op-status FOR THAT EXACT id until our own job finishes,
+// tolerating transient errors, and return its result. We wait only on our own
+// terminal record — we never infer success from a later op's id (a concurrent op
+// could otherwise mask our failure). Throws on busy/timeout/expired.
 async function _mcPollDockerOp(startResp, r) {
   if (r.status === 409 || (startResp && startResp.error === 'busy')) {
     throw new Error('another Docker operation is already running');
   }
   if (!r.ok && r.status !== 202) throw new Error((startResp && startResp.error) || ('HTTP ' + r.status));
   const myId = startResp && startResp.id;
+  if (typeof myId !== 'number') throw new Error('no operation id returned');
+  const url = BASE + '/api/system/docker/op-status?id=' + encodeURIComponent(myId);
   for (let i = 0; i < 480; i++) {            // ~16min at 2s (single update ≤900s)
     await new Promise(res => setTimeout(res, 2000));
     let s = null;
     try {
-      const pr = await fetch(BASE + '/api/system/docker/op-status', { credentials: 'same-origin' });
+      const pr = await fetch(url, { credentials: 'same-origin' });
       if (pr.ok) s = await pr.json();
     } catch (_) { continue; }                // tolerate a transient proxy error
     if (!s) continue;
+    if (s.unknown) throw new Error('operation result unavailable');  // aged out — honest, no false success
     if (s.id === myId && !s.running) return s.result || { ok: true };
-    if (typeof s.id === 'number' && s.id > myId) return { ok: true };  // ours finished; another started
   }
   throw new Error('operation timed out');
 }

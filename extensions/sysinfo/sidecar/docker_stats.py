@@ -722,6 +722,30 @@ _op_state: dict[str, Any] = {
 }
 _op_seq = 0
 
+# Terminal results are retained per operation id in a bounded, TTL-capped buffer so
+# a slow poller always reads ITS OWN op's outcome — never a later op's. Without this,
+# op B finishing before A's client polls would overwrite A's record and the UI would
+# report A as succeeded even when A failed (PR #67 review). Oldest/expired evicted.
+from collections import OrderedDict as _OrderedDict
+_OP_RESULTS_MAX = 64
+_OP_RESULTS_TTL = 900          # ≥ the longest single op (update ≤900s) + polling slack
+_op_results: "_OrderedDict[int, dict[str, Any]]" = _OrderedDict()
+
+
+def _record_op_result_locked(rec: dict[str, Any]) -> None:
+    """Store a finished op's terminal record; evict expired then cap size.
+    Caller MUST hold _bulk_lock."""
+    _op_results[rec["id"]] = rec
+    _op_results.move_to_end(rec["id"])
+    now = int(_time.time())
+    while _op_results:
+        oldest_id = next(iter(_op_results))
+        if (len(_op_results) > _OP_RESULTS_MAX
+                or now - _op_results[oldest_id]["finished_at"] > _OP_RESULTS_TTL):
+            _op_results.popitem(last=False)
+        else:
+            break
+
 
 def _mutation_busy_locked() -> bool:
     """True if any host mutation (single/group/update op OR bulk) is active.
@@ -752,6 +776,12 @@ def _start_op(kind: str, runner, target: str = "", action: str = "") -> dict[str
             _op_state["result"] = res
             _op_state["running"] = False
             _op_state["finished_at"] = int(_time.time())
+            _record_op_result_locked({
+                "id": _op_state["id"], "kind": _op_state["kind"],
+                "target": _op_state["target"], "action": _op_state["action"],
+                "started_at": _op_state["started_at"],
+                "finished_at": _op_state["finished_at"], "result": res,
+            })
         _stats_cache["ts"] = 0.0  # reflect the new container state on the next poll
 
     _threading_du.Thread(target=_run, name=f"docker-op-{kind}", daemon=True).start()
@@ -773,10 +803,27 @@ def docker_update_job(container_id: str) -> dict[str, Any]:
                      target=str(container_id or "")[:64], action="update")
 
 
-def docker_op_status() -> dict[str, Any]:
-    """Poll payload for the single/group/update job. Result is included once the
-    job finishes (running:false)."""
+def docker_op_status(op_id: "int | None" = None) -> dict[str, Any]:
+    """Poll payload for a single/group/update job.
+
+    With ``op_id`` (the UI path): return THAT operation's own record — running while
+    it is the live job, else its retained terminal result, else ``{unknown:true}`` if
+    the id never ran or has aged out of the bounded buffer. It never returns a
+    neighbor's result, so a slow poll can't read a later op's success as its own.
+    Without ``op_id``: legacy single-slot snapshot (back-compat)."""
     with _bulk_lock:
+        if op_id is not None:
+            if _op_state["running"] and _op_state["id"] == op_id:
+                return {"running": True, "id": op_id, "kind": _op_state["kind"],
+                        "target": _op_state["target"], "action": _op_state["action"],
+                        "started_at": _op_state["started_at"]}
+            rec = _op_results.get(op_id)
+            if rec is not None:
+                return {"running": False, "id": op_id, "kind": rec["kind"],
+                        "target": rec["target"], "action": rec["action"],
+                        "started_at": rec["started_at"], "finished_at": rec["finished_at"],
+                        "result": rec["result"]}
+            return {"running": False, "id": op_id, "unknown": True}
         out: dict[str, Any] = {
             "running": bool(_op_state["running"]),
             "kind": _op_state["kind"],
