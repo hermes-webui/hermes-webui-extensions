@@ -1,0 +1,5 @@
+{
+  "id": "sysinfo",
+  "port": 17796,
+  "proxy_auth": "token-v1"
+}
