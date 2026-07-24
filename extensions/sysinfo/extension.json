@@ -30,7 +30,6 @@
   "screenshots": [
     "screenshots/insights-light.png",
     "screenshots/insights-dark.png",
-    "screenshots/insights-mobile.png",
     "screenshots/docker-update.png"
   ],
   "permissions": {
