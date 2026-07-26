@@ -651,9 +651,10 @@ def _updatable_targets(project: str | None = None) -> list[dict[str, Any]]:
 
 _bulk_lock = _threading_du.Lock()
 _bulk_state: dict[str, Any] = {
-    "running": False, "scope": "", "project": "", "total": 0, "done": 0,
+    "running": False, "id": 0, "scope": "", "project": "", "total": 0, "done": 0,
     "current": "", "results": [], "started_at": 0, "finished_at": 0,
 }
+_bulk_seq = 0
 
 
 def _bulk_worker(scope: str, project: str | None) -> None:
@@ -678,6 +679,9 @@ def _bulk_worker(scope: str, project: str | None) -> None:
             })
     with _bulk_lock:
         _bulk_state.update(running=False, current="", finished_at=int(_time.time()))
+        # Retain this bulk's terminal record by id so a slow poller reads ITS OWN
+        # outcome, never a later bulk's (the PR #67 bulk-path ownership finding).
+        _record_bulk_result_locked(dict(_bulk_state))
 
 
 def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]:
@@ -689,24 +693,42 @@ def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]
         return {"ok": False, "error": "invalid_scope"}
     if scope == "stack" and not project:
         return {"ok": False, "error": "missing_project"}
+    global _bulk_seq
     with _bulk_lock:
         if _bulk_state.get("running") or _op_state.get("running"):
             # Serialize with single/group/update ops too — no overlapping compose ops.
             return {"ok": False, "error": "already_running", "state": dict(_bulk_state)}
+        _bulk_seq += 1
+        bid = _bulk_seq
         _bulk_state["running"] = True   # reserve under the lock so a concurrent call can't double-start
+        _bulk_state["id"] = bid
     n = len(_updatable_targets(project if scope == "stack" else None))
     if n == 0:
         with _bulk_lock:
             _bulk_state["running"] = False
-        return {"ok": True, "started": False, "total": 0, "note": "nothing to update"}
+        return {"ok": True, "started": False, "total": 0, "id": bid, "note": "nothing to update"}
     t = _threading_du.Thread(target=_bulk_worker, args=(scope, project),
                              name="docker-bulk-update", daemon=True)
     t.start()
-    return {"ok": True, "started": True, "total": n}
+    return {"ok": True, "started": True, "total": n, "id": bid}
 
 
-def docker_update_bulk_status() -> dict[str, Any]:
+def docker_update_bulk_status(bulk_id: "int | None" = None) -> dict[str, Any]:
+    """Poll payload for a bulk update.
+
+    With ``bulk_id`` (the UI path): return THAT bulk's own state — live while it is
+    the running bulk, else its retained terminal record, else ``{unknown:true}`` if
+    the id never ran or has aged out. It never returns a later bulk's state, so a
+    slow poll can't read bulk B's outcome as bulk A's (PR #67 bulk-path finding).
+    Without ``bulk_id``: legacy single-slot snapshot (back-compat)."""
     with _bulk_lock:
+        if bulk_id is not None:
+            if _bulk_state["running"] and _bulk_state["id"] == bulk_id:
+                return dict(_bulk_state)
+            rec = _bulk_results.get(bulk_id)
+            if rec is not None:
+                return dict(rec)
+            return {"running": False, "id": bulk_id, "unknown": True}
         return dict(_bulk_state)
 
 
@@ -743,6 +765,26 @@ def _record_op_result_locked(rec: dict[str, Any]) -> None:
         if (len(_op_results) > _OP_RESULTS_MAX
                 or now - _op_results[oldest_id]["finished_at"] > _OP_RESULTS_TTL):
             _op_results.popitem(last=False)
+        else:
+            break
+
+
+# Bulk terminal records, same bounded/TTL contract as _op_results but a separate
+# id space (a bulk id and an op id can coincide; each buffer is queried by its own).
+_bulk_results: "_OrderedDict[int, dict[str, Any]]" = _OrderedDict()
+
+
+def _record_bulk_result_locked(rec: dict[str, Any]) -> None:
+    """Store a finished bulk's terminal record; evict expired then cap size.
+    Caller MUST hold _bulk_lock."""
+    _bulk_results[rec["id"]] = rec
+    _bulk_results.move_to_end(rec["id"])
+    now = int(_time.time())
+    while _bulk_results:
+        oldest_id = next(iter(_bulk_results))
+        if (len(_bulk_results) > _OP_RESULTS_MAX
+                or now - _bulk_results[oldest_id]["finished_at"] > _OP_RESULTS_TTL):
+            _bulk_results.popitem(last=False)
         else:
             break
 

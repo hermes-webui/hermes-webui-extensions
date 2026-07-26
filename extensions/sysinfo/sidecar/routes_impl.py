@@ -90,7 +90,13 @@ def register(app) -> None:
 
     @app.route("GET", "/api/system/docker/update-bulk")
     def docker_bulk_status(req):
-        return app.json(docker_stats.docker_update_bulk_status())
+        # id-scoped: return only THIS bulk's own state (never a later bulk's result).
+        raw = req.query_one("id")
+        try:
+            bulk_id = int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            bulk_id = None
+        return app.json(docker_stats.docker_update_bulk_status(bulk_id))
 
     @app.route("POST", "/api/system/docker/update-bulk")
     def docker_bulk_start(req):

@@ -60,7 +60,54 @@ def test_unknown_op_id_is_honest():
     assert s["running"] is False and s.get("unknown") is True, s
 
 
+def test_bulk_poll_returns_own_result_after_next_bulk_starts():
+    # Same ownership guarantee for the BULK path (PR #67 review): bulk A's poll must
+    # return A's own outcome even after bulk B starts — never B's running/success.
+    # No docker needed: fake the target list + per-container update.
+    ds = docker_stats
+    orig_targets, orig_update = ds._updatable_targets, ds.docker_update
+    try:
+        ds._updatable_targets = lambda project=None: [{"id": "c1", "name": "ct", "compose_project": "p"}]
+        # Bulk A: its one target's update FAILS.
+        ds.docker_update = lambda cid: {"ok": False, "error": "boom"}
+        a = ds.docker_update_bulk("all")
+        assert a.get("ok") and a.get("id"), a
+        a_id = a["id"]
+        assert _wait_until(lambda: not ds.docker_update_bulk_status(a_id)["running"]), "bulk A never finished"
+        a_done = ds.docker_update_bulk_status(a_id)
+        assert a_done["running"] is False and a_done["id"] == a_id, a_done
+        assert any(not r["ok"] for r in a_done["results"]), a_done   # A recorded a failed item
+
+        # Bulk B starts and stays running (its update blocks on an event) — the moment
+        # that used to clobber A's global state and make A's poll read B's as its own.
+        release = threading.Event()
+        ds.docker_update = lambda cid: (release.wait(5), {"ok": True})[1]
+        b = ds.docker_update_bulk("all")
+        assert b.get("ok") and b.get("id"), b
+        b_id = b["id"]
+        assert b_id != a_id
+        assert _wait_until(lambda: ds.docker_update_bulk_status(b_id)["running"]), "bulk B never started"
+
+        # THE REGRESSION: A's poll must still return A's OWN failure, not B's running/success.
+        a2 = ds.docker_update_bulk_status(a_id)
+        assert a2["running"] is False and a2["id"] == a_id, a2
+        assert any(not r["ok"] for r in a2["results"]), a2
+
+        release.set()
+        assert _wait_until(lambda: not ds.docker_update_bulk_status(b_id)["running"]), "bulk B never finished"
+        assert all(r["ok"] for r in ds.docker_update_bulk_status(b_id)["results"])
+    finally:
+        ds._updatable_targets, ds.docker_update = orig_targets, orig_update
+
+
+def test_unknown_bulk_id_is_honest():
+    s = docker_stats.docker_update_bulk_status(987654)
+    assert s["running"] is False and s.get("unknown") is True, s
+
+
 if __name__ == "__main__":
     test_op_poll_returns_own_failure_after_next_op_starts()
     test_unknown_op_id_is_honest()
-    print("ok — sysinfo op-ownership regression passed")
+    test_bulk_poll_returns_own_result_after_next_bulk_starts()
+    test_unknown_bulk_id_is_honest()
+    print("ok — sysinfo op + bulk ownership regression passed")

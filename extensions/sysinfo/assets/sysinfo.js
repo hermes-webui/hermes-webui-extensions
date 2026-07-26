@@ -683,7 +683,10 @@ window.mcDockerGroupAction = async function(idx, action, btnEl) {
 // reflect the header "N updates" pill from the current _mcDockerUpdates map.
 // Bulk image updates (dependency-first). The backend runs pull+recreate on a
 // daemon thread; we POST to start, then poll status → progress toasts → re-check.
-async function _mcBulkUpdatePoll(label){
+async function _mcBulkUpdatePoll(label, bulkId){
+  // id-scoped poll: request only THIS bulk's state so a slow poll can't read a
+  // later bulk's outcome as ours (matches docker_stats bulk ownership contract).
+  const _q = (bulkId != null) ? ('?id=' + encodeURIComponent(bulkId)) : '';
   // Progress is shown by the inline done/total header (via _mcBulkUpdating +
   // _mcRefreshDockerBusy), NOT the singleton toast — replacing the app toast
   // every 3s for minutes would suppress unrelated notifications. Toast only on
@@ -693,7 +696,7 @@ async function _mcBulkUpdatePoll(label){
   const deadline = Date.now() + 16 * 60 * 1000;   // ~16min ceiling
   for(;;){
     let s;
-    try { s = await api('/api/system/docker/update-bulk'); fails = 0; }
+    try { s = await api('/api/system/docker/update-bulk' + _q); fails = 0; }
     catch(_) {
       if (++fails > 20 || Date.now() > deadline) {
         showToast(`${label} — lost track of the update (it may still be running)`, undefined, 'error');
@@ -703,6 +706,10 @@ async function _mcBulkUpdatePoll(label){
       continue;
     }
     if (s) {
+      if (s.unknown) {   // our bulk aged out of the retained buffer (or never ran) —
+        showToast(`${label} — lost track of the update (it may still be running)`, undefined, 'error');
+        break;           // stop honestly; never adopt a different bulk's state as ours
+      }
       window._mcBulkUpdating = s.running ? s : null;
       _mcRefreshDockerBusy();
       if (!s.running) {
@@ -731,9 +738,9 @@ window.mcDockerUpdateStack = async function(idx, btn){
     if (r && r.error) { showToast('Update failed: ' + r.error, undefined, 'error'); return; }
     if (r && r.started === false) { showToast('Nothing to update in this stack', undefined, 'info'); return; }
     showToast(`Updating ${project} — ${r.total} image${r.total===1?'':'s'}…`, undefined, 'info');
-    window._mcBulkUpdating = { running: true, scope: 'stack', project, done: 0, total: r.total || 0 };
+    window._mcBulkUpdating = { running: true, id: r.id, scope: 'stack', project, done: 0, total: r.total || 0 };
     _mcRefreshDockerBusy();
-    _mcBulkUpdatePoll(project);
+    _mcBulkUpdatePoll(project, r.id);
   } catch(e) { showToast('Update failed: ' + ((e && e.message)||'error'), undefined, 'error'); }
   finally { if (btn) btn.disabled = false; }
 };
@@ -745,9 +752,9 @@ window.mcDockerUpdateAll = async function(){
     if (r && r.error) { showToast('Update failed: ' + r.error, undefined, 'error'); return; }
     if (r && r.started === false) { showToast('Nothing to update', undefined, 'info'); return; }
     showToast(`Updating all — ${r.total} image${r.total===1?'':'s'}, dependency-first…`, undefined, 'info');
-    window._mcBulkUpdating = { running: true, scope: 'all', project: '', done: 0, total: r.total || 0 };
+    window._mcBulkUpdating = { running: true, id: r.id, scope: 'all', project: '', done: 0, total: r.total || 0 };
     _mcRefreshDockerBusy();
-    _mcBulkUpdatePoll('Update all');
+    _mcBulkUpdatePoll('Update all', r.id);
   } catch(e) { showToast('Update failed: ' + ((e && e.message)||'error'), undefined, 'error'); }
 };
 function _mcDockerSyncUpdatePill() {
