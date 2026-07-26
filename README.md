@@ -98,6 +98,7 @@ Run the current repo-wide checks locally with:
 ```bash
 node scripts/validate-extensions.mjs
 node scripts/test-extension-validator.mjs
+node scripts/test-message-pins-sync.mjs
 node scripts/test-sidecar-contract.mjs
 python3 scripts/test-sidecar-scaffold.py
 node scripts/scan-extension-safety.mjs

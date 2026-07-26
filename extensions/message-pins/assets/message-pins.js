@@ -25,6 +25,8 @@
   let popover = null;
   let toastTimer = null;
   let lastSessionId = null;
+  let pendingRows = new Set();
+  let pendingSessionCheck = false;
 
   // ── small DOM helpers ────────────────────────────────────────────────────
   function $(id) { return document.getElementById(id); }
@@ -147,7 +149,7 @@
       savePins(pins);
       toast('Message pinned');
     }
-    redecorate();
+    redecorate(row ? [row] : null);
     refreshHeader();
     if (popover) renderPopover();
   }
@@ -183,12 +185,9 @@
   function makePinButton(idx, pinned) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'msg-action-btn hwx-pin-btn' + (pinned ? ' hwx-pin-btn--active' : '');
-    btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
-    btn.title = pinned ? 'Unpin message' : 'Pin message';
-    btn.setAttribute('aria-label', pinned ? 'Unpin message' : 'Pin message');
-    btn.innerHTML = pinButtonSvg(pinned);
+    btn.className = 'msg-action-btn hwx-pin-btn';
     btn.dataset[BTN_FLAG] = '1';
+    setPinButtonState(btn, pinned);
     btn.addEventListener('click', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -197,12 +196,29 @@
     return btn;
   }
 
+  function setPinButtonState(btn, pinned) {
+    const state = pinned ? '1' : '0';
+    // Replacing the SVG creates a child-list mutation. Skip every DOM write when
+    // the button already represents this state, otherwise our observer schedules
+    // an endless no-op redraw on an idle transcript.
+    if (btn.dataset.hwxPinState === state) return;
+    btn.dataset.hwxPinState = state;
+    btn.classList.toggle('hwx-pin-btn--active', pinned);
+    btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+    btn.title = pinned ? 'Unpin message' : 'Pin message';
+    btn.setAttribute('aria-label', pinned ? 'Unpin message' : 'Pin message');
+    btn.innerHTML = pinButtonSvg(pinned);
+  }
+
   function decorateRow(row, pins) {
     const idx = rowIdx(row);
     if (idx == null) return;
     const pinned = isPinned(idx, pins);
-    row.dataset[PIN_FLAG] = pinned ? '1' : '0';
-    row.classList.toggle('hwx-pinned-row', pinned);
+    const state = pinned ? '1' : '0';
+    if (row.dataset[PIN_FLAG] !== state) {
+      row.dataset[PIN_FLAG] = state;
+      row.classList.toggle('hwx-pinned-row', pinned);
+    }
 
     let btn = row.querySelector(':scope .hwx-pin-btn');
     if (!btn) {
@@ -220,11 +236,7 @@
       }
     } else {
       // Update existing button state in place.
-      btn.classList.toggle('hwx-pin-btn--active', pinned);
-      btn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
-      btn.title = pinned ? 'Unpin message' : 'Pin message';
-      btn.setAttribute('aria-label', pinned ? 'Unpin message' : 'Pin message');
-      btn.innerHTML = pinButtonSvg(pinned);
+      setPinButtonState(btn, pinned);
     }
   }
 
@@ -242,18 +254,20 @@
                        row.querySelector(':scope .msg-foot .msg-actions') ||
                        row.querySelector(':scope .msg-actions');
     if (!hasContent) return false;
-    // must be visibly laid out (skips display:none anchors + collapsed nodes)
-    const rect = row.getBoundingClientRect();
-    if (rect.height <= 1) return false;
+    // Core marks hidden segments structurally. Do not read geometry here: this
+    // runs for every newly rendered row and would force layout in long sessions.
+    if (row.hidden || row.getAttribute('aria-hidden') === 'true') return false;
     return true;
   }
 
-  function redecorate() {
+  function redecorate(rows) {
     const container = $('messages');
     if (!container) return;
     const pins = loadPins();
     const seen = new Set();
-    container.querySelectorAll('[data-msg-idx]').forEach((row) => {
+    const candidates = rows || container.querySelectorAll('[data-msg-idx]');
+    candidates.forEach((row) => {
+      if (!container.contains(row)) return;
       if (!isRealMessageRow(row)) return;       // skip hidden anchor/worklog segments
       const idx = rowIdx(row);
       if (idx == null || seen.has(idx)) return; // decorate first real node per idx
@@ -441,23 +455,52 @@
   // buttons and decorations are lost. A MutationObserver re-applies them after
   // each rebuild. We also detect a session switch (the data-session-id flips)
   // and refresh the header badge for the new session's pin set.
-  function onMutations() {
+  function onMutations(rows, checkSession) {
     const sid = currentSessionId();
-    if (sid !== lastSessionId) {
+    if (checkSession && sid !== lastSessionId) {
       lastSessionId = sid;
       closePopover();
     }
-    redecorate();
-    refreshHeader();
+    if (rows.size) redecorate(rows);
+    if (rows.size || checkSession) refreshHeader();
   }
 
   let rafScheduled = false;
-  function scheduleSync() {
+  function addCandidateRow(node, rows) {
+    if (!node) return;
+    const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+    if (!el || !el.closest || el.closest('.hwx-pin-btn')) return;
+    const ownRow = el.closest('[data-msg-idx]');
+    if (ownRow) rows.add(ownRow);
+    if (el.matches && el.matches('[data-msg-idx]')) rows.add(el);
+    if (el.querySelectorAll) {
+      el.querySelectorAll('[data-msg-idx]').forEach((row) => rows.add(row));
+    }
+  }
+
+  function scheduleSync(records) {
+    const rows = new Set();
+    records.forEach((record) => {
+      // Mutations inside our own button are caused by the static icon update;
+      // feeding them back into the observer was the idle CPU loop in #59.
+      const target = record.target && (record.target.nodeType === Node.ELEMENT_NODE
+        ? record.target : record.target.parentElement);
+      if (target && target.closest && target.closest('.hwx-pin-btn')) return;
+      record.addedNodes.forEach((node) => addCandidateRow(node, rows));
+    });
+    const sessionChanged = currentSessionId() !== lastSessionId;
+    if (!rows.size && !sessionChanged) return;
+    rows.forEach((row) => pendingRows.add(row));
+    pendingSessionCheck = pendingSessionCheck || sessionChanged;
     if (rafScheduled) return;
     rafScheduled = true;
     requestAnimationFrame(() => {
       rafScheduled = false;
-      try { onMutations(); } catch (_) {}
+      const rowsToSync = pendingRows;
+      const checkSession = pendingSessionCheck;
+      pendingRows = new Set();
+      pendingSessionCheck = false;
+      try { onMutations(rowsToSync, checkSession); } catch (_) {}
     });
   }
 
