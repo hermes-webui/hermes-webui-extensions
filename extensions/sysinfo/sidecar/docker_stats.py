@@ -660,9 +660,9 @@ _bulk_seq = 0
 def _bulk_worker(scope: str, project: str | None) -> None:
     targets = _updatable_targets(project if scope == "stack" else None)
     with _bulk_lock:
-        _bulk_state.update(running=True, scope=scope, project=(project or ""),
-                           total=len(targets), done=0, current="", results=[],
-                           started_at=int(_time.time()), finished_at=0)
+        # The full job state was initialized atomically at id-mint in
+        # docker_update_bulk(); here we only fill in the enumerated target count.
+        _bulk_state["total"] = len(targets)
     for c in targets:
         with _bulk_lock:
             _bulk_state["current"] = c.get("name") or ""
@@ -700,12 +700,19 @@ def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]
             return {"ok": False, "error": "already_running", "state": dict(_bulk_state)}
         _bulk_seq += 1
         bid = _bulk_seq
-        _bulk_state["running"] = True   # reserve under the lock so a concurrent call can't double-start
-        _bulk_state["id"] = bid
+        # Initialize the FULL new-job state atomically under the lock (not just
+        # running+id). Otherwise, in the window after we release the lock and
+        # before _bulk_worker enumerates targets and fills `total`, a poll on this
+        # id would read the PREVIOUS bulk's done/total/results under this id
+        # (PR #67 bulk-path startup-window finding). The worker fills `total`
+        # once it has enumerated targets.
+        _bulk_state.update(running=True, id=bid, scope=scope, project=(project or ""),
+                           total=0, done=0, current="", results=[],
+                           started_at=int(_time.time()), finished_at=0)
     n = len(_updatable_targets(project if scope == "stack" else None))
     if n == 0:
         with _bulk_lock:
-            _bulk_state["running"] = False
+            _bulk_state.update(running=False, finished_at=int(_time.time()))
         return {"ok": True, "started": False, "total": 0, "id": bid, "note": "nothing to update"}
     t = _threading_du.Thread(target=_bulk_worker, args=(scope, project),
                              name="docker-bulk-update", daemon=True)

@@ -100,6 +100,55 @@ def test_bulk_poll_returns_own_result_after_next_bulk_starts():
         ds._updatable_targets, ds.docker_update = orig_targets, orig_update
 
 
+def test_bulk_startup_window_shows_own_state_not_previous():
+    # PR #67 startup-window ownership: after bulk B mints its id, a poll on B's id
+    # during the worker's target-enumeration window (before `total` is filled) must
+    # show B's OWN clean state (done=0, results=[]) — never the PREVIOUS bulk A's
+    # done/results carried over under B's id.
+    ds = docker_stats
+    orig_targets, orig_update = ds._updatable_targets, ds.docker_update
+    try:
+        ds._updatable_targets = lambda project=None: [{"id": "c1", "name": "ct", "compose_project": "p"}]
+        # Bulk A completes with a FAILED item.
+        ds.docker_update = lambda cid: {"ok": False, "error": "boom"}
+        a = ds.docker_update_bulk("all")
+        a_id = a["id"]
+        assert _wait_until(lambda: not ds.docker_update_bulk_status(a_id)["running"]), "bulk A never finished"
+        assert any(not r["ok"] for r in ds.docker_update_bulk_status(a_id)["results"]), "A should record a failure"
+
+        # Bulk B: block its WORKER inside target enumeration — that's the startup
+        # window, after the id is minted but before `total` is filled. The POST's
+        # own n-check is the 1st enumeration and must NOT block (so the call returns
+        # and B is minted); the 2nd enumeration (the worker) blocks.
+        entered = threading.Event()
+        release = threading.Event()
+        calls = {"n": 0}
+        def slow_targets(project=None):
+            calls["n"] += 1
+            if calls["n"] >= 2:            # the worker's enumeration
+                entered.set()
+                release.wait(5)
+            return [{"id": "c1", "name": "ct", "compose_project": "p"}]
+        ds._updatable_targets = slow_targets
+        ds.docker_update = lambda cid: {"ok": True}
+        b = ds.docker_update_bulk("all")
+        b_id = b["id"]
+        assert b_id != a_id
+        assert entered.wait(5), "bulk B worker never reached target enumeration"
+
+        # THE REGRESSION: B's poll shows B's OWN startup state, not A's carried-over data.
+        bs = ds.docker_update_bulk_status(b_id)
+        assert bs["running"] is True and bs["id"] == b_id, bs
+        assert bs["done"] == 0 and bs["results"] == [], bs   # not A's done=1 / [failed]
+        assert bs["total"] == 0, bs                          # worker hasn't filled total yet
+
+        release.set()
+        assert _wait_until(lambda: not ds.docker_update_bulk_status(b_id)["running"]), "bulk B never finished"
+        assert all(r["ok"] for r in ds.docker_update_bulk_status(b_id)["results"]), "B's own success result"
+    finally:
+        ds._updatable_targets, ds.docker_update = orig_targets, orig_update
+
+
 def test_unknown_bulk_id_is_honest():
     s = docker_stats.docker_update_bulk_status(987654)
     assert s["running"] is False and s.get("unknown") is True, s
@@ -109,5 +158,6 @@ if __name__ == "__main__":
     test_op_poll_returns_own_failure_after_next_op_starts()
     test_unknown_op_id_is_honest()
     test_bulk_poll_returns_own_result_after_next_bulk_starts()
+    test_bulk_startup_window_shows_own_state_not_previous()
     test_unknown_bulk_id_is_honest()
     print("ok — sysinfo op + bulk ownership regression passed")
