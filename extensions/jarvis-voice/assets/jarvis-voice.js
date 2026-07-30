@@ -559,10 +559,17 @@
     state.status = panel.querySelector('#jarvisVoiceStatus');
     state.transcript = panel.querySelector('#jarvisVoiceLog');
     const card = panel.querySelector('#jarvisVoiceCard');
-    state.button.addEventListener('click', () => {
-      const opening = card.hidden;
-      card.hidden = !opening;
-      state.button.setAttribute('aria-expanded', String(opening));
+    const setOpen = (open) => {
+      card.hidden = !open;
+      state.button.setAttribute('aria-expanded', String(open));
+    };
+    state.button.addEventListener('click', () => setOpen(card.hidden));
+    // Escape closes the card and returns focus to the toggle, so a keyboard user
+    // is never stranded inside it.
+    card.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      if (typeof state.button.focus === 'function') state.button.focus();
     });
     panel.querySelector('[data-jarvis="talk"]').addEventListener('click', async () => {
       try { state.listening ? stopMic() : await startMic(); } catch (err) { setStatus('error'); log(`error: ${err.message || err}`); }

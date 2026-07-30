@@ -86,7 +86,8 @@ assert.equal(/window\.S\b/.test(js), false, 'extension must not read core state 
 assert.match(js, /aria-expanded="false"/);
 assert.match(js, /aria-controls="jarvisVoiceCard"/);
 assert.match(js, /role="region"/);
-assert.match(js, /aria-expanded', String\(opening\)/);
+assert.match(js, /aria-expanded', String\(open\)/);
+assert.match(js, /key !== 'Escape'/);
 assert.match(js, /LOG_MAX_LINES/);
 const css = readFileSync(new URL('../extensions/jarvis-voice/assets/jarvis-voice.css', import.meta.url), 'utf8');
 assert.equal(css.includes('2147483000'), false, 'must not sit above core dialogs and approvals');
