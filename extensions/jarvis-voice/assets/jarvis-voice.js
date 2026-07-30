@@ -623,7 +623,11 @@
         state.micStream = stream;
         state.captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         if (state.captureCtx.state === 'suspended' && typeof state.captureCtx.resume === 'function') await state.captureCtx.resume();
-        const worklet = `class P extends AudioWorkletProcessor{constructor(){super();this.offset=0;}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;const out=[];for(;this.offset<c.length;this.offset+=ratio){const s=Math.max(-1,Math.min(1,c[Math.floor(this.offset)]));out.push(s<0?s*32768:s*32767);}this.offset-=c.length;if(!out.length)return true;const pcm=new Int16Array(out);this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
+        // BATCH_SAMPLES is 100ms at 16kHz. Posting once per render quantum meant
+        // roughly 90 WebSocket frames a second, each carrying a few dozen
+        // samples — measured at 874 frames over ten seconds against live Gemini.
+        // The payload was never the problem; the frame count was.
+        const worklet = `const BATCH_SAMPLES=1600;class P extends AudioWorkletProcessor{constructor(){super();this.offset=0;this.buf=[];}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;for(;this.offset<c.length;this.offset+=ratio){const s=Math.max(-1,Math.min(1,c[Math.floor(this.offset)]));this.buf.push(s<0?s*32768:s*32767);}this.offset-=c.length;if(this.buf.length<BATCH_SAMPLES)return true;const pcm=new Int16Array(this.buf);this.buf=[];this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
         const url = URL.createObjectURL(new Blob([worklet], { type: 'application/javascript' }));
         try { await state.captureCtx.audioWorklet.addModule(url); }
         finally { URL.revokeObjectURL(url); }

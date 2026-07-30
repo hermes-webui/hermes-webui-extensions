@@ -945,5 +945,39 @@ await assert.rejects(jarvis.connect(), /502/);
 sandbox.fetch = async () => ({ ok: false, status: 403, json: async () => ({ error: 'Extension sidecar proxy consent required' }) });
 await assert.rejects(jarvis.connect(), /Settings → Extensions/);
 
+// ---- capture worklet must batch, not send a frame per render quantum ------
+// Measured against live Gemini: 497 outbound frames in about four seconds, then
+// 874 over ten — roughly 90 WebSocket messages a second, each carrying a few
+// dozen samples. The payload is small; the frame count is the problem. Batch to
+// ~100ms so it is closer to 10 a second.
+const workletSource = js.match(/const worklet = `([\s\S]*?)`;/)[1];
+const captured = [];
+const workletCtx = {
+  sampleRate: 48000,
+  AudioWorkletProcessor: class {
+    constructor() { this.port = { postMessage: (buf) => captured.push(buf.byteLength / 2) }; }
+  },
+  registerProcessor(name, cls) { workletCtx.__processor = cls; },
+};
+vm.runInNewContext(workletSource, workletCtx, { filename: 'jarvis-capture.worklet.js' });
+assert.equal(typeof workletCtx.__processor, 'function', 'worklet must register a processor');
+const processor = new workletCtx.__processor();
+// 100 render quanta of 128 frames at 48kHz = 12800 frames = ~266ms of audio.
+for (let i = 0; i < 100; i += 1) processor.process([[new Float32Array(128)]]);
+assert.ok(
+  captured.length >= 1,
+  'the worklet must emit something for 266ms of audio',
+);
+assert.ok(
+  captured.length <= 5,
+  `266ms of audio must not become ${captured.length} socket frames`,
+);
+// And what it emits must still be ~16kHz mono PCM: 266ms ≈ 4260 samples total.
+const totalSamples = captured.reduce((a, n) => a + n, 0);
+assert.ok(
+  totalSamples > 3000 && totalSamples < 4400,
+  `expected roughly 4260 samples of 16kHz audio, got ${totalSamples}`,
+);
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
