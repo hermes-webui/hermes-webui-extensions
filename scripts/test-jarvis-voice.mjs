@@ -978,10 +978,17 @@ await assert.rejects(jarvis.connect(), /Settings → Extensions/);
 // is only to downsample correctly and hand buffers over cheaply.
 const workletSource = js.match(/const worklet = `([\s\S]*?)`;/)[1];
 const captured = [];
+const capturedSamples = [];
 const workletCtx = {
   sampleRate: 48000,
   AudioWorkletProcessor: class {
-    constructor() { this.port = { postMessage: (buf) => captured.push(buf.byteLength / 2) }; }
+    constructor() {
+      this.port = { postMessage: (buf) => {
+        const pcm = new Int16Array(buf);
+        captured.push(pcm.length);
+        for (const v of pcm) capturedSamples.push(v);
+      } };
+    }
   },
   registerProcessor(name, cls) { workletCtx.__processor = cls; },
 };
@@ -1011,6 +1018,50 @@ const frames = batchSocket.sent.slice(beforeBatch).filter((m) => m.includes('aud
 assert.ok(frames >= 1, 'the batched audio must actually reach the socket');
 assert.ok(frames <= 4, `266ms of audio must not become ${frames} socket frames`);
 jarvis.stopMic();
+
+// ---- the downsampler must not alias speech-band noise in -----------------
+// 16kHz output means an 8kHz ceiling. Decimating 48kHz by picking every third
+// sample applies no low-pass, so a 12kHz component folds to |12000-16000| =
+// 4000Hz — straight into the middle of the speech band, at full amplitude, where
+// it corrupts the very recognition this extension depends on.
+function toneRms(freq) {
+  const samples = [];
+  const ctx = {
+    sampleRate: 48000,
+    AudioWorkletProcessor: class {
+      constructor() {
+        this.port = { postMessage: (buf) => { for (const v of new Int16Array(buf)) samples.push(v); } };
+      }
+    },
+    registerProcessor(name, cls) { ctx.__processor = cls; },
+  };
+  vm.runInNewContext(workletSource, ctx, { filename: 'jarvis-capture.worklet.js' });
+  const proc = new ctx.__processor();
+  let n = 0;
+  for (let q = 0; q < 200; q += 1) {
+    const quantum = new Float32Array(128);
+    for (let i = 0; i < 128; i += 1, n += 1) quantum[i] = Math.sin(2 * Math.PI * freq * n / 48000);
+    proc.process([[quantum]]);
+  }
+  // Drop the first few output samples: the very first window is partial.
+  const body = samples.slice(4);
+  return Math.sqrt(body.reduce((a, v) => a + v * v, 0) / body.length) / 32768;
+}
+
+const rms1k = toneRms(1000);
+const rms12k = toneRms(12000);
+// A 1kHz tone is well inside the passband and must survive essentially intact
+// (full-scale sine RMS is ~0.707).
+assert.ok(rms1k > 0.55, `1kHz speech content must pass through, RMS was ${rms1k.toFixed(3)}`);
+// A 12kHz tone must be attenuated rather than folded in at full amplitude.
+assert.ok(
+  rms12k < 0.45,
+  `12kHz must not alias into the speech band at full amplitude, RMS was ${rms12k.toFixed(3)}`,
+);
+assert.ok(
+  rms12k < rms1k * 0.7,
+  `above-Nyquist content must be attenuated relative to speech: 12kHz ${rms12k.toFixed(3)} vs 1kHz ${rms1k.toFixed(3)}`,
+);
 
 console.log('ok jarvis voice runtime checks');
 process.exit(0);

@@ -656,7 +656,17 @@
         // synchronously before end-of-stream. Batching inside the worklet cut the
         // socket frame count just as well but put the tail somewhere only an async
         // round trip could reach, which clipped the speaker's last word.
-        const worklet = `class P extends AudioWorkletProcessor{constructor(){super();this.offset=0;}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;const out=[];for(;this.offset<c.length;this.offset+=ratio){const s=Math.max(-1,Math.min(1,c[Math.floor(this.offset)]));out.push(s<0?s*32768:s*32767);}this.offset-=c.length;if(!out.length)return true;const pcm=new Int16Array(out);this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
+        // Each output sample is the MEAN of the input window it covers, not one
+        // sample plucked from it. Picking every third sample at 48kHz applies no
+        // low-pass at all, so a 12kHz component folds to |12000-16000| = 4000Hz —
+        // the middle of the speech band, at full amplitude. Measured: a 12kHz tone
+        // came through at 0.707 RMS, i.e. completely unattenuated.
+        //
+        // A boxcar mean is a crude filter (about -9.5dB at 12kHz, gentle roll-off
+        // rather than a brick wall). It is a large improvement over no filter and
+        // stays a few lines inside the worklet. If transcription accuracy at the
+        // top of the band ever matters, replace it with a short windowed-sinc FIR.
+        const worklet = `class P extends AudioWorkletProcessor{constructor(){super();this.offset=0;}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;const out=[];for(;this.offset<c.length;this.offset+=ratio){const a=Math.floor(this.offset);const b=Math.min(c.length,Math.floor(this.offset+ratio));let sum=0,n=0;for(let k=a;k<b;k+=1){sum+=c[k];n+=1;}const v=n?sum/n:c[Math.min(a,c.length-1)];const s=Math.max(-1,Math.min(1,v));out.push(s<0?s*32768:s*32767);}this.offset-=c.length;if(!out.length)return true;const pcm=new Int16Array(out);this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
         const url = URL.createObjectURL(new Blob([worklet], { type: 'application/javascript' }));
         try { await state.captureCtx.audioWorklet.addModule(url); }
         finally { URL.revokeObjectURL(url); }
