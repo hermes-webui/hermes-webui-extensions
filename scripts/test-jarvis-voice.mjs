@@ -702,5 +702,44 @@ assert.ok(
   'each transcript line must stay bounded',
 );
 
+// ---- Disconnect during the in-flight session read ------------------------
+// handleToolCall checks ownership before calling runHermes, but runHermes then
+// awaits a session read. A Disconnect landing in that window leaves the session
+// unchanged, so composerBlockReason() sees nothing wrong and the task is written
+// to the composer and submitted anyway — after the user pulled the plug.
+let releaseBaseline;
+let lateReads = 0;
+sandbox.__apiImpl = async () => {
+  lateReads += 1;
+  if (lateReads === 1) {
+    await new Promise((resolve) => { releaseBaseline = resolve; });
+    return { session: { message_count: 0, messages: [] } };
+  }
+  return {
+    session: {
+      message_count: 2,
+      messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'late' }],
+    },
+  };
+};
+input.value = '';
+const sendCallsBeforeLate = sendCalls;
+const lateDispatch = afterReconnect.onmessage({
+  data: JSON.stringify({
+    toolCall: { functionCalls: [{ id: 'late', name: 'run_hermes', args: { task: 'late task' } }] },
+  }),
+});
+await flush();
+jarvis.disconnect();
+releaseBaseline();
+await lateDispatch;
+await flush();
+assert.equal(
+  sendCalls,
+  sendCallsBeforeLate,
+  'Disconnect during the session read must stop the task before core send()',
+);
+assert.equal(input.value, '', 'a cancelled task must not leave a prompt in the composer');
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);

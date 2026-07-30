@@ -171,6 +171,7 @@
   // single frame, nor hand the composer an unbounded prompt.
   const MAX_TOOL_CALLS_PER_EVENT = 1;
   const MAX_TASK_CHARS = 2000;
+  const CANCELLED_MESSAGE = 'Jarvis was disconnected before the task was sent. Nothing ran.';
 
   function sendGemini(message, ws = state.ws) {
     if (!ws || typeof ws.send !== 'function') throw new Error('Jarvis is not connected');
@@ -331,7 +332,7 @@
           throw new Error(`task is too long (${task.length} characters, limit ${MAX_TASK_CHARS})`);
         }
         ran += 1;
-        const result = await runHermes(task);
+        const result = await runHermes(task, () => !socketCurrent(ws, epoch));
         responses.push({ id: call.id, name, response: { result } });
       } catch (err) {
         responses.push({ id: call.id, name, response: { error: String(err && err.message || err) } });
@@ -472,7 +473,11 @@
     return true;
   }
 
-  async function runHermes(task) {
+  // `isStale` lets a caller cancel across the awaits below. handleToolCall passes
+  // its socket identity, so pressing Disconnect while the session read is in
+  // flight stops the task before it is written and submitted. Direct callers of
+  // the public API get the no-op default.
+  async function runHermes(task, isStale = () => false) {
     if (!task) throw new Error('task is required');
     const core = coreState();
     if (!core) throw new Error('Hermes WebUI state is unavailable');
@@ -488,6 +493,9 @@
       // Baseline only needs the count and the busy flags, so take the cheap
       // metadata shape here too.
       const baseline = await readSession(sid, false);
+      // The session itself is unchanged by a Disconnect, so composerBlockReason()
+      // cannot see this; it needs its own check.
+      if (isStale()) return CANCELLED_MESSAGE;
       const blockedAfterBaseline = composerBlockReason(msg, sid);
       if (blockedAfterBaseline) return blockedAfterBaseline;
       const baselineSession = baseline && baseline.session || {};
@@ -503,6 +511,11 @@
       if (blockedBeforeSend) {
         clearOwnPrompt(msg, prompt);
         return blockedBeforeSend;
+      }
+      // Last gate before the irreversible step.
+      if (isStale()) {
+        clearOwnPrompt(msg, prompt);
+        return CANCELLED_MESSAGE;
       }
       try {
         await window.send({ literalSlash: true });
