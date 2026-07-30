@@ -235,7 +235,18 @@
         if (res.status === 404) {
           throw new Error('Jarvis Voice needs a WebUI build containing sidecar token-v1 support (#6331).');
         }
-        throw new Error(`Jarvis token proxy returned ${res.status}`);
+        // The sidecar answers with {"error": "..."} — e.g. a missing Gemini
+        // credential, or an unreachable provider. Pass that through: a bare
+        // status code hides a one-line fix. Nothing acts after this await, so it
+        // needs no cancellation re-check.
+        let detail = '';
+        try {
+          const body = await res.json();
+          if (body && typeof body.error === 'string') detail = body.error;
+        } catch (_) {}
+        throw new Error(detail
+          ? `Jarvis token request failed (${res.status}): ${detail}`
+          : `Jarvis token proxy returned ${res.status}`);
       }
       const data = await res.json();
       if (cancelled()) throw new Error('Jarvis connection cancelled');

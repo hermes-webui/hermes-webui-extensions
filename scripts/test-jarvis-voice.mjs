@@ -920,5 +920,30 @@ sandbox.__apiImpl = async () => {
 input.value = '';
 assert.equal(await jarvis.runHermes('unambiguous task'), 'the one true reply');
 
+// ---- token failures must surface the reason, not just a number -----------
+// Verified against a running WebUI: with consent granted and the proxy token
+// injected, a sidecar with no credential answers 503 with
+// {"error":"Gemini API key is not configured"}. Discarding that leaves the user
+// staring at a bare status code for a one-line fix.
+jarvis.disconnect(); // connect() short-circuits while a session is live
+sandbox.fetch = async () => ({
+  ok: false,
+  status: 503,
+  json: async () => ({ error: 'Gemini API key is not configured' }),
+});
+await assert.rejects(
+  jarvis.connect(),
+  /Gemini API key is not configured/,
+  'the sidecar error body must reach the user',
+);
+
+// A body-less failure still has to say something intelligible.
+sandbox.fetch = async () => ({ ok: false, status: 502, json: async () => { throw new Error('not json'); } });
+await assert.rejects(jarvis.connect(), /502/);
+
+// Consent / auth failures keep their specific guidance.
+sandbox.fetch = async () => ({ ok: false, status: 403, json: async () => ({ error: 'Extension sidecar proxy consent required' }) });
+await assert.rejects(jarvis.connect(), /Settings → Extensions/);
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
