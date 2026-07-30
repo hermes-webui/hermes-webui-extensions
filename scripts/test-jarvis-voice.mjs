@@ -741,5 +741,33 @@ assert.equal(
 );
 assert.equal(input.value, '', 'a cancelled task must not leave a prompt in the composer');
 
+// ---- Disconnect during the completion poll -------------------------------
+// The task has already been submitted here, so it cannot be recalled. But the
+// poll loop runs for up to the full tool timeout, so without a cancellation
+// check Jarvis keeps hitting core every couple of seconds for three minutes,
+// for a reply that nobody is left to receive.
+const pollSocket = await openJarvis();
+let pollReads = 0;
+sandbox.__apiImpl = async () => {
+  pollReads += 1;
+  if (pollReads === 1) return { session: { message_count: 0, messages: [] } };
+  if (pollReads === 4) jarvis.disconnect();
+  if (pollReads > 8) throw new Error('polling continued long after disconnect');
+  // Never completes: Hermes stays busy, so the loop has no reason of its own to stop.
+  return { session: { message_count: 0, active_stream_id: 'running', messages: [] } };
+};
+input.value = '';
+await pollSocket.onmessage({
+  data: JSON.stringify({
+    toolCall: { functionCalls: [{ id: 'poll', name: 'run_hermes', args: { task: 'poll task' } }] },
+  }),
+});
+assert.ok(pollReads <= 6, `polling must stop at disconnect, saw ${pollReads} reads`);
+assert.equal(
+  pollSocket.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'no reply may be sent to a socket the user disconnected',
+);
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);

@@ -27,7 +27,12 @@
     "requires_local_app": true,
     "local_app_label": "Jarvis token sidecar"
   },
-  "screenshots": [],
+  "screenshots": [
+    "screenshots/jarvis-voice-desktop-light.png",
+    "screenshots/jarvis-voice-desktop-dark.png",
+    "screenshots/jarvis-voice-mobile-light.png",
+    "screenshots/jarvis-voice-mobile-dark.png"
+  ],
   "permissions": {
     "webui_api": { "read": ["session"], "write": ["chat/start", "session/draft"] },
     "webui_navigation": false,

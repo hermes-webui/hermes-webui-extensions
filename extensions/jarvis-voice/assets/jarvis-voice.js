@@ -172,6 +172,9 @@
   const MAX_TOOL_CALLS_PER_EVENT = 1;
   const MAX_TASK_CHARS = 2000;
   const CANCELLED_MESSAGE = 'Jarvis was disconnected before the task was sent. Nothing ran.';
+  // Distinct from CANCELLED_MESSAGE: by this point the task really was submitted,
+  // so claiming nothing ran would be a lie.
+  const ABANDONED_MESSAGE = 'Jarvis disconnected while Hermes was still working. The task was sent and may still be running.';
 
   function sendGemini(message, ws = state.ws) {
     if (!ws || typeof ws.send !== 'function') throw new Error('Jarvis is not connected');
@@ -417,15 +420,20 @@
     return reply;
   }
 
-  async function waitForHermes(sid, beforeCount, timeoutMs, requestId) {
+  // Returns null when the caller went away mid-wait. The loop runs for up to the
+  // whole tool timeout, so without this it keeps polling core for minutes after
+  // the user disconnected, for a reply nobody is left to receive.
+  async function waitForHermes(sid, beforeCount, timeoutMs, requestId, isStale = () => false) {
     const start = Date.now();
     let delay = POLL_MIN_MS;
     while (Date.now() - start < timeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, delay));
+      if (isStale()) return null;
       // Back off: a Hermes agent run can take minutes, and a fixed fast tick just
       // spends core's request budget to learn nothing.
       delay = Math.min(POLL_MAX_MS, Math.round(delay * 1.5));
       const meta = await readSession(sid, 0);
+      if (isStale()) return null;
       const metaSession = (meta && meta.session) || {};
       if (hermesBusy(metaSession, {})) continue;
       const count = Number(metaSession.message_count ?? 0);
@@ -435,6 +443,7 @@
       const span = Math.max(0, count - beforeCount) + REPLY_WINDOW_MARGIN;
       const limit = Math.min(REPLY_WINDOW_MAX, Math.max(REPLY_WINDOW_MIN, span));
       let data = await readSession(sid, limit);
+      if (isStale()) return null;
       let session = (data && data.session) || {};
       let messages = Array.isArray(session.messages) ? session.messages : [];
       // Belt for a coordinate-space mismatch: message_count is a display count,
@@ -442,6 +451,7 @@
       // outside the window. Widen once rather than silently timing out.
       if (limit < REPLY_WINDOW_MAX && session._messages_truncated && !hasRequestMarker(messages, requestId)) {
         data = await readSession(sid, REPLY_WINDOW_MAX);
+        if (isStale()) return null;
         session = (data && data.session) || {};
         messages = Array.isArray(session.messages) ? session.messages : [];
       }
@@ -526,7 +536,8 @@
       if (currentSid() !== sid) throw new Error('Hermes conversation changed before the Jarvis task was accepted');
       if (clearOwnPrompt(msg, prompt)) throw new Error('Hermes did not accept the Jarvis task');
       if (String(msg.value || '')) throw new Error('The composer changed while the Jarvis task was sending');
-      const reply = await waitForHermes(sid, beforeCount, settings().timeoutSeconds * 1000, requestId);
+      const reply = await waitForHermes(sid, beforeCount, settings().timeoutSeconds * 1000, requestId, isStale);
+      if (reply === null) return ABANDONED_MESSAGE;
       log('hermes → done');
       return reply;
     } finally {
