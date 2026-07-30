@@ -113,13 +113,18 @@ sandbox.document = {
 };
 sandbox.window = sandbox;
 
-// Model core's REAL global shape. `static/ui.js:8` declares `const S = {...}` at
-// the top level of a classic script, which creates a global *lexical* binding:
-// reachable as a bare `S`, absent from `window`. Core's `api()` helper is the
-// same. An extension that reaches for `window.S` therefore gets `undefined` in
-// the shipped app, so this harness must not hand it one — a sandbox where
-// `window === globalThis` and `S` is a plain property tests a world that does
-// not exist and hides exactly this bug class.
+// Model core's REAL global shape, confirmed against a running WebUI:
+//   typeof window.S -> "undefined",  typeof S -> "object"
+//   typeof window.api -> "function", typeof api -> "function"
+// `static/ui.js:8` declares `const S = {...}` at the top level of a classic
+// script, which creates a global *lexical* binding: reachable as a bare `S`,
+// absent from `window`. An extension that reaches for `window.S` gets undefined
+// in the shipped app, so this harness must not hand it one — a sandbox where
+// `window === globalThis` and `S` is a plain property tests a world that does not
+// exist and hides exactly this bug class.
+// `api` is deliberately modelled the stricter way (lexical only). The extension
+// resolves it as a bare identifier, which is correct either way, and holding the
+// harness to the tighter contract keeps a future `window.api` from creeping in.
 const coreS = {
   session: { session_id: 's1' },
   messages: [],
