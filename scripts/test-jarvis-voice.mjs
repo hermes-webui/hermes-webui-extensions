@@ -869,5 +869,56 @@ sandbox.__apiImpl = async () => {
 input.value = '';
 assert.equal(await jarvis.runHermes('repeat me'), 'NEW answer', 'must anchor on the row after the baseline');
 
+// ---- an ambiguous anchor must never resolve to a guess -------------------
+// Correlation anchors on "user row at or after the baseline whose text is
+// exactly the task". If a second identical user row is also in range — the user
+// typing the same thing, or message_count under-reporting so an earlier row
+// falls inside the window — then first-match silently returns someone else's
+// answer. Returning the wrong reply to the model is worse than not answering, so
+// ambiguity must not resolve.
+let ambiguousReads = 0;
+sandbox.__apiImpl = async () => {
+  ambiguousReads += 1;
+  if (ambiguousReads === 1) return { session: { message_count: 2, messages: [] } };
+  if (ambiguousReads > 6) throw new Error('gave up polling');
+  return {
+    session: {
+      message_count: 6,
+      _messages_offset: 2,
+      messages: [
+        { role: 'user', content: 'ambiguous task' },
+        { role: 'assistant', content: 'reply A' },
+        { role: 'user', content: 'ambiguous task' },
+        { role: 'assistant', content: 'reply B' },
+      ],
+    },
+  };
+};
+input.value = '';
+await assert.rejects(
+  jarvis.runHermes('ambiguous task'),
+  /gave up polling|could not be matched/,
+  'two identical candidate rows must not resolve to either reply',
+);
+
+// The unambiguous case must still resolve, so the guard is not just "never answer".
+let unambiguousReads = 0;
+sandbox.__apiImpl = async () => {
+  unambiguousReads += 1;
+  if (unambiguousReads === 1) return { session: { message_count: 2, messages: [] } };
+  return {
+    session: {
+      message_count: 4,
+      _messages_offset: 2,
+      messages: [
+        { role: 'user', content: 'unambiguous task' },
+        { role: 'assistant', content: 'the one true reply' },
+      ],
+    },
+  };
+};
+input.value = '';
+assert.equal(await jarvis.runHermes('unambiguous task'), 'the one true reply');
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
