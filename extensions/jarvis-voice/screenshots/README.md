@@ -11,6 +11,13 @@ real application.
 | `jarvis-voice-mobile-light.png` | 390×844 @3x, touch | light |
 | `jarvis-voice-mobile-dark.png` | 390×844 @3x, touch | dark |
 
+The conversation shown was started by `run_hermes`, so these images double as
+evidence that a voice-initiated task leaves no correlation marker behind: the
+message bubble, the sidebar entry, and the tab title all read exactly
+`summarise the deploy status`. An earlier revision appended
+`<!-- jarvis_request_id:... -->` to the prompt, which core rendered as literal
+text in all three places.
+
 ## What is real and what is staged
 
 Real: the WebUI, the sidebar and composer, core's theme variables, the extension

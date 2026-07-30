@@ -393,29 +393,42 @@
     return res.json();
   }
 
-  function hasRequestMarker(messages, requestId) {
-    return messages.some((msg) => msg && msg.role === 'user'
-      && String((msg.content || msg.text) || '').includes(requestId));
+  function messageText(msg) {
+    return String((msg && (msg.content || msg.text)) || '');
   }
 
-  function latestAssistantAfterRequest(messages, requestId) {
-    let inTurn = false;
+  // Locate the row we submitted, using core's own display coordinates instead of
+  // decorating the prompt. `/api/chat/start` does return a `turn_id`, but core
+  // does not store it on the message rows, so it cannot be matched here; and a
+  // marker in the prompt text is not an option because core renders it in the
+  // message bubble and derives the sidebar title from it.
+  //
+  // Anchor: the first user row at or after the pre-send count whose text is
+  // exactly the task. Nothing is appended to the prompt, so the stored row and
+  // the text we typed match verbatim. The count bound is what stops an older,
+  // identical message from being mistaken for ours.
+  function findRequestRow(messages, offset, beforeCount, task) {
+    for (let i = 0; i < messages.length; i += 1) {
+      const msg = messages[i];
+      if (!msg || msg.role !== 'user') continue;
+      if (offset + i < beforeCount) continue;
+      if (messageText(msg) !== task) continue;
+      return i;
+    }
+    return -1;
+  }
+
+  function replyForRequestRow(messages, rowIndex) {
     let reply = '';
-    for (const msg of messages) {
+    for (let i = rowIndex + 1; i < messages.length; i += 1) {
+      const msg = messages[i];
       if (!msg) continue;
-      const text = String((msg.content || msg.text) || '');
-      if (msg.role === 'user') {
-        if (text.includes(requestId)) {
-          inTurn = true;
-          reply = '';
-        } else if (inTurn) {
-          // A later user turn closes ours. Anything past it answers a different
-          // request and must never be handed back as this task's result.
-          break;
-        }
-        continue;
-      }
-      if (inTurn && msg.role === 'assistant' && !msg._live && text) reply = text;
+      // A later user turn closes ours. Anything past it answers a different
+      // request and must never be handed back as this task's result.
+      if (msg.role === 'user') break;
+      if (msg.role !== 'assistant' || msg._live) continue;
+      const text = messageText(msg);
+      if (text) reply = text;
     }
     return reply;
   }
@@ -423,7 +436,7 @@
   // Returns null when the caller went away mid-wait. The loop runs for up to the
   // whole tool timeout, so without this it keeps polling core for minutes after
   // the user disconnected, for a reply nobody is left to receive.
-  async function waitForHermes(sid, beforeCount, timeoutMs, requestId, isStale = () => false) {
+  async function waitForHermes(sid, beforeCount, timeoutMs, task, isStale = () => false) {
     const start = Date.now();
     let delay = POLL_MIN_MS;
     while (Date.now() - start < timeoutMs) {
@@ -439,24 +452,29 @@
       const count = Number(metaSession.message_count ?? 0);
       if (!(count > beforeCount + 1)) continue;
       // Size the window from the growth we just observed, so however many rows
-      // the agent turn produced, our marker is still inside it.
+      // the agent turn produced, our own row is still inside it.
       const span = Math.max(0, count - beforeCount) + REPLY_WINDOW_MARGIN;
       const limit = Math.min(REPLY_WINDOW_MAX, Math.max(REPLY_WINDOW_MIN, span));
       let data = await readSession(sid, limit);
       if (isStale()) return null;
       let session = (data && data.session) || {};
       let messages = Array.isArray(session.messages) ? session.messages : [];
+      let offset = Number(session._messages_offset ?? 0);
+      let row = findRequestRow(messages, offset, beforeCount, task);
       // Belt for a coordinate-space mismatch: message_count is a display count,
-      // so if it under-reports the rows in the turn the marker can still fall
+      // so if it under-reports the rows in the turn our row can still fall
       // outside the window. Widen once rather than silently timing out.
-      if (limit < REPLY_WINDOW_MAX && session._messages_truncated && !hasRequestMarker(messages, requestId)) {
+      if (row < 0 && limit < REPLY_WINDOW_MAX && session._messages_truncated) {
         data = await readSession(sid, REPLY_WINDOW_MAX);
         if (isStale()) return null;
         session = (data && data.session) || {};
         messages = Array.isArray(session.messages) ? session.messages : [];
+        offset = Number(session._messages_offset ?? 0);
+        row = findRequestRow(messages, offset, beforeCount, task);
       }
+      if (row < 0) continue;
       if (hermesBusy(session, {})) continue;
-      const reply = latestAssistantAfterRequest(messages, requestId);
+      const reply = replyForRequestRow(messages, row);
       if (reply) return reply.slice(0, 8000);
     }
     throw new Error('Hermes did not finish before the Jarvis tool timeout');
@@ -511,8 +529,10 @@
       const baselineSession = baseline && baseline.session || {};
       if (hermesBusy(baselineSession, {})) return 'Hermes is already running a task. Ask the user whether to wait, stop it, or steer it.';
       const beforeCount = Number(baselineSession.message_count ?? (core.session && core.session.message_count) ?? (Array.isArray(core.messages) ? core.messages.length : 0));
-      const requestId = `jarvis_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const prompt = `${task}\n\n<!-- jarvis_request_id:${requestId} -->`;
+      // The prompt is the task, verbatim. Nothing is appended: core renders any
+      // added text in the message bubble and derives the sidebar conversation
+      // title from it, so a correlation marker here defaces every voice task.
+      const prompt = task;
       log(`hermes ← ${task}`);
       msg.value = prompt;
       msg.dispatchEvent(new Event('input', { bubbles: true }));
@@ -536,7 +556,7 @@
       if (currentSid() !== sid) throw new Error('Hermes conversation changed before the Jarvis task was accepted');
       if (clearOwnPrompt(msg, prompt)) throw new Error('Hermes did not accept the Jarvis task');
       if (String(msg.value || '')) throw new Error('The composer changed while the Jarvis task was sending');
-      const reply = await waitForHermes(sid, beforeCount, settings().timeoutSeconds * 1000, requestId, isStale);
+      const reply = await waitForHermes(sid, beforeCount, settings().timeoutSeconds * 1000, task, isStale);
       if (reply === null) return ABANDONED_MESSAGE;
       log('hermes → done');
       return reply;

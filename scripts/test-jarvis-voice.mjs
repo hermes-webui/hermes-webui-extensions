@@ -240,8 +240,9 @@ await assert.rejects(jarvis.runHermes('send reject'), /send fail/);
 assert.equal(input.value, '');
 sandbox.send = async () => { input.value += ' '; throw new Error('send modified'); };
 await assert.rejects(jarvis.runHermes('send modified'), /send modified/);
-assert.match(input.value, /jarvis_request_id:/);
-assert.equal(input.value.endsWith(' '), true);
+// send() mutated the composer, so clearOwnPrompt must leave it alone — and what
+// is left is the bare task plus that mutation, with nothing appended by us.
+assert.equal(input.value, 'send modified ');
 input.value = '';
 sandbox.send = realSend;
 input.value = '';
@@ -270,7 +271,7 @@ const second = jarvis.runHermes('two');
 assert.match(await second, /already handling/);
 release();
 assert.equal(await first, 'done');
-assert.match(sentText, /jarvis_request_id:/);
+assert.equal(sentText, 'one', 'core received the task verbatim');
 assert.equal(sendCalls, 1);
 
 sandbox.__apiImpl = async () => {
@@ -288,7 +289,16 @@ sandbox.__apiImpl = async () => {
   reads += 1;
   if (reads === 1) return { session: { message_count: 1000, messages: [{ role: 'assistant', content: 'old assistant' }] } };
   if (reads === 2) return { session: { message_count: 1001, messages: [{ role: 'assistant', content: 'old assistant' }] } };
-  return { session: { message_count: 1002, messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'long done' }] } };
+  // _messages_offset is how core reports where a window sits in the display
+  // coordinate space; correlation anchors on it now that nothing is appended
+  // to the prompt.
+  return {
+    session: {
+      message_count: 1002,
+      _messages_offset: 1000,
+      messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'long done' }],
+    },
+  };
 };
 // baseline(1000) -> poll(1001, not yet) -> poll(1002, advanced) -> one window read
 assert.equal(await jarvis.runHermes('long history'), 'long done');
@@ -329,8 +339,8 @@ function bigTurnStub(rowCount, { reportTruncated = true, honourLimit = true } = 
         metaReads += 1;
         return { session: { message_count: metaReads === 1 ? 100 : 100 + rowCount, messages: [] } };
       }
-      // Built lazily: sentText is only the CURRENT request's marker after send()
-      // has run, and each runHermes call mints a fresh id.
+      // Built lazily: sentText is only the CURRENT request's text after send()
+      // has run.
       const full = [{ role: 'user', content: sentText }];
       for (let i = 0; i < rowCount - 2; i += 1) full.push({ role: 'assistant', content: `step ${i}` });
       full.push({ role: 'assistant', content: 'big turn done' });
@@ -343,6 +353,9 @@ function bigTurnStub(rowCount, { reportTruncated = true, honourLimit = true } = 
       return {
         session: {
           message_count: 100 + rowCount,
+          // Where this window sits in the display coordinate space: 100 pre-existing
+          // rows, then however much of the new turn the window omitted.
+          _messages_offset: 100 + (full.length - windowRows.length),
           messages: windowRows,
           _messages_truncated: reportTruncated && windowRows.length < full.length,
         },
@@ -773,6 +786,88 @@ assert.equal(
   false,
   'no reply may be sent to a socket the user disconnected',
 );
+
+// ---- nothing may be appended to the user's prompt ------------------------
+// A correlation marker in the prompt text is not cosmetic damage: core renders it
+// as literal text in the message bubble AND derives the sidebar conversation
+// title from it, so every voice task permanently defaces the transcript.
+// Correlation must use core's own display coordinates instead.
+assert.equal(
+  /jarvis_request_id/.test(js),
+  false,
+  'the extension must not embed a correlation marker anywhere',
+);
+assert.equal(/<!--/.test(js), false, 'no HTML comment may be built into a prompt');
+
+let markerReads = 0;
+sandbox.__apiImpl = async () => {
+  markerReads += 1;
+  if (markerReads === 1) return { session: { message_count: 4, messages: [] } };
+  return {
+    session: {
+      message_count: 6,
+      _messages_offset: 4,
+      messages: [
+        { role: 'user', content: 'marker probe' },
+        { role: 'assistant', content: 'clean reply' },
+      ],
+    },
+  };
+};
+input.value = '';
+const markerSocket = await openJarvis();
+await markerSocket.onmessage({
+  data: JSON.stringify({
+    toolCall: { functionCalls: [{ id: 'm1', name: 'run_hermes', args: { task: 'marker probe' } }] },
+  }),
+});
+// The text handed to core send() must be exactly the task, byte for byte.
+assert.equal(sentText, 'marker probe', `prompt was decorated: ${JSON.stringify(sentText)}`);
+const markerReply = markerSocket.sent.filter((m) => m.includes('toolResponse')).at(-1);
+assert.ok(markerReply.includes('clean reply'), 'correlation must still find the reply');
+
+// ...and the next-user-turn boundary must survive the mechanism change.
+let boundaryReads = 0;
+sandbox.__apiImpl = async () => {
+  boundaryReads += 1;
+  if (boundaryReads === 1) return { session: { message_count: 2, messages: [] } };
+  return {
+    session: {
+      message_count: 6,
+      _messages_offset: 2,
+      messages: [
+        { role: 'user', content: 'boundary probe' },
+        { role: 'assistant', content: 'ours' },
+        { role: 'user', content: 'a different question typed by the user' },
+        { role: 'assistant', content: 'answer to the other question' },
+      ],
+    },
+  };
+};
+input.value = '';
+assert.equal(await jarvis.runHermes('boundary probe'), 'ours', 'a later turn must not leak its reply');
+
+// An older identical message must not be mistaken for ours: only rows at or
+// after the baseline count qualify.
+let staleTextReads = 0;
+sandbox.__apiImpl = async () => {
+  staleTextReads += 1;
+  if (staleTextReads === 1) return { session: { message_count: 2, messages: [] } };
+  return {
+    session: {
+      message_count: 4,
+      _messages_offset: 0,
+      messages: [
+        { role: 'user', content: 'repeat me' },
+        { role: 'assistant', content: 'OLD answer from before the baseline' },
+        { role: 'user', content: 'repeat me' },
+        { role: 'assistant', content: 'NEW answer' },
+      ],
+    },
+  };
+};
+input.value = '';
+assert.equal(await jarvis.runHermes('repeat me'), 'NEW answer', 'must anchor on the row after the baseline');
 
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
