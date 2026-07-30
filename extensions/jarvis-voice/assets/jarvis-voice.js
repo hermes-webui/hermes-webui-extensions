@@ -329,23 +329,32 @@
     );
   }
 
-  // Transcript window pulled once, after the count advances and the session goes
-  // idle. Big enough to hold the marked user turn plus an agent turn's tool rows,
-  // small enough that it is nothing like core's 500-message maximum.
-  const REPLY_WINDOW = 40;
+  // Transcript window, pulled once after the count advances and the session goes
+  // idle. Core returns the LAST N renderable rows, so the window must be at least
+  // as long as the turn it has to contain: a tool-heavy agent run adds dozens of
+  // rows, and a window that starts after our marker makes correlation find
+  // nothing, which reads as "unfinished" until the tool timeout expires.
+  const REPLY_WINDOW_MIN = 40;
+  const REPLY_WINDOW_MAX = 500; // core's _MAX_MSG_LIMIT
+  const REPLY_WINDOW_MARGIN = 4;
   const POLL_MIN_MS = 600;
   const POLL_MAX_MS = 2500;
 
   // `messages=0` is core's own metadata-poll shape: it skips the transcript and
   // still returns message_count, so the completion check costs a few bytes
   // instead of re-downloading the whole conversation every tick.
-  async function readSession(sid, withMessages = false) {
+  async function readSession(sid, msgLimit = 0) {
     const path = `/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`
-      + (withMessages ? `&messages=1&msg_limit=${REPLY_WINDOW}` : '&messages=0');
+      + (msgLimit ? `&messages=1&msg_limit=${msgLimit}` : '&messages=0');
     if (typeof api === 'function') return api(path);
     const res = await fetch(path, { credentials: 'include' });
     if (!res.ok) throw new Error(`session fetch failed: ${res.status}`);
     return res.json();
+  }
+
+  function hasRequestMarker(messages, requestId) {
+    return messages.some((msg) => msg && msg.role === 'user'
+      && String((msg.content || msg.text) || '').includes(requestId));
   }
 
   function latestAssistantAfterRequest(messages, requestId) {
@@ -378,15 +387,27 @@
       // Back off: a Hermes agent run can take minutes, and a fixed fast tick just
       // spends core's request budget to learn nothing.
       delay = Math.min(POLL_MAX_MS, Math.round(delay * 1.5));
-      const meta = await readSession(sid, false);
+      const meta = await readSession(sid, 0);
       const metaSession = (meta && meta.session) || {};
       if (hermesBusy(metaSession, {})) continue;
       const count = Number(metaSession.message_count ?? 0);
       if (!(count > beforeCount + 1)) continue;
-      const data = await readSession(sid, true);
-      const session = (data && data.session) || {};
+      // Size the window from the growth we just observed, so however many rows
+      // the agent turn produced, our marker is still inside it.
+      const span = Math.max(0, count - beforeCount) + REPLY_WINDOW_MARGIN;
+      const limit = Math.min(REPLY_WINDOW_MAX, Math.max(REPLY_WINDOW_MIN, span));
+      let data = await readSession(sid, limit);
+      let session = (data && data.session) || {};
+      let messages = Array.isArray(session.messages) ? session.messages : [];
+      // Belt for a coordinate-space mismatch: message_count is a display count,
+      // so if it under-reports the rows in the turn the marker can still fall
+      // outside the window. Widen once rather than silently timing out.
+      if (limit < REPLY_WINDOW_MAX && session._messages_truncated && !hasRequestMarker(messages, requestId)) {
+        data = await readSession(sid, REPLY_WINDOW_MAX);
+        session = (data && data.session) || {};
+        messages = Array.isArray(session.messages) ? session.messages : [];
+      }
       if (hermesBusy(session, {})) continue;
-      const messages = Array.isArray(session.messages) ? session.messages : [];
       const reply = latestAssistantAfterRequest(messages, requestId);
       if (reply) return reply.slice(0, 8000);
     }

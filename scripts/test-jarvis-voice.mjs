@@ -44,6 +44,15 @@ const coreS = {
   toolCalls: [],
   activeStreamId: null,
 };
+// Cap the tool timeout under test. The shipped default is 180s and this harness
+// fires poll timers immediately, so a correlation bug would otherwise spin for
+// three minutes before the assertion failed.
+sandbox.HermesExtensionSettings = {
+  settingsForExtension: () => ({
+    supported: true,
+    get: (key) => (key === 'hermesTimeoutSeconds' ? 15 : undefined),
+  }),
+};
 sandbox.__coreS = coreS;
 sandbox.__apiImpl = async () => { throw new Error('api not stubbed'); };
 const ctx = vm.createContext(sandbox);
@@ -213,6 +222,59 @@ assert.match(seenPaths[0], /messages=0/);              // baseline: metadata onl
 assert.match(seenPaths[1], /messages=0/);              // completion check: metadata only
 assert.match(seenPaths[2], /messages=1&msg_limit=40/); // exactly one bounded window
 assert.equal(seenPaths.filter((p) => /messages=1/.test(p)).length, 1);
+
+// A tool-heavy turn adds far more rows than the minimum window. Core returns the
+// LAST N renderable rows, so a fixed small window drops our marker, correlation
+// finds nothing, and a task that FINISHED reads as unfinished until the tool
+// timeout. Size the window from the observed growth instead.
+function bigTurnStub(rowCount, { reportTruncated = true, honourLimit = true } = {}) {
+  const limits = [];
+  let metaReads = 0;
+  return {
+    limits,
+    impl: async (path) => {
+      if (/messages=0/.test(path)) {
+        metaReads += 1;
+        return { session: { message_count: metaReads === 1 ? 100 : 100 + rowCount, messages: [] } };
+      }
+      // Built lazily: sentText is only the CURRENT request's marker after send()
+      // has run, and each runHermes call mints a fresh id.
+      const full = [{ role: 'user', content: sentText }];
+      for (let i = 0; i < rowCount - 2; i += 1) full.push({ role: 'assistant', content: `step ${i}` });
+      full.push({ role: 'assistant', content: 'big turn done' });
+      const limit = Number((path.match(/msg_limit=(\d+)/) || [])[1] || 0);
+      limits.push(limit);
+      // honourLimit:false models message_count under-reporting the turn — the
+      // sized window comes back short, but the widened maximum is honoured.
+      const effective = honourLimit || limit >= REPLY_MAX ? limit : Math.min(limit, REPLY_MIN);
+      const windowRows = full.slice(Math.max(0, full.length - effective));
+      return {
+        session: {
+          message_count: 100 + rowCount,
+          messages: windowRows,
+          _messages_truncated: reportTruncated && windowRows.length < full.length,
+        },
+      };
+    },
+  };
+}
+const REPLY_MIN = 40;
+const REPLY_MAX = 500;
+
+const bigTurn = bigTurnStub(60);
+sandbox.__apiImpl = bigTurn.impl;
+input.value = '';
+assert.equal(await jarvis.runHermes('big turn'), 'big turn done');
+assert.ok(bigTurn.limits[0] >= 60, `window must cover the 60 new rows, asked for ${bigTurn.limits[0]}`);
+assert.ok(bigTurn.limits[0] <= 500, 'window must stay within core\'s maximum');
+
+// Belt: if message_count under-reports the turn (display vs raw rows) the sized
+// window can still miss the marker. Widen once instead of timing out.
+const undercount = bigTurnStub(60, { honourLimit: false });
+sandbox.__apiImpl = undercount.impl;
+input.value = '';
+assert.equal(await jarvis.runHermes('undercounted turn'), 'big turn done');
+assert.deepEqual(undercount.limits, [64, 500], 'must widen to the maximum exactly once');
 
 // A later user turn must close ours: its assistant reply can never be returned
 // as this request's result.
