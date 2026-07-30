@@ -158,6 +158,20 @@
     return out;
   }
 
+  // Ownership must be re-established after EVERY await on the message path. A
+  // socket that was current when a frame arrived can be superseded while its
+  // body is still decoding, and the handler resumes into the new session.
+  // Identity alone would do today (each connect builds a fresh WebSocket), but
+  // the epoch keeps this correct if the object is ever reused.
+  function socketCurrent(ws, epoch) {
+    return state.ws === ws && state.disconnectEpoch === epoch;
+  }
+
+  // The provider does not get to queue an unbounded run of real actions behind a
+  // single frame, nor hand the composer an unbounded prompt.
+  const MAX_TOOL_CALLS_PER_EVENT = 1;
+  const MAX_TASK_CHARS = 2000;
+
   function sendGemini(message, ws = state.ws) {
     if (!ws || typeof ws.send !== 'function') throw new Error('Jarvis is not connected');
     ws.send(JSON.stringify(message));
@@ -256,6 +270,10 @@
         ws.onmessage = async (event) => {
           if (state.ws !== ws || cancelled()) { fail(new Error('Jarvis connection cancelled')); return; }
           const raw = event.data instanceof Blob ? await event.data.text() : String(event.data || '');
+          // Decoding yields; the user may have disconnected or reconnected while
+          // it ran. Drop the frame silently — this socket is no longer ours, and
+          // failing the (already settled) connect promise would be wrong.
+          if (!socketCurrent(ws, epoch)) return;
           let parsed;
           try { parsed = JSON.parse(raw); } catch (_) { return; }
           const messages = parseGeminiMessage(parsed);
@@ -269,7 +287,10 @@
             setStatus('ready');
             resolve();
           }
-          for (const msg of messages) await handleGemini(msg, ws);
+          for (const msg of messages) {
+            if (!socketCurrent(ws, epoch)) return;
+            await handleGemini(msg, ws, epoch);
+          }
         };
       });
     })();
@@ -277,30 +298,46 @@
     finally { state.connectPromise = null; }
   }
 
-  async function handleGemini(msg, ws = state.ws) {
+  async function handleGemini(msg, ws = state.ws, epoch = state.disconnectEpoch) {
     if (msg.type === 'setup') { log('jarvis ready'); return; }
     if (msg.type === 'audio') { await playPcm24(msg.data); return; }
     if (msg.type === 'input') { resumePlayback(); log(`you: ${msg.data}`); return; }
     if (msg.type === 'output' || msg.type === 'text') { log(`jarvis: ${msg.data}`); return; }
     if (msg.type === 'interrupted') { stopPlayback(); return; }
     if (msg.type === 'turnComplete') { resumePlayback(); return; }
-    if (msg.type === 'tool') { await handleToolCall(msg.data, ws); }
+    if (msg.type === 'tool') { await handleToolCall(msg.data, ws, epoch); }
   }
 
-  async function handleToolCall(toolCall, ws = state.ws) {
+  async function handleToolCall(toolCall, ws = state.ws, epoch = state.disconnectEpoch) {
     const calls = Array.isArray(toolCall.functionCalls) ? toolCall.functionCalls : [];
     const responses = [];
+    let ran = 0;
     for (const call of calls) {
       const name = String(call.name || '');
+      // Check ownership BEFORE the side effect, not just before the reply.
+      // runHermes() writes a prompt into the composer and calls core send(), so
+      // a stale socket that only failed the reply check has already acted.
+      if (!socketCurrent(ws, epoch)) return;
       try {
+        if (ran >= MAX_TOOL_CALLS_PER_EVENT) {
+          throw new Error(
+            `Jarvis runs at most ${MAX_TOOL_CALLS_PER_EVENT} Hermes task per turn. Ask again for the next step.`
+          );
+        }
         if (name !== 'run_hermes') throw new Error(`unknown tool: ${name}`);
-        const result = await runHermes(String((call.args && call.args.task) || '').trim());
+        const task = String((call.args && call.args.task) || '').trim();
+        if (!task) throw new Error('task is required');
+        if (task.length > MAX_TASK_CHARS) {
+          throw new Error(`task is too long (${task.length} characters, limit ${MAX_TASK_CHARS})`);
+        }
+        ran += 1;
+        const result = await runHermes(task);
         responses.push({ id: call.id, name, response: { result } });
       } catch (err) {
         responses.push({ id: call.id, name, response: { error: String(err && err.message || err) } });
       }
     }
-    if (state.ws !== ws) return;
+    if (!socketCurrent(ws, epoch)) return;
     sendGemini({ toolResponse: { functionResponses: responses } }, ws);
   }
 
@@ -585,9 +622,10 @@
       state.button.setAttribute('aria-expanded', String(open));
     };
     state.button.addEventListener('click', () => setOpen(card.hidden));
-    // Escape closes the card and returns focus to the toggle, so a keyboard user
-    // is never stranded inside it.
-    card.addEventListener('keydown', (event) => {
+    // Scoped to the panel, not the card. The toggle and the card are siblings, so
+    // a keydown on the toggle — where focus sits after Enter/Space opens the card
+    // — bubbles to the panel and never reaches the card.
+    panel.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape') return;
       setOpen(false);
       if (typeof state.button.focus === 'function') state.button.focus();

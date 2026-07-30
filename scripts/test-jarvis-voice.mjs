@@ -20,10 +20,95 @@ const sandbox = {
   Event: class Event { constructor(type) { this.type = type; } },
   Blob: class Blob {},
   btoa(value) { return Buffer.from(value, 'binary').toString('base64'); },
-  document: {
-    readyState: 'loading',
-    addEventListener() {},
-    getElementById(id) { return id === 'msg' ? input : null; },
+};
+
+// ---- minimal rendered DOM ------------------------------------------------
+// Enough of a document for render() to build the real panel and for events to
+// BUBBLE. Bubbling is the point: the toggle and the card are siblings, so a
+// listener scoped to the card never sees a keydown that starts on the toggle.
+// A stub that dispatched straight to the target would hide that entirely.
+const domNodes = {};
+
+function makeEl(tag = 'div') {
+  const handlers = {};
+  const children = [];
+  const attrs = {};
+  const el = {
+    tagName: tag,
+    id: '',
+    hidden: false,
+    dataset: {},
+    textContent: '',
+    innerHTML: '',
+    scrollTop: 0,
+    scrollHeight: 0,
+    focused: false,
+    parent: null,
+    _handlers: handlers,
+    _query: {},
+    get childElementCount() { return children.length; },
+    get firstElementChild() { return children[0] || null; },
+    get lastElementChild() { return children[children.length - 1] || null; },
+    appendChild(child) { child.parent = el; children.push(child); return child; },
+    removeChild(child) {
+      const index = children.indexOf(child);
+      if (index >= 0) children.splice(index, 1);
+      return child;
+    },
+    setAttribute(key, value) { attrs[key] = String(value); },
+    getAttribute(key) { return key in attrs ? attrs[key] : null; },
+    addEventListener(type, fn) { (handlers[type] = handlers[type] || []).push(fn); },
+    focus() { el.focused = true; },
+    querySelector(selector) { return el._query[selector] || null; },
+  };
+  return el;
+}
+
+function dispatchEvent(target, type, payload = {}) {
+  const event = { type, target, ...payload };
+  let node = target;
+  while (node) {
+    for (const fn of (node._handlers[type] || []).slice()) fn(event);
+    node = node.parent;
+  }
+}
+
+let panelBuilt = false;
+sandbox.document = {
+  readyState: 'complete',
+  addEventListener() {},
+  getElementById(id) { return id === 'msg' ? input : null; },
+  // Only `.msg-edit-area` is queried on the document, and no edit is ever active.
+  querySelector() { return null; },
+  body: { appendChild(node) { domNodes.attached = node; return node; } },
+  createElement(tag) {
+    if (panelBuilt) return makeEl(tag);
+    panelBuilt = true;
+    const panel = makeEl('div');
+    const button = makeEl('button');
+    const card = makeEl('div');
+    const status = makeEl('span');
+    const logEl = makeEl('div');
+    const talk = makeEl('button');
+    const stop = makeEl('button');
+    const disconnectButton = makeEl('button');
+    // Mirrors the real template: button and card are SIBLINGS under the panel;
+    // status, log and the action buttons live inside the card.
+    button.parent = panel;
+    card.parent = panel;
+    for (const child of [status, logEl, talk, stop, disconnectButton]) child.parent = card;
+    card.hidden = true;
+    panel._query = {
+      '#jarvisVoiceButton': button,
+      '#jarvisVoiceCard': card,
+      '#jarvisVoiceStatus': status,
+      '#jarvisVoiceLog': logEl,
+      '[data-jarvis="talk"]': talk,
+      '[data-jarvis="stop"]': stop,
+      '[data-jarvis="disconnect"]': disconnectButton,
+    };
+    Object.assign(domNodes, { panel, button, card, status, log: logEl, talk, stop, disconnect: disconnectButton });
+    return panel;
   },
 };
 sandbox.window = sandbox;
@@ -105,6 +190,8 @@ assert.match(css, /prefers-reduced-motion/);
 assert.match(css, /env\(safe-area-inset-bottom/);
 assert.match(css, /background:\s*var\(--surface/);
 assert.match(css, /color:\s*var\(--text/);
+// Talk/Stop/Disconnect must clear the 44px touch floor on a finger-driven pointer.
+assert.match(css, /@media \(pointer: coarse\)[^{]*\{\s*\.jarvis-actions button \{ min-height: 44px; \}/);
 vm.runInContext(js, ctx, { filename: 'jarvis-voice.js' });
 const jarvis = sandbox.HermesJarvisVoice;
 assert.equal(typeof jarvis.runHermes, 'function');
@@ -497,6 +584,123 @@ assert.equal(started.length, 2, 'audio must resume after a turn boundary');
 await newestSocket.onmessage({ data: JSON.stringify({ serverContent: { interrupted: true } }) });
 await newestSocket.onmessage({ data: audioMessage });
 assert.equal(started.length, 3, 'interrupted must not suppress the replacement audio');
+
+// ---- stale socket must not reach the composer ----------------------------
+// The ownership check at the top of onmessage is not enough: a Blob body still
+// decoding when the user disconnects resumes afterwards and dispatches into the
+// CURRENT session. runHermes() writes a prompt and calls core send(), so the
+// damage is done long before the toolResponse ownership check.
+let releaseBlob;
+const staleFrame = JSON.stringify({
+  toolCall: { functionCalls: [{ id: 'stale', name: 'run_hermes', args: { task: 'stale task' } }] },
+});
+class ParkedBlob {
+  text() { return new Promise((resolve) => { releaseBlob = () => resolve(staleFrame); }); }
+}
+sandbox.Blob = ParkedBlob;
+sandbox.__apiImpl = async () => ({ session: { message_count: 0, messages: [] } });
+input.value = '';
+const sendCallsBeforeStale = sendCalls;
+const staleDispatch = newestSocket.onmessage({ data: new ParkedBlob() });
+await flush();
+jarvis.disconnect();
+const afterReconnect = await openJarvis();
+releaseBlob();
+await staleDispatch;
+await flush();
+assert.equal(sendCalls, sendCallsBeforeStale, 'a socket superseded during Blob decode must not start a Hermes task');
+assert.equal(input.value, '', 'a stale socket must not leave a prompt in the composer');
+assert.equal(
+  afterReconnect.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'a stale frame must not answer on the new socket',
+);
+
+// ---- one provider frame must not launch unbounded work -------------------
+// hermesToolRunning resets after each awaited call, so without a cap a single
+// frame can run run_hermes end to end, repeatedly, across the authority
+// boundary.
+let boundedReads = 0;
+sandbox.__apiImpl = async () => {
+  boundedReads += 1;
+  if (boundedReads === 1) return { session: { message_count: 0, messages: [] } };
+  return { session: { message_count: 2, messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'bounded' }] } };
+};
+input.value = '';
+const sendCallsBeforeBound = sendCalls;
+await afterReconnect.onmessage({
+  data: JSON.stringify({
+    toolCall: {
+      functionCalls: [
+        { id: 'b1', name: 'run_hermes', args: { task: 'first' } },
+        { id: 'b2', name: 'run_hermes', args: { task: 'second' } },
+        { id: 'b3', name: 'run_hermes', args: { task: 'third' } },
+      ],
+    },
+  }),
+});
+assert.equal(sendCalls, sendCallsBeforeBound + 1, 'at most one Hermes task may run per provider tool frame');
+const boundedReply = afterReconnect.sent.filter((message) => message.includes('toolResponse')).at(-1);
+assert.ok(boundedReply.includes('b1') && boundedReply.includes('bounded'), 'the first call still runs');
+assert.ok(/b2[^]*at most/.test(boundedReply), 'extra calls are rejected explicitly, not silently dropped');
+
+// Oversized and empty task text must be refused before it reaches the composer.
+input.value = '';
+const sendCallsBeforeText = sendCalls;
+await afterReconnect.onmessage({
+  data: JSON.stringify({
+    toolCall: { functionCalls: [{ id: 'big', name: 'run_hermes', args: { task: 'x'.repeat(5000) } }] },
+  }),
+});
+await afterReconnect.onmessage({
+  data: JSON.stringify({
+    toolCall: { functionCalls: [{ id: 'empty', name: 'run_hermes', args: { task: '   ' } }] },
+  }),
+});
+assert.equal(sendCalls, sendCallsBeforeText, 'oversized and empty tasks must never reach core send()');
+assert.equal(input.value, '', 'a refused task must not leave a prompt in the composer');
+
+// ---- keyboard: Escape from the toggle, without tabbing in first ----------
+const { panel, button, card, log: logEl } = domNodes;
+assert.ok(panel && button && card, 'render() must have built the panel');
+assert.equal(button.parent, panel, 'the toggle is a child of the panel');
+assert.equal(card.parent, panel, 'the card is a SIBLING of the toggle, not its ancestor');
+
+// Enter/Space on the toggle fires click and leaves focus on the toggle.
+dispatchEvent(button, 'click', {});
+assert.equal(card.hidden, false, 'the toggle opens the card');
+assert.equal(button.getAttribute('aria-expanded'), 'true');
+button.focused = false;
+
+// Escape now, with focus still on the toggle — no tabbing into the card.
+dispatchEvent(button, 'keydown', { key: 'Escape' });
+assert.equal(card.hidden, true, 'Escape from the toggle must close the card');
+assert.equal(button.getAttribute('aria-expanded'), 'false');
+assert.equal(button.focused, true, 'focus must return to the toggle');
+
+// Other keys must not close it.
+dispatchEvent(button, 'click', {});
+dispatchEvent(button, 'keydown', { key: 'a' });
+assert.equal(card.hidden, false, 'only Escape closes the card');
+dispatchEvent(button, 'keydown', { key: 'Escape' });
+
+// ---- transcript stays bounded over a long session ------------------------
+const longLine = 'y'.repeat(900);
+await afterReconnect.onmessage({
+  data: JSON.stringify({ serverContent: { outputTranscription: { text: longLine } } }),
+});
+assert.ok(logEl.childElementCount >= 1, 'transcript received the line');
+assert.equal(logEl.lastElementChild.textContent.length, 500, 'an over-long line is truncated');
+for (let i = 0; i < 260; i += 1) {
+  await afterReconnect.onmessage({
+    data: JSON.stringify({ serverContent: { outputTranscription: { text: `line ${i}` } } }),
+  });
+}
+assert.equal(logEl.childElementCount, 200, 'transcript must stay capped at 200 lines');
+assert.ok(
+  logEl.firstElementChild.textContent.length <= 500,
+  'each transcript line must stay bounded',
+);
 
 console.log('ok jarvis voice runtime checks');
 process.exit(0);

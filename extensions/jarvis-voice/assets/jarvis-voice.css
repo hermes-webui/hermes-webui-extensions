@@ -93,6 +93,13 @@
   }
 }
 
+/* Touch targets. 7px padding around 13px text is roughly 28px, under the 44px
+   floor. Raised only where the pointer is a finger, so desktop density is
+   unchanged. */
+@media (pointer: coarse), (max-width: 480px) {
+  .jarvis-actions button { min-height: 44px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   #jarvisVoiceButton[data-state="listening"] {
     animation: none;
