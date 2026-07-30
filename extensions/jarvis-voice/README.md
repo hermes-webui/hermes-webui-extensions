@@ -5,6 +5,25 @@ button powered by **Gemini Live**. Gemini handles realtime speech and calls one
 browser tool, `run_hermes`, whenever a request needs action. Hermes remains the
 authority for tools, credentials, approvals, and dangerous writes.
 
+## What Google Receives
+
+While Jarvis is connected, the following leaves your machine for Google's Gemini
+Live service:
+
+- **Your microphone audio**, streamed continuously as 16 kHz PCM for as long as
+  **Talk** is active — not only when you are addressing Jarvis.
+- **Speech-to-text transcripts** of both sides of the conversation (Jarvis
+  enables input and output transcription).
+- **The task text** Gemini composes for `run_hermes`, which is derived from what
+  you said.
+- **Hermes's final reply text** for each `run_hermes` call, truncated to 8,000
+  characters, returned to Gemini so it can speak the answer.
+
+Gemini gets no direct access to Hermes tools, files, or credentials; `run_hermes`
+is the only boundary crossing. But the content above does reach a third party, so
+do not use Jarvis in a session whose transcript must stay local. Click **Stop** or
+**Disconnect** to end the audio stream.
+
 ## What It Does
 
 - Adds a floating **J** button.
@@ -80,6 +99,7 @@ Also on `window.HermesJarvisVoice`:
 - `.connect()`
 - `.disconnect()`
 - `.startMic()` / `.stopMic()`
+- `.stopPlayback()` — silences the rest of the current spoken turn
 - `.runHermes(task)`
 
 ## Disable And Uninstall

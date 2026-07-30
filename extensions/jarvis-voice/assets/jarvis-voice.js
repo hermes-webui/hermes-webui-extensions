@@ -16,6 +16,8 @@
     micEpoch: 0,
     playCtx: null,
     nextPlayAt: 0,
+    playEpoch: 0,
+    playSuppressed: false,
     activeSources: [],
     connectPromise: null,
     disconnectEpoch: 0,
@@ -44,22 +46,25 @@
     };
   }
 
-  function esc(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, (c) => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[c]));
-  }
-
   function setStatus(text) {
     if (state.status) state.status.textContent = text;
     if (state.button) state.button.dataset.state = text.toLowerCase().split(/\s+/)[0] || 'idle';
   }
 
+  // A long voice session emits a transcript line per utterance forever, so the
+  // panel is bounded in both directions: oldest lines are dropped, and one
+  // pathological line cannot balloon the DOM on its own.
+  const LOG_MAX_LINES = 200;
+  const LOG_MAX_CHARS = 500;
+
   function log(text) {
     if (!state.transcript) return;
     const line = document.createElement('div');
-    line.textContent = text;
+    line.textContent = String(text == null ? '' : text).slice(0, LOG_MAX_CHARS);
     state.transcript.appendChild(line);
+    while (state.transcript.childElementCount > LOG_MAX_LINES) {
+      state.transcript.removeChild(state.transcript.firstElementChild);
+    }
     state.transcript.scrollTop = state.transcript.scrollHeight;
   }
 
@@ -88,11 +93,17 @@
   }
 
   async function playPcm24(base64) {
+    if (state.playSuppressed) return;
+    // Snapshot the epoch: a Stop that lands while we are awaiting resume() must
+    // not have its silence undone by this chunk finishing its await and
+    // scheduling anyway.
+    const epoch = state.playEpoch;
     if (!state.playCtx) {
       state.playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
       state.nextPlayAt = state.playCtx.currentTime;
     }
     if (state.playCtx.state === 'suspended') await state.playCtx.resume();
+    if (state.playSuppressed || epoch !== state.playEpoch) return;
     const floats = pcm16ToFloat32(b64ToBytes(base64));
     const buf = state.playCtx.createBuffer(1, floats.length, 24000);
     buf.copyToChannel(floats, 0);
@@ -106,8 +117,21 @@
     src.onended = () => { state.activeSources = state.activeSources.filter((item) => item !== src); };
   }
 
-  function stopPlayback() {
+  // `suppress` is the difference between the two reasons playback stops. A user
+  // pressing Stop wants silence for the rest of this turn, so later chunks of it
+  // must be dropped too. A Gemini `interrupted` only means "discard what is
+  // queued" — its replacement audio follows immediately and must still play.
+  function stopPlayback(suppress = false) {
+    state.playEpoch += 1;
+    if (suppress) state.playSuppressed = true;
     state.activeSources.splice(0).forEach((src) => { try { src.stop(); } catch (_) {} });
+    if (state.playCtx) state.nextPlayAt = state.playCtx.currentTime;
+  }
+
+  // Turn boundary: a completed turn, a fresh user utterance, or pressing Talk
+  // all mean the user is engaged again, so stop swallowing audio.
+  function resumePlayback() {
+    state.playSuppressed = false;
     if (state.playCtx) state.nextPlayAt = state.playCtx.currentTime;
   }
 
@@ -239,6 +263,9 @@
             settled = true;
             clearTimeout(timer);
             state.connected = true;
+            // A new session must not inherit the previous one's Stop suppression,
+            // or reconnected audio stays silent until the user presses Talk.
+            resumePlayback();
             setStatus('ready');
             resolve();
           }
@@ -253,9 +280,10 @@
   async function handleGemini(msg, ws = state.ws) {
     if (msg.type === 'setup') { log('jarvis ready'); return; }
     if (msg.type === 'audio') { await playPcm24(msg.data); return; }
-    if (msg.type === 'input') { log(`you: ${msg.data}`); return; }
+    if (msg.type === 'input') { resumePlayback(); log(`you: ${msg.data}`); return; }
     if (msg.type === 'output' || msg.type === 'text') { log(`jarvis: ${msg.data}`); return; }
     if (msg.type === 'interrupted') { stopPlayback(); return; }
+    if (msg.type === 'turnComplete') { resumePlayback(); return; }
     if (msg.type === 'tool') { await handleToolCall(msg.data, ws); }
   }
 
@@ -276,8 +304,18 @@
     sendGemini({ toolResponse: { functionResponses: responses } }, ws);
   }
 
+  // Core declares `const S = {...}` at the top level of a classic script
+  // (static/ui.js), which creates a global LEXICAL binding: it is reachable as a
+  // bare `S` but never lands on `window`, so reading it off `window` yields
+  // undefined in the shipped app. Resolve the bare identifier, guarded so a slip
+  // degrades to a clear error instead of a raw ReferenceError.
+  function coreState() {
+    try { return typeof S === 'undefined' ? null : S; } catch (_) { return null; }
+  }
+
   function currentSid() {
-    return window.S && window.S.session && window.S.session.session_id;
+    const core = coreState();
+    return core && core.session && core.session.session_id;
   }
 
   function hermesBusy(session, app) {
@@ -291,8 +329,19 @@
     );
   }
 
-  async function readSession(sid) {
-    const path = `/api/session?session_id=${encodeURIComponent(sid)}&messages=1&resolve_model=0&msg_limit=500`;
+  // Transcript window pulled once, after the count advances and the session goes
+  // idle. Big enough to hold the marked user turn plus an agent turn's tool rows,
+  // small enough that it is nothing like core's 500-message maximum.
+  const REPLY_WINDOW = 40;
+  const POLL_MIN_MS = 600;
+  const POLL_MAX_MS = 2500;
+
+  // `messages=0` is core's own metadata-poll shape: it skips the transcript and
+  // still returns message_count, so the completion check costs a few bytes
+  // instead of re-downloading the whole conversation every tick.
+  async function readSession(sid, withMessages = false) {
+    const path = `/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`
+      + (withMessages ? `&messages=1&msg_limit=${REPLY_WINDOW}` : '&messages=0');
     if (typeof api === 'function') return api(path);
     const res = await fetch(path, { credentials: 'include' });
     if (!res.ok) throw new Error(`session fetch failed: ${res.status}`);
@@ -300,43 +349,60 @@
   }
 
   function latestAssistantAfterRequest(messages, requestId) {
-    let sawRequest = false;
+    let inTurn = false;
     let reply = '';
     for (const msg of messages) {
-      const text = String((msg && (msg.content || msg.text)) || '');
-      if (msg && msg.role === 'user' && text.includes(requestId)) {
-        sawRequest = true;
-        reply = '';
-      } else if (sawRequest && msg && msg.role === 'assistant' && !msg._live && text) {
-        reply = text;
+      if (!msg) continue;
+      const text = String((msg.content || msg.text) || '');
+      if (msg.role === 'user') {
+        if (text.includes(requestId)) {
+          inTurn = true;
+          reply = '';
+        } else if (inTurn) {
+          // A later user turn closes ours. Anything past it answers a different
+          // request and must never be handed back as this task's result.
+          break;
+        }
+        continue;
       }
+      if (inTurn && msg.role === 'assistant' && !msg._live && text) reply = text;
     }
     return reply;
   }
 
   async function waitForHermes(sid, beforeCount, timeoutMs, requestId) {
     const start = Date.now();
+    let delay = POLL_MIN_MS;
     while (Date.now() - start < timeoutMs) {
-      const data = await readSession(sid);
-      const session = data && data.session || {};
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      // Back off: a Hermes agent run can take minutes, and a fixed fast tick just
+      // spends core's request budget to learn nothing.
+      delay = Math.min(POLL_MAX_MS, Math.round(delay * 1.5));
+      const meta = await readSession(sid, false);
+      const metaSession = (meta && meta.session) || {};
+      if (hermesBusy(metaSession, {})) continue;
+      const count = Number(metaSession.message_count ?? 0);
+      if (!(count > beforeCount + 1)) continue;
+      const data = await readSession(sid, true);
+      const session = (data && data.session) || {};
+      if (hermesBusy(session, {})) continue;
       const messages = Array.isArray(session.messages) ? session.messages : [];
-      const count = Number(session.message_count || messages.length || 0);
-      const busy = hermesBusy(session, {});
       const reply = latestAssistantAfterRequest(messages, requestId);
-      if (!busy && count > beforeCount + 1 && reply) return reply.slice(0, 8000);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (reply) return reply.slice(0, 8000);
     }
     throw new Error('Hermes did not finish before the Jarvis tool timeout');
   }
 
   function composerBlockReason(msg, sid, ownPrompt = '') {
+    const core = coreState();
+    if (!core) return 'Hermes WebUI state is unavailable.';
     if (currentSid() !== sid) return 'The active Hermes conversation changed. Ask before sending this voice task.';
-    if (window.S && window.S.session && (window.S.session.read_only || window.S.session.is_read_only)) return 'Read-only imported sessions cannot be modified.';
+    if (core.session && (core.session.read_only || core.session.is_read_only)) return 'Read-only imported sessions cannot be modified.';
     if (document.querySelector && document.querySelector('.msg-edit-area')) return 'A message edit is active. Finish or cancel the edit before sending a voice task.';
-    if (hermesBusy(window.S.session, window.S)) return 'Hermes is already running a task. Ask the user whether to wait, stop it, or steer it.';
+    if (hermesBusy(core.session, core)) return 'Hermes is already running a task. Ask the user whether to wait, stop it, or steer it.';
     const draft = String(msg.value || '');
     if (draft.trim() && draft !== String(ownPrompt || '')) return 'The user already has an unsent composer draft. Ask before replacing or sending anything.';
-    if (Array.isArray(window.S.pendingFiles) && window.S.pendingFiles.length) return 'The user has pending attachments in the composer. Ask before sending a voice task.';
+    if (Array.isArray(core.pendingFiles) && core.pendingFiles.length) return 'The user has pending attachments in the composer. Ask before sending a voice task.';
     return '';
   }
 
@@ -350,7 +416,8 @@
 
   async function runHermes(task) {
     if (!task) throw new Error('task is required');
-    if (!window.S) throw new Error('Hermes WebUI state is unavailable');
+    const core = coreState();
+    if (!core) throw new Error('Hermes WebUI state is unavailable');
     if (state.hermesToolRunning) return 'Hermes is already handling a Jarvis tool call. Ask the user to wait.';
     state.hermesToolRunning = true;
     try {
@@ -360,13 +427,14 @@
       if (!sid) throw new Error('No active Hermes session');
       const blocked = composerBlockReason(msg, sid);
       if (blocked) return blocked;
-      const baseline = await readSession(sid);
+      // Baseline only needs the count and the busy flags, so take the cheap
+      // metadata shape here too.
+      const baseline = await readSession(sid, false);
       const blockedAfterBaseline = composerBlockReason(msg, sid);
       if (blockedAfterBaseline) return blockedAfterBaseline;
       const baselineSession = baseline && baseline.session || {};
       if (hermesBusy(baselineSession, {})) return 'Hermes is already running a task. Ask the user whether to wait, stop it, or steer it.';
-      const baselineMessages = Array.isArray(baselineSession.messages) ? baselineSession.messages : [];
-      const beforeCount = Number(baselineSession.message_count ?? (window.S.session && window.S.session.message_count) ?? baselineMessages.length ?? (Array.isArray(window.S.messages) ? window.S.messages.length : 0));
+      const beforeCount = Number(baselineSession.message_count ?? (core.session && core.session.message_count) ?? (Array.isArray(core.messages) ? core.messages.length : 0));
       const requestId = `jarvis_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
       const prompt = `${task}\n\n<!-- jarvis_request_id:${requestId} -->`;
       log(`hermes ← ${task}`);
@@ -433,6 +501,8 @@
         state.captureNode.connect(state.silentNode);
         state.silentNode.connect(state.captureCtx.destination);
         state.listening = true;
+        // Pressing Talk is a turn boundary: lift any Stop-induced suppression.
+        resumePlayback();
         setStatus('listening');
       } catch (err) {
         stopMic();
@@ -461,7 +531,7 @@
   function disconnect() {
     state.disconnectEpoch += 1;
     stopMic();
-    stopPlayback();
+    stopPlayback(true);
     if (state.ws) { try { state.ws.close(); } catch (_) {} state.ws = null; }
     state.connected = false;
     setStatus('closed');
@@ -472,8 +542,8 @@
     const panel = document.createElement('div');
     panel.id = 'jarvisVoicePanel';
     panel.innerHTML = `
-      <button id="jarvisVoiceButton" type="button" aria-label="Toggle Jarvis voice"><span>J</span></button>
-      <div id="jarvisVoiceCard" hidden>
+      <button id="jarvisVoiceButton" type="button" aria-label="Toggle Jarvis voice" aria-expanded="false" aria-controls="jarvisVoiceCard"><span>J</span></button>
+      <div id="jarvisVoiceCard" role="region" aria-label="Jarvis voice controls" hidden>
         <div class="jarvis-head"><strong>Jarvis</strong><span id="jarvisVoiceStatus">closed</span></div>
         <div class="jarvis-actions">
           <button type="button" data-jarvis="talk">Talk</button>
@@ -489,15 +559,27 @@
     state.status = panel.querySelector('#jarvisVoiceStatus');
     state.transcript = panel.querySelector('#jarvisVoiceLog');
     const card = panel.querySelector('#jarvisVoiceCard');
-    state.button.addEventListener('click', () => { card.hidden = !card.hidden; });
+    state.button.addEventListener('click', () => {
+      const opening = card.hidden;
+      card.hidden = !opening;
+      state.button.setAttribute('aria-expanded', String(opening));
+    });
     panel.querySelector('[data-jarvis="talk"]').addEventListener('click', async () => {
       try { state.listening ? stopMic() : await startMic(); } catch (err) { setStatus('error'); log(`error: ${err.message || err}`); }
     });
-    panel.querySelector('[data-jarvis="stop"]').addEventListener('click', () => { stopMic(); stopPlayback(); });
+    panel.querySelector('[data-jarvis="stop"]').addEventListener('click', () => { stopMic(); stopPlayback(true); });
     panel.querySelector('[data-jarvis="disconnect"]').addEventListener('click', disconnect);
   }
 
-  window.HermesJarvisVoice = { connect, disconnect, startMic, stopMic, runHermes };
+  window.HermesJarvisVoice = {
+    connect,
+    disconnect,
+    startMic,
+    stopMic,
+    // Same semantics as the Stop button: silence the rest of this turn.
+    stopPlayback: () => stopPlayback(true),
+    runHermes,
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render, { once: true });
   else render();
 })();
