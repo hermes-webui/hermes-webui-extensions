@@ -14,6 +14,8 @@
     sourceNode: null,
     micStartPromise: null,
     micEpoch: 0,
+    captureChunks: [],
+    captureSamples: 0,
     playCtx: null,
     nextPlayAt: 0,
     playEpoch: 0,
@@ -80,6 +82,31 @@
     let bin = '';
     for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
     return btoa(bin);
+  }
+
+  // 100ms at 16kHz. Sending one socket frame per render quantum measured at 874
+  // outbound frames over a ten-second exchange against live Gemini — roughly 90 a
+  // second, each holding a few dozen samples. The payload was never the problem,
+  // the frame count was.
+  const CAPTURE_BATCH_SAMPLES = 1600;
+
+  // Send whatever capture is pending. Called on every full batch and, critically,
+  // by stopMic() before it signals end-of-stream: discarding the tail would clip
+  // the speaker's last word, and server-side VAD cannot recover audio it never
+  // received.
+  function flushCapture() {
+    const chunks = state.captureChunks;
+    const total = state.captureSamples;
+    state.captureChunks = [];
+    state.captureSamples = 0;
+    if (!total) return;
+    if (!state.connected || !state.ws || state.ws.readyState !== 1) return;
+    const merged = new Int16Array(total);
+    let at = 0;
+    for (const chunk of chunks) { merged.set(chunk, at); at += chunk.length; }
+    try {
+      sendGemini({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data: bytesToB64(merged.buffer) } } });
+    } catch (_) {}
   }
 
   function pcm16ToFloat32(bytes) {
@@ -623,11 +650,13 @@
         state.micStream = stream;
         state.captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         if (state.captureCtx.state === 'suspended' && typeof state.captureCtx.resume === 'function') await state.captureCtx.resume();
-        // BATCH_SAMPLES is 100ms at 16kHz. Posting once per render quantum meant
-        // roughly 90 WebSocket frames a second, each carrying a few dozen
-        // samples — measured at 874 frames over ten seconds against live Gemini.
-        // The payload was never the problem; the frame count was.
-        const worklet = `const BATCH_SAMPLES=1600;class P extends AudioWorkletProcessor{constructor(){super();this.offset=0;this.buf=[];}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;for(;this.offset<c.length;this.offset+=ratio){const s=Math.max(-1,Math.min(1,c[Math.floor(this.offset)]));this.buf.push(s<0?s*32768:s*32767);}this.offset-=c.length;if(this.buf.length<BATCH_SAMPLES)return true;const pcm=new Int16Array(this.buf);this.buf=[];this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
+        // The worklet posts every render quantum. That is deliberately cheap —
+        // postMessage carries a transferred buffer, no JSON and no base64 — and it
+        // keeps the pending tail on the main thread, where stopMic() can flush it
+        // synchronously before end-of-stream. Batching inside the worklet cut the
+        // socket frame count just as well but put the tail somewhere only an async
+        // round trip could reach, which clipped the speaker's last word.
+        const worklet = `class P extends AudioWorkletProcessor{constructor(){super();this.offset=0;}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;const out=[];for(;this.offset<c.length;this.offset+=ratio){const s=Math.max(-1,Math.min(1,c[Math.floor(this.offset)]));out.push(s<0?s*32768:s*32767);}this.offset-=c.length;if(!out.length)return true;const pcm=new Int16Array(out);this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
         const url = URL.createObjectURL(new Blob([worklet], { type: 'application/javascript' }));
         try { await state.captureCtx.audioWorklet.addModule(url); }
         finally { URL.revokeObjectURL(url); }
@@ -636,7 +665,11 @@
         state.captureNode = new AudioWorkletNode(state.captureCtx, 'jarvis-capture');
         state.captureNode.port.onmessage = (event) => {
           if (!state.listening || !state.connected) return;
-          sendGemini({ realtimeInput: { audio: { mimeType: 'audio/pcm;rate=16000', data: bytesToB64(event.data) } } });
+          const chunk = new Int16Array(event.data);
+          if (!chunk.length) return;
+          state.captureChunks.push(chunk);
+          state.captureSamples += chunk.length;
+          if (state.captureSamples >= CAPTURE_BATCH_SAMPLES) flushCapture();
         };
         state.silentNode = state.captureCtx.createGain();
         state.silentNode.gain.value = 0;
@@ -660,9 +693,15 @@
     state.micEpoch += 1;
     const wasListening = state.listening;
     state.listening = false;
-    if (wasListening && state.connected && state.ws && state.ws.readyState === 1) {
-      try { sendGemini({ realtimeInput: { audioStreamEnd: true } }); } catch (_) {}
+    if (wasListening) {
+      // Order matters: the tail goes out first, then end-of-stream.
+      flushCapture();
+      if (state.connected && state.ws && state.ws.readyState === 1) {
+        try { sendGemini({ realtimeInput: { audioStreamEnd: true } }); } catch (_) {}
+      }
     }
+    state.captureChunks = [];
+    state.captureSamples = 0;
     if (state.sourceNode) { try { state.sourceNode.disconnect(); } catch (_) {} state.sourceNode = null; }
     if (state.captureNode) { try { state.captureNode.disconnect(); } catch (_) {} state.captureNode = null; }
     if (state.silentNode) { try { state.silentNode.disconnect(); } catch (_) {} state.silentNode = null; }

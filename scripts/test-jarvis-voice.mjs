@@ -503,10 +503,37 @@ assert.equal(stoppedTrack, true);
 sandbox.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } };
 await jarvis.startMic();
 assert.equal(resumeCalls, 1);
-workletNode.port.onmessage({ data: new Int16Array([1, -1]).buffer });
-assert.equal(newSocket.sent.some((message) => message.includes('audio/pcm;rate=16000')), true);
+// Capture is batched, so a sub-batch amount of speech is held rather than sent
+// as its own socket frame.
+const beforeTail = newSocket.sent.length;
+workletNode.port.onmessage({ data: new Int16Array(400).buffer });
+assert.equal(
+  newSocket.sent.slice(beforeTail).some((m) => m.includes('audio/pcm;rate=16000')),
+  false,
+  'a sub-batch amount of audio should be buffered, not sent as its own frame',
+);
+
+// ...but stopping must FLUSH that tail, and flush it BEFORE end-of-stream.
+// Otherwise up to a batch of speech is silently discarded and the speaker's last
+// word is clipped: server-side VAD cannot recover audio it never received.
 jarvis.stopMic();
-assert.equal(newSocket.sent.some((message) => message.includes('audioStreamEnd')), true);
+const tail = newSocket.sent.slice(beforeTail);
+const audioIndex = tail.findIndex((m) => m.includes('audio/pcm;rate=16000'));
+const endIndex = tail.findIndex((m) => m.includes('audioStreamEnd'));
+assert.ok(audioIndex >= 0, 'stopMic must flush the buffered tail instead of dropping it');
+assert.ok(endIndex >= 0, 'stopMic must still signal end of stream');
+assert.ok(audioIndex < endIndex, 'the tail must be sent BEFORE audioStreamEnd');
+
+// A full batch still goes out immediately while listening.
+await jarvis.startMic();
+const beforeFull = newSocket.sent.length;
+workletNode.port.onmessage({ data: new Int16Array(1600).buffer });
+assert.equal(
+  newSocket.sent.slice(beforeFull).some((m) => m.includes('audio/pcm;rate=16000')),
+  true,
+  'a full batch must be sent without waiting for stop',
+);
+jarvis.stopMic();
 
 oldSocket.onclose();
 await jarvis.connect();
@@ -945,11 +972,10 @@ await assert.rejects(jarvis.connect(), /502/);
 sandbox.fetch = async () => ({ ok: false, status: 403, json: async () => ({ error: 'Extension sidecar proxy consent required' }) });
 await assert.rejects(jarvis.connect(), /Settings → Extensions/);
 
-// ---- capture worklet must batch, not send a frame per render quantum ------
-// Measured against live Gemini: 497 outbound frames in about four seconds, then
-// 874 over ten — roughly 90 WebSocket messages a second, each carrying a few
-// dozen samples. The payload is small; the frame count is the problem. Batch to
-// ~100ms so it is closer to 10 a second.
+// ---- worklet resampling, and main-thread batching ------------------------
+// Batching lives on the MAIN thread, not in the worklet, so stopMic() can flush
+// the tail synchronously (see the tail-flush assertions above). The worklet's job
+// is only to downsample correctly and hand buffers over cheaply.
 const workletSource = js.match(/const worklet = `([\s\S]*?)`;/)[1];
 const captured = [];
 const workletCtx = {
@@ -964,20 +990,27 @@ assert.equal(typeof workletCtx.__processor, 'function', 'worklet must register a
 const processor = new workletCtx.__processor();
 // 100 render quanta of 128 frames at 48kHz = 12800 frames = ~266ms of audio.
 for (let i = 0; i < 100; i += 1) processor.process([[new Float32Array(128)]]);
-assert.ok(
-  captured.length >= 1,
-  'the worklet must emit something for 266ms of audio',
-);
-assert.ok(
-  captured.length <= 5,
-  `266ms of audio must not become ${captured.length} socket frames`,
-);
-// And what it emits must still be ~16kHz mono PCM: 266ms ≈ 4260 samples total.
+assert.ok(captured.length >= 1, 'the worklet must emit something for 266ms of audio');
+// 266ms of 48kHz input must come out as ~4260 samples of 16kHz mono PCM.
 const totalSamples = captured.reduce((a, n) => a + n, 0);
 assert.ok(
   totalSamples > 3000 && totalSamples < 4400,
   `expected roughly 4260 samples of 16kHz audio, got ${totalSamples}`,
 );
+
+// Now the batching, at the layer that owns it. Feeding the same 266ms through the
+// main-thread handler must produce a handful of socket frames, not ~90 a second:
+// live Gemini saw 874 outbound frames over a ten-second exchange before this.
+// The token-failure cases above left a rejecting fetch behind; restore one.
+sandbox.fetch = async () => ({ ok: true, json: async () => ({ token: 'token' }) });
+const batchSocket = await openJarvis();
+await jarvis.startMic();
+const beforeBatch = batchSocket.sent.length;
+for (const samples of captured) workletNode.port.onmessage({ data: new Int16Array(samples).buffer });
+const frames = batchSocket.sent.slice(beforeBatch).filter((m) => m.includes('audio/pcm;rate=16000')).length;
+assert.ok(frames >= 1, 'the batched audio must actually reach the socket');
+assert.ok(frames <= 4, `266ms of audio must not become ${frames} socket frames`);
+jarvis.stopMic();
 
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
