@@ -5,10 +5,90 @@ finding (op B overwriting A's terminal record → A falsely reported as succeede
 Runnable directly (``python3 test_op_ownership.py``) or via pytest. No docker
 needed: we drive ``docker_stats._start_op`` with fake runners.
 """
+import os
+import tempfile
 import threading
 import time
 
 import docker_stats
+
+
+class _FakeR:
+    def __init__(self, rc=0, out="", err=""):
+        self.returncode, self.stdout, self.stderr = rc, out, err
+
+
+def _run_docker_update(*, workdir, config_files, ps_out, inventory,
+                       cid="abc123def456", compose_rc=0):
+    """Drive the REAL docker_update() with a faked docker CLI + inventory, so items
+    1 & 2 (replica authorization, compose-file reconstruction, --no-deps) are exercised
+    end to end. Returns (result, compose_calls)."""
+    ds = docker_stats
+    saved = (ds.subprocess.run, ds.docker_present, ds._inventory_ids,
+             ds._image_local_digest, ds._image_version_label, ds.updates_forget)
+    compose_calls = []
+
+    def fake_run(argv, **kw):
+        sub = argv[1] if len(argv) > 1 else ""
+        if sub == "inspect":
+            return _FakeR(0, "\t".join(["img:latest", "proj", "svc", workdir, config_files, "/proj-svc-1"]))
+        if sub == "ps":
+            return _FakeR(0, ps_out)
+        if sub == "compose":
+            compose_calls.append(argv)
+            return _FakeR(compose_rc, "ok")
+        return _FakeR(0, "")
+
+    ds.subprocess.run = fake_run
+    ds.docker_present = lambda: True
+    ds._inventory_ids = lambda: set(inventory)
+    ds._image_local_digest = lambda img: "sha256:" + ("new" if compose_calls else "old")
+    ds._image_version_label = lambda img: "v1"
+    ds.updates_forget = lambda name: None
+    try:
+        return ds.docker_update(cid), compose_calls
+    finally:
+        (ds.subprocess.run, ds.docker_present, ds._inventory_ids,
+         ds._image_local_digest, ds._image_version_label, ds.updates_forget) = saved
+
+
+def test_docker_update_reconstructs_compose_files_and_uses_no_deps():
+    # PR #67 items 1+2: the recreate passes the recorded -f config files and --no-deps,
+    # so a custom compose filename is honored and dependencies/hidden replicas aren't
+    # touched.
+    d = tempfile.mkdtemp()
+    cfg = os.path.join(d, "compose.prod.yml")            # non-default filename
+    open(cfg, "w").write("services: {}\n")
+    res, calls = _run_docker_update(
+        workdir=d, config_files=cfg, ps_out="abc123def456\n", inventory={"abc123def456"})
+    assert res.get("ok") is True, res
+    pull, up = calls
+    assert pull[:3] == [docker_stats._DOCKER, "compose", "-p"] and "-f" in pull and cfg in pull, pull
+    assert "-f" in up and cfg in up and "--no-deps" in up and up[-1] == "svc", up
+
+
+def test_docker_update_rejects_hidden_replica():
+    # PR #67 item 1: a replica of the (project, service) that is NOT in the filtered
+    # inventory makes the update fail closed — no compose call happens.
+    d = tempfile.mkdtemp()
+    cfg = os.path.join(d, "docker-compose.yml")
+    open(cfg, "w").write("services: {}\n")
+    res, calls = _run_docker_update(
+        workdir=d, config_files=cfg,
+        ps_out="abc123def456\ndeadbeef9999\n",           # 2nd replica is hidden
+        inventory={"abc123def456"})
+    assert res == {"ok": False, "error": "hidden_replica"}, res
+    assert calls == [], "no compose op may run when a replica is hidden"
+
+
+def test_docker_update_fails_closed_when_compose_config_unrecoverable():
+    # PR #67 item 2: no recorded config_files label → refuse rather than guessing the
+    # default docker-compose.yml in workdir.
+    d = tempfile.mkdtemp()
+    res, calls = _run_docker_update(
+        workdir=d, config_files="", ps_out="abc123def456\n", inventory={"abc123def456"})
+    assert res == {"ok": False, "error": "compose_config_unrecoverable"}, res
+    assert calls == []
 
 
 def _wait_until(pred, timeout=5.0):
@@ -101,10 +181,10 @@ def test_bulk_poll_returns_own_result_after_next_bulk_starts():
 
 
 def test_bulk_startup_window_shows_own_state_not_previous():
-    # PR #67 startup-window ownership: after bulk B mints its id, a poll on B's id
-    # during the worker's target-enumeration window (before `total` is filled) must
-    # show B's OWN clean state (done=0, results=[]) — never the PREVIOUS bulk A's
-    # done/results carried over under B's id.
+    # PR #67 startup-window ownership: bulk B's state is initialized ATOMICALLY at
+    # id-mint (targets are precomputed BEFORE the reservation, so `total` is real
+    # immediately). A poll on B's id must show B's OWN clean state (done=0,
+    # results=[], its own total) — never the PREVIOUS bulk A's done/results.
     ds = docker_stats
     orig_targets, orig_update = ds._updatable_targets, ds.docker_update
     try:
@@ -116,37 +196,76 @@ def test_bulk_startup_window_shows_own_state_not_previous():
         assert _wait_until(lambda: not ds.docker_update_bulk_status(a_id)["running"]), "bulk A never finished"
         assert any(not r["ok"] for r in ds.docker_update_bulk_status(a_id)["results"]), "A should record a failure"
 
-        # Bulk B: block its WORKER inside target enumeration — that's the startup
-        # window, after the id is minted but before `total` is filled. The POST's
-        # own n-check is the 1st enumeration and must NOT block (so the call returns
-        # and B is minted); the 2nd enumeration (the worker) blocks.
+        # Bulk B: block its WORKER inside the first per-container update — that holds B
+        # running with done=0, the moment a stale poll could read A's carried-over data.
         entered = threading.Event()
         release = threading.Event()
-        calls = {"n": 0}
-        def slow_targets(project=None):
-            calls["n"] += 1
-            if calls["n"] >= 2:            # the worker's enumeration
-                entered.set()
-                release.wait(5)
-            return [{"id": "c1", "name": "ct", "compose_project": "p"}]
-        ds._updatable_targets = slow_targets
-        ds.docker_update = lambda cid: {"ok": True}
+        def slow_update(cid):
+            entered.set()
+            release.wait(5)
+            return {"ok": True}
+        ds.docker_update = slow_update
         b = ds.docker_update_bulk("all")
         b_id = b["id"]
         assert b_id != a_id
-        assert entered.wait(5), "bulk B worker never reached target enumeration"
+        assert entered.wait(5), "bulk B worker never reached the update"
 
         # THE REGRESSION: B's poll shows B's OWN startup state, not A's carried-over data.
         bs = ds.docker_update_bulk_status(b_id)
         assert bs["running"] is True and bs["id"] == b_id, bs
         assert bs["done"] == 0 and bs["results"] == [], bs   # not A's done=1 / [failed]
-        assert bs["total"] == 0, bs                          # worker hasn't filled total yet
+        assert bs["total"] == 1, bs                          # precomputed at id-mint, never 0-then-filled
 
         release.set()
         assert _wait_until(lambda: not ds.docker_update_bulk_status(b_id)["running"]), "bulk B never finished"
         assert all(r["ok"] for r in ds.docker_update_bulk_status(b_id)["results"]), "B's own success result"
     finally:
         ds._updatable_targets, ds.docker_update = orig_targets, orig_update
+
+
+def test_bulk_reservation_released_on_enumerate_failure():
+    # PR #67 item 3: a malformed persisted state (enumeration raises) must NOT strand
+    # the reservation with running:true — it returns a clean error and the next bulk
+    # can still start.
+    ds = docker_stats
+    orig_targets = ds._updatable_targets
+    try:
+        def boom(project=None):
+            raise ValueError("malformed state")
+        ds._updatable_targets = boom
+        r = ds.docker_update_bulk("all")
+        assert r["ok"] is False and "enumerate_failed" in r["error"], r
+        with ds._bulk_lock:
+            assert ds._bulk_state["running"] is False, ds._bulk_state   # reservation not held
+        # a subsequent healthy bulk still starts (nothing to update, but NOT blocked)
+        ds._updatable_targets = lambda project=None: []
+        r2 = ds.docker_update_bulk("all")
+        assert r2["ok"] is True and r2["started"] is False, r2
+    finally:
+        ds._updatable_targets = orig_targets
+
+
+def test_updatable_targets_dedupes_by_service():
+    # PR #67 item 1: multiple replicas of one (project, service) collapse to a single
+    # target — docker_update recreates every replica in one compose call.
+    ds = docker_stats
+    orig_stats, orig_updates = ds.docker_stats, ds.docker_updates
+    try:
+        ds.docker_stats = lambda: {"containers": [
+            {"id": "a1", "name": "web-1", "compose_project": "p", "compose_service": "web", "image": "img"},
+            {"id": "a2", "name": "web-2", "compose_project": "p", "compose_service": "web", "image": "img"},
+            {"id": "b1", "name": "db-1", "compose_project": "p", "compose_service": "db", "image": "db"},
+        ]}
+        ds.docker_updates = lambda refresh=False: {"containers": [
+            {"name": "web-1", "update_available": True},
+            {"name": "web-2", "update_available": True},
+            {"name": "db-1", "update_available": True},
+        ]}
+        tgt = ds._updatable_targets(None)
+        keys = sorted((c["compose_project"], c["compose_service"]) for c in tgt)
+        assert keys == [("p", "db"), ("p", "web")], keys   # web collapsed to one
+    finally:
+        ds.docker_stats, ds.docker_updates = orig_stats, orig_updates
 
 
 def test_unknown_bulk_id_is_honest():
@@ -159,5 +278,10 @@ if __name__ == "__main__":
     test_unknown_op_id_is_honest()
     test_bulk_poll_returns_own_result_after_next_bulk_starts()
     test_bulk_startup_window_shows_own_state_not_previous()
+    test_bulk_reservation_released_on_enumerate_failure()
+    test_updatable_targets_dedupes_by_service()
+    test_docker_update_reconstructs_compose_files_and_uses_no_deps()
+    test_docker_update_rejects_hidden_replica()
+    test_docker_update_fails_closed_when_compose_config_unrecoverable()
     test_unknown_bulk_id_is_honest()
-    print("ok — sysinfo op + bulk ownership regression passed")
+    print("ok — sysinfo op + bulk ownership + host-control regression passed")

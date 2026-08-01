@@ -232,6 +232,10 @@ window.mcSpeedtestAutoConfig = function(){
   const cur = window._mcSpeedtestAuto || { interval_minutes: 0, at_time: '' };
   const mode = cur.interval_minutes > 0 ? 'interval' : (cur.at_time ? 'daily' : 'off');
   const hrs = cur.interval_minutes > 0 ? (cur.interval_minutes / 60) : '';
+  // Validate the persisted at_time (server-supplied) to a strict HH:MM at READ time —
+  // it flows into innerHTML below, and HTML-escaping an attribute value is not enough
+  // if it were ever malformed. Anything not HH:MM falls back to the default.
+  const atTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(cur.at_time || '') ? cur.at_time : '03:00';
   const inputCss = 'background:var(--surface, #1c2130);color:var(--text, #e6e8ee);border:1px solid var(--border, #2a2f3a);border-radius:6px;padding:3px 6px';
   const btnCss = 'padding:6px 14px;border-radius:8px;border:1px solid var(--border, #2a2f3a);background:var(--surface, #1c2130);color:var(--text, #e6e8ee);cursor:pointer;min-height:24px';
   const ov = document.createElement('div');
@@ -241,7 +245,7 @@ window.mcSpeedtestAutoConfig = function(){
       <div style="font-weight:600;margin-bottom:12px">⚡ Automatic speed test</div>
       <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="stauto" value="off" ${mode==='off'?'checked':''}> Off</label>
       <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="stauto" value="interval" ${mode==='interval'?'checked':''}> Every <input id="stAutoHrs" type="number" min="1" max="168" step="1" value="${hrs||6}" style="width:64px;${inputCss}"> hours</label>
-      <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="stauto" value="daily" ${mode==='daily'?'checked':''}> Daily at <input id="stAutoTime" type="time" value="${cur.at_time||'03:00'}" style="${inputCss}"></label>
+      <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="stauto" value="daily" ${mode==='daily'?'checked':''}> Daily at <input id="stAutoTime" type="time" value="${atTime}" style="${inputCss}"></label>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
         <button id="stAutoCancel" style="${btnCss}">Cancel</button>
         <button id="stAutoSave" style="${btnCss};border-color:var(--accent, #3a7);color:var(--accent, #3a7)">Save</button>
@@ -400,10 +404,15 @@ function _mcDockerRowHtml(c) {
     ? `<span class="mc-docker-updbadge" title="${esc(upd.note || 'update available')}">update</span>` : '';
   const updItem = (upd && upd.compose_service) && hasUpdate
     ? `<button type="button" role="menuitem" class="mc-docker-mi mc-docker-mi--update"
-                    onclick="mcDockerUpdate('${esc(cid)}', this)">⬆ Update</button>` : '';
+                    data-mc-act="update">⬆ Update</button>` : '';
   const nameTitle = (override ? realName + '\n  ' : '') + (c.id || '') + '\n  ' + (c.image || '') + '\n  ' + (c.status || '');
+  // cid/cname live ONLY in the row's data-* attributes (HTML-attribute context,
+  // esc-safe) and reach the handlers via a delegated listener that reads them with
+  // getAttribute — never interpolated into inline onclick JavaScript, where HTML
+  // entity-decoding before handler compilation would defeat HTML escaping (PR #67
+  // review, item 5). Action buttons carry a static data-mc-act only.
   return `
-      <div class="mc-docker-row" data-docker-id="${esc(cid)}">
+      <div class="mc-docker-row" data-docker-id="${esc(cid)}" data-docker-name="${esc(cname)}">
         <span class="${dotCls}" title="${esc(dotTitle)}" aria-label="${esc(dotTitle)}"></span>
         <span class="mc-docker-name" title="${esc(nameTitle)}"><span class="mc-docker-name-text">${esc(displayName)}${renamedTag}${svc}</span>${updBadge}</span>
         <span class="mc-docker-cell">CPU ${esc(c.cpu_percent || '—')}</span>
@@ -414,17 +423,37 @@ function _mcDockerRowHtml(c) {
                   title="Container actions" aria-label="Container actions" onclick="mcDockerMenu(this, event)">⋮</button>
           <div class="mc-docker-menu" role="menu" hidden>
             <button type="button" role="menuitem" class="mc-docker-mi mc-docker-mi--start" ${canStart ? '' : 'disabled'}
-                    onclick="mcDockerAction('${esc(cid)}', 'start', this)">▶ Start</button>
+                    data-mc-act="start">▶ Start</button>
             <button type="button" role="menuitem" class="mc-docker-mi mc-docker-mi--restart" ${canRestart ? '' : 'disabled'}
-                    onclick="mcDockerAction('${esc(cid)}', 'restart', this)">↻ Restart</button>
+                    data-mc-act="restart">↻ Restart</button>
             <button type="button" role="menuitem" class="mc-docker-mi mc-docker-mi--stop" ${canStop ? '' : 'disabled'}
-                    onclick="mcDockerAction('${esc(cid)}', 'stop', this)">■ Stop</button>
+                    data-mc-act="stop">■ Stop</button>
             ${updItem}
             <button type="button" role="menuitem" class="mc-docker-mi mc-docker-mi--rename"
-                    onclick="mcDockerRenameContainer('${esc(cname)}', event)">✎ Rename</button>
+                    data-mc-act="rename">✎ Rename</button>
           </div>
         </span>
       </div>`;
+}
+
+// Delegated click handler for the per-container action buttons. Container id/name
+// come from the row's data-* attributes via getAttribute (a value, never compiled
+// code), so a crafted id/name can't reach a JS execution context. Attached once to
+// the stable list element (survives the poll's innerHTML row replacement).
+function _mcDockerActionDelegate(e) {
+  const btn = (e.target && e.target.closest) ? e.target.closest('button[data-mc-act]') : null;
+  if (!btn || btn.disabled) return;
+  const row = btn.closest('[data-docker-id]');
+  const cid = row ? row.getAttribute('data-docker-id') : '';
+  const act = btn.getAttribute('data-mc-act');
+  if (act === 'rename') {
+    const nm = row ? row.getAttribute('data-docker-name') : '';
+    if (typeof window.mcDockerRenameContainer === 'function') window.mcDockerRenameContainer(nm, e);
+  } else if (act === 'update') {
+    if (typeof window.mcDockerUpdate === 'function') window.mcDockerUpdate(cid, btn);
+  } else if (act === 'start' || act === 'stop' || act === 'restart') {
+    if (typeof window.mcDockerAction === 'function') window.mcDockerAction(cid, act, btn);
+  }
 }
 
 function _mcRenderDockerCard(payload) {
@@ -432,6 +461,9 @@ function _mcRenderDockerCard(payload) {
   const list = document.getElementById('systemHealthDockerList');
   const countEl = document.getElementById('systemHealthDockerCount');
   if (!wrap || !list) return;
+  // Attach the per-container action delegate ONCE to the stable list element; it
+  // survives the poll's innerHTML row replacement (item 5 — no inline onclick).
+  if (!list._mcActDelegated) { list.addEventListener('click', _mcDockerActionDelegate); list._mcActDelegated = true; }
   const docker = payload && payload.docker;
   _mcLastDockerPayload = payload;
   _mcDockerRestoreUpdates();   // bring back a previous check's badges/pill (persists across refresh)
@@ -452,8 +484,11 @@ function _mcRenderDockerCard(payload) {
     if (list.querySelector('.mc-docker-menu:not([hidden])')) return;
 
     // Group by compose project (first-appearance order; ungrouped sinks last).
+    // Null-prototype map so a compose project literally named "constructor" or
+    // "__proto__" groups correctly — a plain {} would see inherited prototype keys
+    // via `k in byKey` and push onto Object.prototype.constructor.
     const order = [];
-    const byKey = {};
+    const byKey = Object.create(null);
     docker.containers.forEach(c => {
       const k = (c.compose_project || '').trim();
       if (!(k in byKey)) { byKey[k] = []; order.push(k); }
@@ -631,6 +666,18 @@ window.mcDockerAction = async function(cid, action, btnEl) {
   }
 };
 
+// A destructive action MUST be confirmed. If the host provides no confirm dialog,
+// fail CLOSED (refuse + toast) rather than proceeding unconfirmed. `focusCancel` is
+// forced on so the default focus is Cancel on every destructive prompt.
+async function _mcConfirmDestructive(opts) {
+  if (typeof showConfirmDialog !== 'function') {
+    if (typeof showToast === 'function')
+      showToast('Confirmation dialog unavailable — cancelled for safety.', undefined, 'error');
+    return false;
+  }
+  return await showConfirmDialog(Object.assign({ danger: true, focusCancel: true }, opts));
+}
+
 // stack-level action — start/restart/stop EVERY container in a compose
 // project in one server call (/api/system/docker/group-action). Stop/restart
 // confirm first since they take down the whole stack.
@@ -643,14 +690,12 @@ window.mcDockerGroupAction = async function(idx, action, btnEl) {
     return;
   }
   const label = _mcGroupLabel(key);
-  if ((action === 'stop' || action === 'restart') && typeof showConfirmDialog === 'function') {
+  if (action === 'stop' || action === 'restart') {
     const verb = action === 'stop' ? 'Stop' : 'Restart';
-    const ok = await showConfirmDialog({
+    const ok = await _mcConfirmDestructive({
       title: `${verb} stack “${label}”?`,
       message: `This will ${action} every container in this stack.`,
       confirmLabel: `${verb} all`,
-      danger: action === 'stop',
-      focusCancel: action === 'stop',
     });
     if (!ok) return;
   }
@@ -730,7 +775,7 @@ window.mcDockerUpdateStack = async function(idx, btn){
   // idx (not the raw label) is passed in from the render so a crafted compose
   // project name can never reach the inline onclick string. Resolve it here.
   const project = _mcDockerGroupOrder[idx]; if (project === undefined) return;
-  const _ok = (typeof showConfirmDialog === 'function') ? await showConfirmDialog({ title:'Update stack', message:`Update the "${project}" stack now? Its updatable images will be pulled and the containers recreated (dependency-first).`, confirmLabel:'Update', danger:true }) : true;
+  const _ok = await _mcConfirmDestructive({ title:'Update stack', message:`Update the "${project}" stack now? Its updatable images will be pulled and the containers recreated (dependency-first).`, confirmLabel:'Update' });
   if (!_ok) return;
   if (btn) btn.disabled = true;
   try {
@@ -745,7 +790,7 @@ window.mcDockerUpdateStack = async function(idx, btn){
   finally { if (btn) btn.disabled = false; }
 };
 window.mcDockerUpdateAll = async function(){
-  const _ok = (typeof showConfirmDialog === 'function') ? await showConfirmDialog({ title:'Update all stacks', message:'Update ALL stacks now? Every stack with an available update will be pulled and recreated, dependency-first (data stores → infra → apps). Affected services briefly restart.', confirmLabel:'Update all', danger:true }) : true;
+  const _ok = await _mcConfirmDestructive({ title:'Update all stacks', message:'Update ALL stacks now? Every stack with an available update will be pulled and recreated, dependency-first (data stores → infra → apps). Affected services briefly restart.', confirmLabel:'Update all' });
   if (!_ok) return;
   try {
     const r = await api('/api/system/docker/update-bulk', { method:'POST', body: JSON.stringify({ scope:'all' }) });

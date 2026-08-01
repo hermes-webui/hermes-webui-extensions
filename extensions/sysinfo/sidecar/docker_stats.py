@@ -535,12 +535,14 @@ def docker_update(container_id: str) -> dict[str, Any]:
             [_DOCKER, "inspect", container_id, "--format",
              '{{.Config.Image}}\t{{index .Config.Labels "com.docker.compose.project"}}\t'
              '{{index .Config.Labels "com.docker.compose.service"}}\t'
-             '{{index .Config.Labels "com.docker.compose.project.working_dir"}}\t{{.Name}}'],
+             '{{index .Config.Labels "com.docker.compose.project.working_dir"}}\t'
+             '{{index .Config.Labels "com.docker.compose.project.config_files"}}\t{{.Name}}'],
             capture_output=True, text=True, timeout=10,
         )
         if r.returncode != 0:
             return {"ok": False, "error": "no_such_container"}
-        image, project, service, workdir, cname = (r.stdout.strip().split("\t") + ["", "", "", "", ""])[:5]
+        image, project, service, workdir, config_files, cname = (
+            r.stdout.strip().split("\t") + ["", "", "", "", "", ""])[:6]
         cname = _clean_label(cname.lstrip("/"))   # update records + UI map are keyed by name
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}"}
@@ -560,18 +562,64 @@ def docker_update(container_id: str) -> dict[str, Any]:
     _COMPOSE_REF = r"[a-zA-Z0-9_.][a-zA-Z0-9_.\-]{0,127}"
     if not _re.fullmatch(_COMPOSE_REF, project) or not _re.fullmatch(_COMPOSE_REF, service):
         return {"ok": False, "error": "invalid_compose_ref"}
+    # Reconstruct the EXACT compose invocation (defence for the recreate). workdir +
+    # project + service alone silently resolves to whatever docker-compose.yml sits
+    # in workdir — losing a custom/multiple ``-f``, a non-default filename, or an env
+    # file, so the recreate could apply a DIFFERENT definition than the running one.
+    # Recover the recorded config files and pass them explicitly; fail closed if the
+    # label is missing/unparseable (never guess).
+    _files = [p.strip() for p in (config_files or "").split(",") if p.strip()]
+    if not _files:
+        return {"ok": False, "error": "compose_config_unrecoverable"}
+    file_args: list[str] = []
+    for f in _files:
+        fpath = f if os.path.isabs(f) else os.path.join(workdir, f)
+        # A leading '-' on the file (or resolved basename) would be parsed by
+        # `docker compose` as an option — reject before it reaches argv.
+        if f.startswith("-") or os.path.basename(fpath).startswith("-"):
+            return {"ok": False, "error": "invalid_compose_file"}
+        if not os.path.isfile(fpath):
+            return {"ok": False, "error": "compose_file_missing"}
+        if _root and not _path_within(fpath, _root):
+            return {"ok": False, "error": "compose_file_outside_root"}
+        file_args += ["-f", fpath]
+    # `compose up -d <service>` recreates EVERY replica of the service and, without
+    # --no-deps, can start/recreate its dependencies. Enumerate every container of
+    # this (project, service) and require they are ALL in the filtered inventory —
+    # fail closed if any replica is hidden from the UI — then recreate with --no-deps
+    # so only this service is touched.
+    try:
+        ps = subprocess.run(
+            [_DOCKER, "ps", "-a",
+             "--filter", "label=com.docker.compose.project=" + project,
+             "--filter", "label=com.docker.compose.service=" + service,
+             "--format", "{{.ID}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        replica_ids = [x.strip() for x in (ps.stdout or "").splitlines() if x.strip()]
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}"}
+    _inv = _inventory_ids()
+
+    def _authorized(rid: str) -> bool:
+        # inventory ids and `docker ps` ids share a source/format; tolerate a
+        # short/long mismatch by common-prefix match.
+        return any(rid == i or rid.startswith(i) or i.startswith(rid) for i in _inv)
+
+    if any(not _authorized(rid) for rid in replica_ids):
+        return {"ok": False, "error": "hidden_replica"}
     old_digest = _image_local_digest(image)
     # Pull the new image, then recreate only this service.
     try:
         pull = subprocess.run(
-            [_DOCKER, "compose", "-p", project, "pull", service],
+            [_DOCKER, "compose", "-p", project, *file_args, "pull", service],
             cwd=workdir, capture_output=True, text=True, timeout=600,
         )
         if pull.returncode != 0:
             err = (pull.stderr or pull.stdout or "").strip().splitlines()
             return {"ok": False, "error": err[-1] if err else "pull_failed", "phase": "pull"}
         up = subprocess.run(
-            [_DOCKER, "compose", "-p", project, "up", "-d", service],
+            [_DOCKER, "compose", "-p", project, *file_args, "up", "-d", "--no-deps", service],
             cwd=workdir, capture_output=True, text=True, timeout=300,
         )
         if up.returncode != 0:
@@ -646,7 +694,18 @@ def _updatable_targets(project: str | None = None) -> list[dict[str, Any]]:
             continue  # only compose-managed containers are updatable
         out.append(c)
     out.sort(key=lambda c: (_update_priority(c), c.get("compose_project") or "", c.get("name") or ""))
-    return out
+    # Deduplicate by (project, service): docker_update recreates EVERY replica of a
+    # service in one `compose up`, so multiple replicas of the same service must not
+    # each schedule their own recreate (double work + racing recreations).
+    seen: set = set()
+    deduped: list[dict[str, Any]] = []
+    for c in out:
+        key = (c.get("compose_project") or "", c.get("compose_service") or "")
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(c)
+    return deduped
 
 
 _bulk_lock = _threading_du.Lock()
@@ -654,34 +713,46 @@ _bulk_state: dict[str, Any] = {
     "running": False, "id": 0, "scope": "", "project": "", "total": 0, "done": 0,
     "current": "", "results": [], "started_at": 0, "finished_at": 0,
 }
-_bulk_seq = 0
+# Op/bulk ids are seeded from a process-start epoch (not 0) so that after a sidecar
+# restart new ids never collide with an id an old browser tab is still polling: a
+# stale poll for a pre-restart id then reads {unknown:true}, never a new op's record.
+# ×100000 keeps a full second of monotonic headroom between restarts (no realistic
+# op rate approaches it) while staying well under 2**53 for safe JSON round-trips.
+_ID_EPOCH = int(_time.time()) * 100000
+_bulk_seq = _ID_EPOCH
 
 
-def _bulk_worker(scope: str, project: str | None) -> None:
-    targets = _updatable_targets(project if scope == "stack" else None)
-    with _bulk_lock:
-        # The full job state was initialized atomically at id-mint in
-        # docker_update_bulk(); here we only fill in the enumerated target count.
-        _bulk_state["total"] = len(targets)
-    for c in targets:
+def _bulk_worker(targets: list[dict[str, Any]], bid: int) -> None:
+    # `targets` is precomputed by docker_update_bulk() (enumerated once, before the
+    # reservation) so a malformed-state exception can't strand the reservation here.
+    # The body is wrapped so the reservation is ALWAYS released and an id-owned
+    # terminal record is ALWAYS written — even on an unexpected crash.
+    try:
+        for c in targets:
+            with _bulk_lock:
+                if _bulk_state["id"] != bid:
+                    return                    # superseded — never touch a newer bulk's state
+                _bulk_state["current"] = c.get("name") or ""
+            try:
+                res = docker_update(c["id"])
+            except Exception as exc:
+                res = {"ok": False, "error": f"{type(exc).__name__}"}
+            with _bulk_lock:
+                if _bulk_state["id"] != bid:
+                    return
+                _bulk_state["done"] += 1
+                _bulk_state["results"].append({
+                    "name": c.get("name"), "stack": c.get("compose_project"),
+                    "prio": _update_priority(c), "ok": bool(res.get("ok")),
+                    "changed": bool(res.get("changed")), "error": res.get("error"),
+                })
+    finally:
         with _bulk_lock:
-            _bulk_state["current"] = c.get("name") or ""
-        try:
-            res = docker_update(c["id"])
-        except Exception as exc:
-            res = {"ok": False, "error": f"{type(exc).__name__}"}
-        with _bulk_lock:
-            _bulk_state["done"] += 1
-            _bulk_state["results"].append({
-                "name": c.get("name"), "stack": c.get("compose_project"),
-                "prio": _update_priority(c), "ok": bool(res.get("ok")),
-                "changed": bool(res.get("changed")), "error": res.get("error"),
-            })
-    with _bulk_lock:
-        _bulk_state.update(running=False, current="", finished_at=int(_time.time()))
-        # Retain this bulk's terminal record by id so a slow poller reads ITS OWN
-        # outcome, never a later bulk's (the PR #67 bulk-path ownership finding).
-        _record_bulk_result_locked(dict(_bulk_state))
+            if _bulk_state["id"] == bid:
+                _bulk_state.update(running=False, current="", finished_at=int(_time.time()))
+                # Retain this bulk's terminal record by id so a slow poller reads ITS
+                # OWN outcome, never a later bulk's (PR #67 bulk-path ownership finding).
+                _record_bulk_result_locked(dict(_bulk_state))
 
 
 def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]:
@@ -693,6 +764,13 @@ def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]
         return {"ok": False, "error": "invalid_scope"}
     if scope == "stack" and not project:
         return {"ok": False, "error": "missing_project"}
+    # Enumerate the target list ONCE, before reserving the slot, so a malformed
+    # persisted-state exception surfaces as a clean error instead of stranding the
+    # reservation with running:true. (Enumeration does its own I/O — keep it off-lock.)
+    try:
+        targets = _updatable_targets(project if scope == "stack" else None)
+    except Exception as exc:
+        return {"ok": False, "error": f"enumerate_failed: {type(exc).__name__}"}
     global _bulk_seq
     with _bulk_lock:
         if _bulk_state.get("running") or _op_state.get("running"):
@@ -700,24 +778,31 @@ def docker_update_bulk(scope: str, project: str | None = None) -> dict[str, Any]
             return {"ok": False, "error": "already_running", "state": dict(_bulk_state)}
         _bulk_seq += 1
         bid = _bulk_seq
-        # Initialize the FULL new-job state atomically under the lock (not just
-        # running+id). Otherwise, in the window after we release the lock and
-        # before _bulk_worker enumerates targets and fills `total`, a poll on this
-        # id would read the PREVIOUS bulk's done/total/results under this id
-        # (PR #67 bulk-path startup-window finding). The worker fills `total`
-        # once it has enumerated targets.
+        # Initialize the FULL new-job state atomically under the lock, with the real
+        # `total` from the precomputed list — so there is no startup window where a
+        # poll on this id could read the PREVIOUS bulk's done/total/results (PR #67
+        # bulk-path startup-window finding).
         _bulk_state.update(running=True, id=bid, scope=scope, project=(project or ""),
-                           total=0, done=0, current="", results=[],
+                           total=len(targets), done=0, current="", results=[],
                            started_at=int(_time.time()), finished_at=0)
-    n = len(_updatable_targets(project if scope == "stack" else None))
-    if n == 0:
+    if not targets:
         with _bulk_lock:
             _bulk_state.update(running=False, finished_at=int(_time.time()))
+            _record_bulk_result_locked(dict(_bulk_state))   # id-owned terminal record
         return {"ok": True, "started": False, "total": 0, "id": bid, "note": "nothing to update"}
-    t = _threading_du.Thread(target=_bulk_worker, args=(scope, project),
-                             name="docker-bulk-update", daemon=True)
-    t.start()
-    return {"ok": True, "started": True, "total": n, "id": bid}
+    try:
+        t = _threading_du.Thread(target=_bulk_worker, args=(targets, bid),
+                                 name="docker-bulk-update", daemon=True)
+        t.start()
+    except Exception as exc:
+        # Thread failed to start — release the reservation and record the failure so
+        # the id never stays running:true forever.
+        with _bulk_lock:
+            if _bulk_state["id"] == bid:
+                _bulk_state.update(running=False, finished_at=int(_time.time()))
+                _record_bulk_result_locked(dict(_bulk_state))
+        return {"ok": False, "error": f"thread_start_failed: {type(exc).__name__}", "id": bid}
+    return {"ok": True, "started": True, "total": len(targets), "id": bid}
 
 
 def docker_update_bulk_status(bulk_id: "int | None" = None) -> dict[str, Any]:
@@ -749,7 +834,7 @@ _op_state: dict[str, Any] = {
     "running": False, "kind": "", "target": "", "action": "",
     "result": None, "started_at": 0, "finished_at": 0, "id": 0,
 }
-_op_seq = 0
+_op_seq = _ID_EPOCH   # restart-safe id base (see _ID_EPOCH above)
 
 # Terminal results are retained per operation id in a bounded, TTL-capped buffer so
 # a slow poller always reads ITS OWN op's outcome — never a later op's. Without this,
