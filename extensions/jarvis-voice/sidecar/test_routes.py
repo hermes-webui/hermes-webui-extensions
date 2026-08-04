@@ -5,6 +5,7 @@ import email.message
 import io
 import json
 import os
+import tempfile
 from types import SimpleNamespace
 from urllib.request import HTTPSHandler, ProxyHandler, build_opener
 
@@ -72,6 +73,10 @@ def install(responder):
     )
 
 
+# Isolate the key-file location: the route resolves it under $HOME at call
+# time, and these tests must not see (or touch) the developer's real key.
+os.environ["HOME"] = tempfile.mkdtemp()
+
 app = App()
 routes_impl.register(app)
 assert [(method, path) for method, path, _ in app.routes] == [("POST", "/api/token")]
@@ -131,5 +136,44 @@ os.environ.pop("GEMINI_API_KEY")
 os.environ.pop("GOOGLE_API_KEY", None)
 status, _, _ = handler(SimpleNamespace())
 assert status == 503
+
+# -- the key file is the scoped configuration path -------------------------
+# Importing the key into the systemd user manager hands it to every user
+# service; a mode-0600 file owned by the sidecar's user does not. The file is
+# preferred over the environment, and a file with loose permissions is refused
+# outright — silently falling back around a misconfigured file would defeat the
+# point of scoping it.
+key_dir = os.path.join(os.environ["HOME"], ".config", "jarvis-voice")
+os.makedirs(key_dir)
+key_path = os.path.join(key_dir, "api_key")
+with open(key_path, "w", encoding="utf-8") as fh:
+    fh.write("file-key\n")
+os.chmod(key_path, 0o600)
+install(lambda req: StubResponse(200, body=json.dumps({"name": "auth_tokens/file"}).encode()))
+status, _, body = handler(SimpleNamespace())
+assert status == 200, (status, body)
+assert attempts[0]["headers"]["X-goog-api-key"] == "file-key"
+
+# A group/world-readable key file is refused, even with an env var available.
+os.chmod(key_path, 0o644)
+os.environ["GEMINI_API_KEY"] = "env-key"
+status, _, body = handler(SimpleNamespace())
+assert status == 503, (status, body)
+assert "600" in json.loads(body)["error"]
+
+# Restored permissions work again; the file wins over the environment.
+os.chmod(key_path, 0o600)
+install(lambda req: StubResponse(200, body=json.dumps({"name": "auth_tokens/file2"}).encode()))
+status, _, _ = handler(SimpleNamespace())
+assert status == 200
+assert attempts[0]["headers"]["X-goog-api-key"] == "file-key"
+
+# No file: the environment fallback still serves manual (non-systemd) runs.
+os.remove(key_path)
+install(lambda req: StubResponse(200, body=json.dumps({"name": "auth_tokens/env"}).encode()))
+status, _, _ = handler(SimpleNamespace())
+assert status == 200
+assert attempts[0]["headers"]["X-goog-api-key"] == "env-key"
+os.environ.pop("GEMINI_API_KEY")
 
 print("ok jarvis sidecar routes")

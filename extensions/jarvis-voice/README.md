@@ -40,15 +40,19 @@ WebUI authentication must be enabled under **Settings → Password**. Then appro
 Jarvis Voice under **Settings → Extensions** so the core can provision the
 per-extension proxy token.
 
-Install the extension. Export the key in your shell, then keep it out of the
-unit by placing it in the user manager environment with mode `0600`:
+Install the extension. Put the Gemini key in the sidecar's own key file — do
+**not** import it into the systemd user manager, where every subsequently
+started user service would inherit it:
 
 ```bash
-export GEMINI_API_KEY=your_key_here
-install -d -m 700 ~/.config/environment.d
-(umask 077; printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > ~/.config/environment.d/jarvis-voice.conf)
-systemctl --user import-environment GEMINI_API_KEY
+install -d -m 700 ~/.config/jarvis-voice
+(umask 077; printf '%s\n' 'your_key_here' > ~/.config/jarvis-voice/api_key)
 ```
+
+The sidecar reads `~/.config/jarvis-voice/api_key` and refuses to start a
+token request if the file is group- or world-accessible; keep it mode `0600`.
+(For manual, non-systemd runs, `GEMINI_API_KEY` in the launching shell still
+works as a fallback when no key file exists.)
 
 Then install and start the sidecar service:
 
@@ -64,6 +68,14 @@ The service runs only the reviewed standard-library sidecar:
 ```text
 /usr/bin/python3 -S -u sidecar.py
 ```
+
+If your WebUI uses a non-default profile or state directory, the sidecar must
+look for the core-provisioned proxy token in the same place: add a local
+drop-in (`systemctl --user edit jarvis-voice-sidecar`) setting
+`Environment=HERMES_WEBUI_STATE_DIR=/path/to/that/state/dir`, then
+`systemctl --user daemon-reload && systemctl --user restart
+jarvis-voice-sidecar`. A drop-in on your machine does not modify the shipped
+unit file.
 
 Allow Gemini Live WebSocket connections in WebUI CSP before starting WebUI:
 

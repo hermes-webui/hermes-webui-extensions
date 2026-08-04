@@ -40,6 +40,33 @@ class _NoRedirects(HTTPRedirectHandler):
 _OPENER = build_opener(ProxyHandler({}), _NoRedirects())
 
 
+def _read_key_file() -> tuple[str | None, str | None]:
+    """Read the Gemini key from the sidecar-owned key file.
+
+    A key imported into the systemd user manager is inherited by every user
+    service; a mode-0600 file under the sidecar's own user is scoped to
+    whoever can already read that user's files. A present-but-loose file is a
+    hard error rather than a fallback to the environment — silently working
+    around a misconfigured key file would defeat the scoping.
+    Returns (key, error); both None means "no file, try the environment".
+    """
+    path = os.path.join(os.path.expanduser("~"), ".config", "jarvis-voice", "api_key")
+    try:
+        mode = os.stat(path).st_mode
+    except OSError:
+        return None, None
+    if mode & 0o077:
+        return None, "Gemini key file must not be group/world accessible (chmod 600 ~/.config/jarvis-voice/api_key)"
+    try:
+        with open(path, encoding="utf-8") as fh:
+            key = fh.read().strip()
+    except OSError:
+        return None, "Gemini key file is unreadable"
+    if not key:
+        return None, "Gemini key file is empty"
+    return key, None
+
+
 def _timestamp(value: dt.datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
 
@@ -81,7 +108,10 @@ def _mint_token(api_key: str) -> tuple[dict | None, str | None]:
 def register(app) -> None:
     @app.route("POST", "/api/token")
     def create_token(req):
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        file_key, file_error = _read_key_file()
+        if file_error:
+            return app.json({"error": file_error}, status=503)
+        api_key = file_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         if not api_key:
             return app.json({"error": "Gemini API key is not configured"}, status=503)
         payload, error = _mint_token(api_key)
