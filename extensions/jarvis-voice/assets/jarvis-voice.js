@@ -22,6 +22,7 @@
     playSuppressed: false,
     activeSources: [],
     connectPromise: null,
+    cancelConnect: null,
     disconnectEpoch: 0,
     hermesToolRunning: false,
     panel: null,
@@ -245,7 +246,7 @@
   async function connect() {
     if (state.connected) return;
     if (state.connectPromise) return state.connectPromise;
-    state.connectPromise = (async () => {
+    const attempt = (async () => {
       const epoch = state.disconnectEpoch;
       const cancelled = () => epoch !== state.disconnectEpoch;
       const cfg = settings();
@@ -286,6 +287,7 @@
         const fail = (err) => {
           if (settled) return;
           settled = true;
+          state.cancelConnect = null;
           clearTimeout(timer);
           state.connected = false;
           if (ws && state.ws === ws) { try { ws.close(); } catch (_) {} }
@@ -299,9 +301,19 @@
           return;
         }
         state.ws = ws;
+        // Handed to disconnect() so a mid-setup cancel settles this promise NOW
+        // instead of at its 15-second deadline.
+        state.cancelConnect = () => fail(new Error('Jarvis connection cancelled'));
         ws.onopen = () => { if (state.ws !== ws || cancelled()) { fail(new Error('Jarvis connection cancelled')); return; } sendSetup(ws); };
         ws.onclose = () => {
           if (state.ws !== ws) return;
+          // A close the user never asked for still takes this socket's
+          // authority with it: advance the generation and drop the reference so
+          // tool work parked on an await (Blob decode, session read, completion
+          // poll) fails its ownership recheck instead of acting for a dead
+          // session.
+          state.disconnectEpoch += 1;
+          state.ws = null;
           state.connected = false;
           state.listening = false;
           setStatus('closed');
@@ -321,6 +333,7 @@
           const messages = parseGeminiMessage(parsed);
           if (!settled && messages.some((msg) => msg.type === 'setup')) {
             settled = true;
+            state.cancelConnect = null;
             clearTimeout(timer);
             state.connected = true;
             // A new session must not inherit the previous one's Stop suppression,
@@ -336,8 +349,12 @@
         };
       });
     })();
-    try { return await state.connectPromise; }
-    finally { state.connectPromise = null; }
+    state.connectPromise = attempt;
+    // Only this attempt may clear the slot: disconnect() may already have
+    // replaced it with null (or a newer connect with its own promise), and
+    // clobbering that would poison the reconnect this guard exists to protect.
+    try { return await attempt; }
+    finally { if (state.connectPromise === attempt) state.connectPromise = null; }
   }
 
   async function handleGemini(msg, ws = state.ws, epoch = state.disconnectEpoch) {
@@ -724,6 +741,11 @@
     state.disconnectEpoch += 1;
     stopMic();
     stopPlayback(true);
+    // A pending connect must settle NOW, not at its 15-second deadline:
+    // connect() reuses the stored promise, so a pending one left behind makes
+    // the next connect adopt a socket that was already abandoned.
+    if (state.cancelConnect) { const cancel = state.cancelConnect; state.cancelConnect = null; cancel(); }
+    state.connectPromise = null;
     if (state.ws) { try { state.ws.close(); } catch (_) {} state.ws = null; }
     state.connected = false;
     setStatus('closed');

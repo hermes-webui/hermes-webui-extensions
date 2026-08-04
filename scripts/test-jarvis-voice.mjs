@@ -1063,5 +1063,110 @@ assert.ok(
   `above-Nyquist content must be attenuated relative to speech: 12kHz ${rms12k.toFixed(3)} vs 1kHz ${rms1k.toFixed(3)}`,
 );
 
+// ---- an unexpected provider close must revoke task authority --------------
+// disconnect() advances the generation, but a close the user never asked for
+// took the same authority away: the socket is gone, so nothing started on its
+// behalf may keep acting. Without revocation, work parked on an await resumes
+// against a dead socket and still reaches core send().
+
+// Close during Blob decode.
+const closeSocket = await openJarvis();
+let releaseBlobClose;
+class CloseParkedBlob {
+  text() { return new Promise((resolve) => { releaseBlobClose = () => resolve(staleFrame); }); }
+}
+sandbox.Blob = CloseParkedBlob;
+sandbox.__apiImpl = async () => ({ session: { message_count: 0, messages: [] } });
+input.value = '';
+const sendCallsBeforeClose = sendCalls;
+const closeDispatch = closeSocket.onmessage({ data: new CloseParkedBlob() });
+await flush();
+closeSocket.onclose();
+releaseBlobClose();
+await closeDispatch;
+await flush();
+assert.equal(sendCalls, sendCallsBeforeClose, 'a socket closed during Blob decode must not start a Hermes task');
+assert.equal(input.value, '', 'a closed socket must not leave a prompt in the composer');
+assert.equal(
+  closeSocket.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'no tool response may be sent for work revoked by a close',
+);
+
+// Close during the pre-send baseline read.
+const closeReadSocket = await openJarvis();
+let releaseCloseBaseline;
+let closeReads = 0;
+sandbox.__apiImpl = async () => {
+  closeReads += 1;
+  if (closeReads === 1) {
+    await new Promise((resolve) => { releaseCloseBaseline = resolve; });
+    return { session: { message_count: 0, messages: [] } };
+  }
+  return { session: { message_count: 2, messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'late' }] } };
+};
+input.value = '';
+const sendCallsBeforeCloseRead = sendCalls;
+const closeReadDispatch = closeReadSocket.onmessage({
+  data: JSON.stringify({
+    toolCall: { functionCalls: [{ id: 'cr', name: 'run_hermes', args: { task: 'close read task' } }] },
+  }),
+});
+await flush();
+closeReadSocket.onclose();
+releaseCloseBaseline();
+await closeReadDispatch;
+await flush();
+assert.equal(sendCalls, sendCallsBeforeCloseRead, 'close during the session read must stop the task before core send()');
+assert.equal(input.value, '', 'a revoked task must not leave a prompt in the composer');
+
+// Close during the completion poll.
+const closePollSocket = await openJarvis();
+let closePollReads = 0;
+sandbox.__apiImpl = async () => {
+  closePollReads += 1;
+  if (closePollReads === 1) return { session: { message_count: 0, messages: [] } };
+  if (closePollReads === 4) closePollSocket.onclose();
+  if (closePollReads > 8) throw new Error('polling continued after the provider closed the socket');
+  return { session: { message_count: 0, active_stream_id: 'running', messages: [] } };
+};
+input.value = '';
+await closePollSocket.onmessage({
+  data: JSON.stringify({
+    toolCall: { functionCalls: [{ id: 'cp', name: 'run_hermes', args: { task: 'close poll task' } }] },
+  }),
+});
+assert.ok(closePollReads <= 6, `polling must stop when the provider closes the socket, saw ${closePollReads} reads`);
+assert.equal(
+  closePollSocket.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'no reply may be sent to a socket the provider closed',
+);
+
+// ---- disconnect during setup must not poison the next connect -------------
+// connect() reuses a pending promise. If disconnect() leaves that promise
+// pending (its 15s timer is the only thing that settles it), an immediate
+// reconnect adopts the abandoned attempt and no new socket is ever created.
+const socketsBeforeSetupCancel = sockets.length;
+const pendingSetup = jarvis.connect();
+pendingSetup.catch(() => {});
+await flush();
+const setupSocket = sockets.at(-1);
+setupSocket.onopen();
+jarvis.disconnect();
+const reconnectAfterCancel = jarvis.connect();
+await flush();
+assert.equal(
+  sockets.length,
+  socketsBeforeSetupCancel + 2,
+  'reconnect after a mid-setup disconnect must create a fresh socket, not adopt the stale attempt',
+);
+await assert.rejects(pendingSetup, /cancelled/, 'the abandoned setup attempt must reject immediately');
+const freshSetupSocket = sockets.at(-1);
+freshSetupSocket.onopen();
+await flush();
+freshSetupSocket.onmessage({ data: JSON.stringify({ setupComplete: true }) });
+await reconnectAfterCancel;
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
