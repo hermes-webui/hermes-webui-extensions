@@ -14,19 +14,23 @@
   color: var(--text, #f7f7fb);
 }
 
+/* The glyph, the status line, and control boundaries ride on --text, not
+   --accent: core's light theme renders --accent at 2.81:1 against the surface,
+   below the 4.5:1 small-text and 3:1 boundary floors. Accent survives only in
+   the decorative listening pulse. */
 #jarvisVoiceButton {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  border: 1px solid var(--accent, #00d4ff);
+  border: 1px solid var(--text, #f7f7fb);
   background: var(--surface, #1a1a2e);
-  color: var(--accent, #00d4ff);
+  color: var(--text, #f7f7fb);
   cursor: pointer;
   font-weight: 800;
 }
 
 #jarvisVoiceButton:hover { background: var(--hover-bg, #22223a); }
-#jarvisVoiceButton:focus-visible { outline: 2px solid var(--accent, #00d4ff); outline-offset: 2px; }
+#jarvisVoiceButton:focus-visible { outline: 2px solid var(--text, #f7f7fb); outline-offset: 2px; }
 #jarvisVoiceButton[data-state="listening"] { animation: jarvisPulse 1.1s infinite; }
 
 #jarvisVoiceCard {
@@ -47,7 +51,7 @@
 }
 
 .jarvis-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.jarvis-head span { color: var(--accent, #00d4ff); font-size: 12px; }
+.jarvis-head span { color: var(--text, #f7f7fb); font-size: 12px; }
 
 .jarvis-actions { display: flex; gap: 8px; margin-bottom: 10px; }
 .jarvis-actions button {
@@ -59,8 +63,8 @@
   padding: 7px;
   cursor: pointer;
 }
-.jarvis-actions button:hover { border-color: var(--accent, #00d4ff); background: var(--hover-bg, #22223a); }
-.jarvis-actions button:focus-visible { outline: 2px solid var(--accent, #00d4ff); outline-offset: 1px; }
+.jarvis-actions button:hover { border-color: var(--text, #f7f7fb); background: var(--hover-bg, #22223a); }
+.jarvis-actions button:focus-visible { outline: 2px solid var(--text, #f7f7fb); outline-offset: 1px; }
 
 #jarvisVoiceLog {
   max-height: 180px;

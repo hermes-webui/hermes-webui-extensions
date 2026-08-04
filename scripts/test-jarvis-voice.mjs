@@ -1274,5 +1274,48 @@ await flush();
 freshSetupSocket.onmessage({ data: JSON.stringify({ setupComplete: true }) });
 await reconnectAfterCancel;
 
+// ---- voice state must be accessible and lifecycle-complete ----------------
+// The status line must carry live semantics so a screen reader hears state
+// changes, and Talk must expose its toggle state instead of silently changing
+// what a click does.
+assert.match(js, /id="jarvisVoiceStatus" role="status"/, 'the status line must be a live status region');
+
+// Small text and control boundaries may not ride on --accent: core's light
+// theme renders it at 2.81:1, below both the 4.5:1 text and 3:1 boundary floors.
+assert.equal(css.includes('color: var(--accent'), false, 'small text must not use the accent token');
+
+// Talk is a toggle: pressed while listening, not pressed after stop.
+const { talk } = domNodes;
+sandbox.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } };
+await jarvis.startMic();
+assert.equal(talk.getAttribute('aria-pressed'), 'true', 'Talk must expose pressed state while listening');
+jarvis.stopMic();
+assert.equal(talk.getAttribute('aria-pressed'), 'false', 'Talk must expose unpressed state after stop');
+
+// A deliberate Stop during startup is a cancellation, not a failure: the click
+// handler must not convert it into status "error".
+let releaseCancelledMic;
+sandbox.navigator = { mediaDevices: { getUserMedia: () => new Promise((resolve) => {
+  releaseCancelledMic = () => resolve({ getTracks: () => [{ stop() {} }] });
+}) } };
+dispatchEvent(talk, 'click', {});
+await flush();
+jarvis.stopMic();
+releaseCancelledMic();
+await flush();
+await flush();
+assert.notEqual(domNodes.status.textContent, 'error', 'a deliberate cancel must not read as an error');
+assert.equal(domNodes.status.textContent, 'ready', 'a cancelled mic start settles back to ready');
+
+// Permission revocation / device removal ends the track outside our control.
+// Capture must observe that and stop, not stay in a false "listening" state.
+const endedTrack = { stop() {}, onended: null };
+sandbox.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [endedTrack] }) } };
+await jarvis.startMic();
+assert.equal(typeof endedTrack.onended, 'function', 'capture must observe MediaStreamTrack termination');
+endedTrack.onended();
+assert.equal(talk.getAttribute('aria-pressed'), 'false', 'a dead track must end the listening state');
+assert.equal(domNodes.status.textContent, 'ready', 'a dead track must not leave status stuck on listening');
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);

@@ -29,6 +29,7 @@
     button: null,
     status: null,
     transcript: null,
+    talkButton: null,
   };
 
   function settings() {
@@ -52,6 +53,8 @@
   function setStatus(text) {
     if (state.status) state.status.textContent = text;
     if (state.button) state.button.dataset.state = text.toLowerCase().split(/\s+/)[0] || 'idle';
+    // Talk is a toggle; its pressed state must track reality, not the last click.
+    if (state.talkButton) state.talkButton.setAttribute('aria-pressed', String(!!state.listening));
   }
 
   // A long voice session emits a transcript line per utterance forever, so the
@@ -704,6 +707,13 @@
           throw new Error('Jarvis microphone cancelled');
         }
         state.micStream = stream;
+        // The track can end outside our control — permission revoked, device
+        // unplugged. Observe it, or the UI stays in a false "listening" state
+        // while no audio flows. (Our own track.stop() in stopMic does not fire
+        // this event, so there is no recursion.)
+        for (const track of stream.getTracks()) {
+          track.onended = () => { if (state.micStream === stream) { stopMic(); log('microphone ended'); } };
+        }
         state.captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         if (state.captureCtx.state === 'suspended' && typeof state.captureCtx.resume === 'function') await state.captureCtx.resume();
         // The worklet posts every render quantum. That is deliberately cheap —
@@ -780,6 +790,9 @@
     if (state.captureCtx) { try { state.captureCtx.close(); } catch (_) {} state.captureCtx = null; }
     if (state.micStream) { state.micStream.getTracks().forEach((track) => track.stop()); state.micStream = null; }
     if (state.connected) setStatus('ready');
+    // Not every path here goes through setStatus (e.g. stop while disconnected),
+    // and the pressed state must never claim a microphone that is off.
+    if (state.talkButton) state.talkButton.setAttribute('aria-pressed', String(!!state.listening));
   }
 
   function disconnect() {
@@ -803,9 +816,9 @@
     panel.innerHTML = `
       <button id="jarvisVoiceButton" type="button" aria-label="Toggle Jarvis voice" aria-expanded="false" aria-controls="jarvisVoiceCard"><span>J</span></button>
       <div id="jarvisVoiceCard" role="region" aria-label="Jarvis voice controls" hidden>
-        <div class="jarvis-head"><strong>Jarvis</strong><span id="jarvisVoiceStatus">closed</span></div>
+        <div class="jarvis-head"><strong>Jarvis</strong><span id="jarvisVoiceStatus" role="status">closed</span></div>
         <div class="jarvis-actions">
-          <button type="button" data-jarvis="talk">Talk</button>
+          <button type="button" data-jarvis="talk" aria-pressed="false">Talk</button>
           <button type="button" data-jarvis="stop">Stop</button>
           <button type="button" data-jarvis="disconnect">Disconnect</button>
         </div>
@@ -817,6 +830,7 @@
     state.button = panel.querySelector('#jarvisVoiceButton');
     state.status = panel.querySelector('#jarvisVoiceStatus');
     state.transcript = panel.querySelector('#jarvisVoiceLog');
+    state.talkButton = panel.querySelector('[data-jarvis="talk"]');
     const card = panel.querySelector('#jarvisVoiceCard');
     const setOpen = (open) => {
       card.hidden = !open;
@@ -831,8 +845,16 @@
       setOpen(false);
       if (typeof state.button.focus === 'function') state.button.focus();
     });
-    panel.querySelector('[data-jarvis="talk"]').addEventListener('click', async () => {
-      try { state.listening ? stopMic() : await startMic(); } catch (err) { setStatus('error'); log(`error: ${err.message || err}`); }
+    state.talkButton.addEventListener('click', async () => {
+      try { state.listening ? stopMic() : await startMic(); } catch (err) {
+        const message = String(err && err.message || err);
+        // A deliberate Stop or Disconnect during startup rejects as a
+        // cancellation. That is the user getting what they asked for, not a
+        // failure, so it must not read as one.
+        if (/cancelled/i.test(message)) { setStatus(state.connected ? 'ready' : 'closed'); return; }
+        setStatus('error');
+        log(`error: ${message}`);
+      }
     });
     panel.querySelector('[data-jarvis="stop"]').addEventListener('click', () => { stopMic(); stopPlayback(true); });
     panel.querySelector('[data-jarvis="disconnect"]').addEventListener('click', disconnect);
