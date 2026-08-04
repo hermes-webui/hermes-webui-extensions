@@ -1063,6 +1063,51 @@ assert.ok(
   `above-Nyquist content must be attenuated relative to speech: 12kHz ${rms12k.toFixed(3)} vs 1kHz ${rms1k.toFixed(3)}`,
 );
 
+// ---- the resampler must be streaming-safe ---------------------------------
+// The worklet sees audio in 128-sample quanta. Processing the same PCM chunked
+// versus contiguous must be bit-identical: a partial window dropped or restarted
+// at each quantum boundary corrupts the stream ~375 times a second, which no
+// per-chunk count or tone-RMS oracle can see.
+function resampleTone(sampleRate, freq, chunkSize, totalFrames) {
+  const samples = [];
+  const ctx = {
+    sampleRate,
+    AudioWorkletProcessor: class {
+      constructor() {
+        this.port = { postMessage: (buf) => { for (const v of new Int16Array(buf)) samples.push(v); } };
+      }
+    },
+    registerProcessor(name, cls) { ctx.__processor = cls; },
+  };
+  vm.runInNewContext(workletSource, ctx, { filename: 'jarvis-capture.worklet.js' });
+  const proc = new ctx.__processor();
+  let n = 0;
+  for (let at = 0; at < totalFrames; at += chunkSize) {
+    const len = Math.min(chunkSize, totalFrames - at);
+    const quantum = new Float32Array(len);
+    for (let i = 0; i < len; i += 1, n += 1) quantum[i] = Math.sin(2 * Math.PI * freq * n / sampleRate);
+    proc.process([[quantum]]);
+  }
+  return samples;
+}
+for (const rate of [48000, 44100]) {
+  for (const freq of [1000, 6000]) {
+    const frames = 128 * 100;
+    const chunked = resampleTone(rate, freq, 128, frames);
+    const whole = resampleTone(rate, freq, frames, frames);
+    assert.deepEqual(
+      chunked,
+      whole,
+      `resampling must be chunk-invariant at ${rate}Hz input, ${freq}Hz tone`,
+    );
+    const expected = frames / (rate / 16000);
+    assert.ok(
+      Math.abs(chunked.length - expected) <= 2,
+      `expected ~${Math.round(expected)} output samples at ${rate}Hz, got ${chunked.length}`,
+    );
+  }
+}
+
 // ---- an unexpected provider close must revoke task authority --------------
 // disconnect() advances the generation, but a close the user never asked for
 // took the same authority away: the socket is gone, so nothing started on its

@@ -683,7 +683,13 @@
         // rather than a brick wall). It is a large improvement over no filter and
         // stays a few lines inside the worklet. If transcription accuracy at the
         // top of the band ever matters, replace it with a short windowed-sinc FIR.
-        const worklet = `class P extends AudioWorkletProcessor{constructor(){super();this.offset=0;}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;const out=[];for(;this.offset<c.length;this.offset+=ratio){const a=Math.floor(this.offset);const b=Math.min(c.length,Math.floor(this.offset+ratio));let sum=0,n=0;for(let k=a;k<b;k+=1){sum+=c[k];n+=1;}const v=n?sum/n:c[Math.min(a,c.length-1)];const s=Math.max(-1,Math.min(1,v));out.push(s<0?s*32768:s*32767);}this.offset-=c.length;if(!out.length)return true;const pcm=new Int16Array(out);this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
+        //
+        // The window accumulator (sum/n) and the next window boundary persist
+        // ACROSS process() calls: a window that straddles a 128-sample quantum
+        // boundary keeps accumulating in the next call instead of being emitted
+        // short and restarted, so chunked processing is bit-identical to
+        // processing the same PCM contiguously.
+        const worklet = `class P extends AudioWorkletProcessor{constructor(){super();this.t=0;this.next=0;this.sum=0;this.n=0;}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;const out=[];for(let k=0;k<c.length;k+=1){if(this.t>=this.next){if(this.n){const v=this.sum/this.n;const s=Math.max(-1,Math.min(1,v));out.push(s<0?s*32768:s*32767);}this.sum=0;this.n=0;this.next+=ratio;}this.sum+=c[k];this.n+=1;this.t+=1;}if(!out.length)return true;const pcm=new Int16Array(out);this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
         const url = URL.createObjectURL(new Blob([worklet], { type: 'application/javascript' }));
         try { await state.captureCtx.audioWorklet.addModule(url); }
         finally { URL.revokeObjectURL(url); }
