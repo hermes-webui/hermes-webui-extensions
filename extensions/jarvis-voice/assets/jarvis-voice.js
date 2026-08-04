@@ -163,6 +163,40 @@
     if (state.playCtx) state.nextPlayAt = state.playCtx.currentTime;
   }
 
+  // Every byte of a frame is provider-controlled, so the frame is bounded
+  // BEFORE it is decoded or parsed: the whole frame by size, the tool-call list
+  // by count, one inline-audio part by its base64 length. A frame over the
+  // whole-frame or tool-call limit is a protocol violation — Gemini never
+  // legitimately sends one — so the socket is closed rather than argued with.
+  const MAX_FRAME_BYTES = 1024 * 1024;
+  const MAX_TOOL_CALLS_DECODED = 8;
+  const MAX_AUDIO_PART_B64_CHARS = 768 * 1024;
+
+  function frameOversized(data) {
+    if (typeof Blob !== 'undefined' && data instanceof Blob) return data.size > MAX_FRAME_BYTES;
+    return String(data == null ? '' : data).length > MAX_FRAME_BYTES;
+  }
+
+  function frameViolation(parsed) {
+    const calls = parsed && parsed.toolCall && parsed.toolCall.functionCalls;
+    return Array.isArray(calls) && calls.length > MAX_TOOL_CALLS_DECODED;
+  }
+
+  function refuseFrame(ws) {
+    try { ws.close(); } catch (_) {}
+    // Revoke here rather than waiting for the close event: the session is dead
+    // the moment the violation is seen, and nothing in flight may keep acting
+    // on its behalf.
+    if (state.ws === ws) {
+      state.disconnectEpoch += 1;
+      state.ws = null;
+      state.connected = false;
+      state.listening = false;
+      stopMic();
+    }
+    setStatus('error');
+  }
+
   function parseGeminiMessage(data) {
     const out = [];
     if (data.setupComplete) out.push({ type: 'setup' });
@@ -171,7 +205,10 @@
     const parts = content && content.modelTurn && content.modelTurn.parts;
     if (Array.isArray(parts)) {
       for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) out.push({ type: 'audio', data: part.inlineData.data });
+        if (part.inlineData && part.inlineData.data
+          && String(part.inlineData.data).length <= MAX_AUDIO_PART_B64_CHARS) {
+          out.push({ type: 'audio', data: part.inlineData.data });
+        }
         if (part.text) out.push({ type: 'text', data: part.text });
       }
     }
@@ -323,6 +360,7 @@
         ws.onerror = () => { if (state.ws !== ws) return; setStatus('error'); fail(new Error('Gemini WebSocket error')); };
         ws.onmessage = async (event) => {
           if (state.ws !== ws || cancelled()) { fail(new Error('Jarvis connection cancelled')); return; }
+          if (frameOversized(event.data)) { refuseFrame(ws); return; }
           const raw = event.data instanceof Blob ? await event.data.text() : String(event.data || '');
           // Decoding yields; the user may have disconnected or reconnected while
           // it ran. Drop the frame silently — this socket is no longer ours, and
@@ -330,6 +368,7 @@
           if (!socketCurrent(ws, epoch)) return;
           let parsed;
           try { parsed = JSON.parse(raw); } catch (_) { return; }
+          if (frameViolation(parsed)) { refuseFrame(ws); return; }
           const messages = parseGeminiMessage(parsed);
           if (!settled && messages.some((msg) => msg.type === 'setup')) {
             settled = true;

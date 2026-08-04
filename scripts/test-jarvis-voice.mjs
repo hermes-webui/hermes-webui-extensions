@@ -1188,10 +1188,71 @@ assert.equal(
   'no reply may be sent to a socket the provider closed',
 );
 
+// ---- provider frames must be bounded before parse/decode ------------------
+// The provider controls every byte of a frame. Without caps, one frame can park
+// an arbitrarily large body in JSON.parse, queue an unbounded run of tool
+// calls, or hand the audio path an absurd buffer — all before any of the
+// per-call limits are consulted.
+const boundedSocket = await openJarvis();
+
+// An oversized text frame must be refused unparsed, and the socket closed:
+// a provider that ignores the protocol's shape does not get to keep talking.
+input.value = '';
+const sendCallsBeforeHugeFrame = sendCalls;
+const hugeFrame = JSON.stringify({
+  toolCall: { functionCalls: [{ id: 'huge', name: 'run_hermes', args: { task: 'huge', pad: 'x'.repeat(1024 * 1024 + 1024) } }] },
+});
+await boundedSocket.onmessage({ data: hugeFrame });
+assert.equal(sendCalls, sendCallsBeforeHugeFrame, 'an oversized frame must never reach the composer');
+assert.equal(boundedSocket.readyState, 3, 'an oversized frame must close the socket');
+
+// An oversized Blob must be refused by its size, BEFORE its body is decoded.
+const blobSocket = await openJarvis();
+class HugeBlob {
+  constructor() { this.size = 1024 * 1024 + 1; }
+  text() { throw new Error('an oversized Blob body must never be decoded'); }
+}
+sandbox.Blob = HugeBlob;
+await blobSocket.onmessage({ data: new HugeBlob() });
+assert.equal(blobSocket.readyState, 3, 'an oversized Blob frame must close the socket');
+
+// A run of tool calls beyond anything legitimate is a protocol violation.
+const callsSocket = await openJarvis();
+input.value = '';
+const sendCallsBeforeRun = sendCalls;
+await callsSocket.onmessage({
+  data: JSON.stringify({
+    toolCall: {
+      functionCalls: Array.from({ length: 9 }, (_, i) => ({ id: `r${i}`, name: 'run_hermes', args: { task: `run ${i}` } })),
+    },
+  }),
+});
+assert.equal(sendCalls, sendCallsBeforeRun, 'a tool-call flood must not run anything');
+assert.equal(callsSocket.readyState, 3, 'a tool-call flood must close the socket');
+assert.equal(
+  callsSocket.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'a tool-call flood gets no responses, it gets disconnected',
+);
+
+// One absurd inline-audio part is dropped rather than decoded; a sane part in
+// a later frame still plays.
+const audioSocket = await openJarvis();
+const startedBeforeAudioCap = started.length;
+await audioSocket.onmessage({
+  data: JSON.stringify({
+    serverContent: { modelTurn: { parts: [{ inlineData: { data: 'A'.repeat(800 * 1024) } }] } },
+  }),
+});
+assert.equal(started.length, startedBeforeAudioCap, 'an oversized inline-audio part must not be decoded or scheduled');
+await audioSocket.onmessage({ data: audioMessage });
+assert.equal(started.length, startedBeforeAudioCap + 1, 'a sane audio part must still play');
+
 // ---- disconnect during setup must not poison the next connect -------------
 // connect() reuses a pending promise. If disconnect() leaves that promise
 // pending (its 15s timer is the only thing that settles it), an immediate
 // reconnect adopts the abandoned attempt and no new socket is ever created.
+jarvis.disconnect(); // the audio-cap test above leaves a live session behind
 const socketsBeforeSetupCancel = sockets.length;
 const pendingSetup = jarvis.connect();
 pendingSetup.catch(() => {});
