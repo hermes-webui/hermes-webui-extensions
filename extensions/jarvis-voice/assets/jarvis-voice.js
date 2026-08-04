@@ -485,7 +485,7 @@
     const path = `/api/session?session_id=${encodeURIComponent(sid)}&resolve_model=0`
       + (msgLimit ? `&messages=1&msg_limit=${msgLimit}` : '&messages=0');
     if (typeof api === 'function') return api(path);
-    const res = await fetch(path, { credentials: 'include' });
+    const res = await fetch(path, { credentials: 'same-origin' });
     if (!res.ok) throw new Error(`session fetch failed: ${res.status}`);
     return res.json();
   }

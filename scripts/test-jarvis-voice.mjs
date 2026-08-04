@@ -179,6 +179,18 @@ assert.deepEqual(runtimeEntry.permissions, extensionJson.permissions, 'runtime m
 assert.equal(runtimeEntry.permissions.storage.owned, true, 'runtime manifest must declare storage ownership');
 // send() posts /api/chat/start, and its queued path posts /api/session/draft.
 assert.deepEqual(extensionJson.permissions.webui_api.write, ['chat/start', 'session/draft']);
+// Core's sanitizer drops an enum setting whose options are not {value,label}
+// objects (docs/extension-entry.md), which silently removes the whole control
+// from the settings panel.
+for (const field of extensionJson.settings_schema) {
+  if (field.type !== 'enum') continue;
+  for (const option of field.options) {
+    assert.ok(
+      option && typeof option === 'object' && typeof option.value === 'string' && typeof option.label === 'string',
+      `enum option ${JSON.stringify(option)} must be a {value,label} object or core drops the setting`,
+    );
+  }
+}
 
 const js = readFileSync(new URL('../extensions/jarvis-voice/assets/jarvis-voice.js', import.meta.url), 'utf8');
 assert.match(js, /fetch\('\/api\/extensions\/jarvis-voice\/sidecar\/api\/token'/);
