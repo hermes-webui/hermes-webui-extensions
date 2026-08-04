@@ -37,6 +37,7 @@ function makeEl(tag = 'div') {
     tagName: tag,
     id: '',
     hidden: false,
+    style: { properties: {}, setProperty(key, value) { this.properties[key] = value; } },
     dataset: {},
     textContent: '',
     innerHTML: '',
@@ -74,9 +75,16 @@ function dispatchEvent(target, type, payload = {}) {
 }
 
 let panelBuilt = false;
+// Document-level listeners are real behaviour now (outside-click and Escape
+// dismissal), so the harness records and can dispatch them.
+const documentHandlers = {};
+function dispatchDocEvent(type, payload = {}) {
+  const event = { type, defaultPrevented: false, ...payload };
+  for (const fn of (documentHandlers[type] || []).slice()) fn(event);
+}
 sandbox.document = {
   readyState: 'complete',
-  addEventListener() {},
+  addEventListener(type, fn) { (documentHandlers[type] = documentHandlers[type] || []).push(fn); },
   getElementById(id) { return id === 'msg' ? input : null; },
   // Only `.msg-edit-area` is queried on the document, and no edit is ever active.
   querySelector() { return null; },
@@ -1273,6 +1281,41 @@ freshSetupSocket.onopen();
 await flush();
 freshSetupSocket.onmessage({ data: JSON.stringify({ setupComplete: true }) });
 await reconnectAfterCancel;
+
+// ---- geometry and dismissal ----------------------------------------------
+// The panel must anchor to the live composer band instead of fixed viewport
+// offsets: at 390x844 the fixed FAB covered core's Send button almost exactly,
+// and the open card overlapped the textarea at both sizes. The harness has no
+// layout engine, so anchoring is asserted as deletion guards; dismissal is
+// behavioural.
+assert.match(js, /getBoundingClientRect/, 'panel must measure the live composer box');
+assert.match(js, /ResizeObserver/, 'panel must track composer growth (multiline expansion)');
+assert.match(js, /visualViewport/, 'panel must track the on-screen keyboard');
+assert.match(css, /--jarvis-bottom/, 'panel offsets must flow through the anchoring custom property');
+
+// Clicking outside the panel dismisses the card.
+dispatchEvent(domNodes.button, 'click', {});
+assert.equal(domNodes.card.hidden, false, 'toggle opens the card');
+dispatchDocEvent('pointerdown', { target: {} });
+assert.equal(domNodes.card.hidden, true, 'a click outside the panel must dismiss the card');
+
+// Clicking inside it must not.
+dispatchEvent(domNodes.button, 'click', {});
+dispatchDocEvent('pointerdown', { target: domNodes.log });
+assert.equal(domNodes.card.hidden, false, 'a click inside the panel must not dismiss the card');
+
+// Escape works from anywhere in the document, not only inside the panel...
+domNodes.button.focused = false;
+dispatchDocEvent('keydown', { key: 'Escape', target: {} });
+assert.equal(domNodes.card.hidden, true, 'Escape must dismiss the card wherever focus sits');
+assert.equal(domNodes.button.focused, true, 'document-level Escape must return focus to the toggle');
+
+// ...but yields to a core dialog that already claimed the key.
+dispatchEvent(domNodes.button, 'click', {});
+dispatchDocEvent('keydown', { key: 'Escape', target: {}, defaultPrevented: true });
+assert.equal(domNodes.card.hidden, false, 'an Escape claimed by a core dialog must be yielded');
+dispatchDocEvent('keydown', { key: 'Escape', target: {} });
+assert.equal(domNodes.card.hidden, true);
 
 // ---- voice state must be accessible and lifecycle-complete ----------------
 // The status line must carry live semantics so a screen reader hears state

@@ -845,6 +845,47 @@
       setOpen(false);
       if (typeof state.button.focus === 'function') state.button.focus();
     });
+    // Fixed 18px corner offsets put the FAB directly over core's Send button at
+    // phone widths and the open card across the textarea. Anchor the whole
+    // control just above the live composer box instead, re-measured whenever
+    // the composer grows (multiline), the keyboard resizes the viewport, or the
+    // window changes. The offsets flow through custom properties so the mobile
+    // card (viewport-fixed) tracks the same anchor.
+    const reposition = () => {
+      const msg = document.getElementById('msg');
+      if (!msg || typeof msg.getBoundingClientRect !== 'function') return;
+      const rect = msg.getBoundingClientRect();
+      if (!rect || !rect.width || !window.innerHeight) return;
+      panel.style.setProperty('--jarvis-bottom', `${Math.max(18, Math.round(window.innerHeight - rect.top + 12))}px`);
+      panel.style.setProperty('--jarvis-right', `${Math.max(12, Math.round(window.innerWidth - rect.right))}px`);
+    };
+    reposition();
+    if (typeof window.addEventListener === 'function') window.addEventListener('resize', reposition);
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+      window.visualViewport.addEventListener('resize', reposition);
+    }
+    if (typeof ResizeObserver === 'function') {
+      const composer = document.getElementById('msg');
+      if (composer) new ResizeObserver(reposition).observe(composer);
+    }
+    // Core popover behaviour: a click anywhere else, or Escape from anywhere,
+    // dismisses the card. Bubble-phase and defaultPrevented-aware so a core
+    // dialog that owns the key (they sit above us at z-index 1100) wins.
+    const within = (target) => {
+      if (!target) return false;
+      if (typeof panel.contains === 'function') return panel.contains(target);
+      for (let node = target; node; node = node.parent || node.parentNode) if (node === panel) return true;
+      return false;
+    };
+    document.addEventListener('pointerdown', (event) => {
+      if (card.hidden || within(event.target)) return;
+      setOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (card.hidden || event.key !== 'Escape' || event.defaultPrevented) return;
+      setOpen(false);
+      if (typeof state.button.focus === 'function') state.button.focus();
+    });
     state.talkButton.addEventListener('click', async () => {
       try { state.listening ? stopMic() : await startMic(); } catch (err) {
         const message = String(err && err.message || err);

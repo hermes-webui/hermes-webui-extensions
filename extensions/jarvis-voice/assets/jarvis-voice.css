@@ -8,8 +8,11 @@
   /* Core app dialogs use z-index:1100. Sit below those so approvals, settings,
      and the lightbox stay visible and clickable, but above ordinary chrome. */
   z-index: 1000;
-  right: calc(18px + env(safe-area-inset-right, 0px));
-  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  /* The custom properties are set at runtime from the live composer box so the
+     control clears Send, the textarea, and whatever core floats above them.
+     The calc() fallbacks only apply until the first measurement. */
+  right: var(--jarvis-right, calc(18px + env(safe-area-inset-right, 0px)));
+  bottom: var(--jarvis-bottom, calc(18px + env(safe-area-inset-bottom, 0px)));
   font: 13px system-ui, sans-serif;
   color: var(--text, #f7f7fb);
 }
@@ -90,7 +93,7 @@
     position: fixed;
     left: calc(12px + env(safe-area-inset-left, 0px));
     right: calc(12px + env(safe-area-inset-right, 0px));
-    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--jarvis-bottom, calc(18px + env(safe-area-inset-bottom, 0px))) + 58px);
     width: auto;
     max-width: none;
     max-height: calc(100dvh - 160px - env(safe-area-inset-bottom, 0px));
