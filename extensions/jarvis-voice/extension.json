@@ -35,7 +35,7 @@
   ],
   "permissions": {
     "webui_api": { "read": ["session"], "write": ["chat/start", "session/draft"] },
-    "webui_navigation": false,
+    "webui_navigation": true,
     "dom": { "owned": true, "mutates_core_views": true },
     "storage": { "owned": true, "shared_webui_keys": [] },
     "loopback_sidecar": true,

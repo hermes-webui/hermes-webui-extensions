@@ -179,6 +179,10 @@ assert.deepEqual(runtimeEntry.permissions, extensionJson.permissions, 'runtime m
 assert.equal(runtimeEntry.permissions.storage.owned, true, 'runtime manifest must declare storage ownership');
 // send() posts /api/chat/start, and its queued path posts /api/session/draft.
 assert.deepEqual(extensionJson.permissions.webui_api.write, ['chat/start', 'session/draft']);
+// readSession() rides core's api(), which redirects to the login view on an
+// auth failure, and core send() can reload the session view during recovery.
+// The extension CAN navigate, so the permission the user approves must say so.
+assert.equal(extensionJson.permissions.webui_navigation, true, 'navigation authority must be disclosed, not understated');
 // Core's sanitizer drops an enum setting whose options are not {value,label}
 // objects (docs/extension-entry.md), which silently removes the whole control
 // from the settings panel.
