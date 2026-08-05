@@ -1372,5 +1372,51 @@ endedTrack.onended();
 assert.equal(talk.getAttribute('aria-pressed'), 'false', 'a dead track must end the listening state');
 assert.equal(domNodes.status.textContent, 'ready', 'a dead track must not leave status stuck on listening');
 
+// ---- a failed setup must revoke the socket's authority --------------------
+// fail() used to close the socket but leave state.ws and the epoch alone, so a
+// frame parked in Blob decode when the 15-second deadline fired resumed AFTER
+// the failure, passed its ownership recheck, and drove run_hermes into core
+// send() on behalf of a session that never came up.
+jarvis.disconnect();
+let releaseSetupBlob;
+const setupToolFrame = JSON.stringify({
+  toolCall: { functionCalls: [{ id: 'st', name: 'run_hermes', args: { task: 'setup timeout task' } }] },
+});
+class SetupParkedBlob {
+  text() { return new Promise((resolve) => { releaseSetupBlob = () => resolve(setupToolFrame); }); }
+}
+sandbox.Blob = SetupParkedBlob;
+let setupTimeoutReads = 0;
+sandbox.__apiImpl = async () => {
+  setupTimeoutReads += 1;
+  if (setupTimeoutReads === 1) return { session: { message_count: 0, messages: [] } };
+  return { session: { message_count: 2, messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'ghost reply' }] } };
+};
+input.value = '';
+const sendCallsBeforeSetupTimeout = sendCalls;
+const timedOutSetup = jarvis.connect();
+timedOutSetup.catch(() => {});
+await flush();
+const setupTimeoutSocket = sockets.at(-1);
+setupTimeoutSocket.onopen();
+const parkedSetupFrame = setupTimeoutSocket.onmessage({ data: new SetupParkedBlob() });
+await flush();
+longTimers.at(-1).fn(); // the 15-second setup deadline fires
+await assert.rejects(timedOutSetup, /timed out/);
+releaseSetupBlob();
+await parkedSetupFrame;
+await flush();
+assert.equal(
+  sendCalls,
+  sendCallsBeforeSetupTimeout,
+  'a frame parked in decode when setup failed must not start a Hermes task',
+);
+assert.equal(input.value, '', 'a revoked setup must not leave a prompt in the composer');
+assert.equal(
+  setupTimeoutSocket.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'no tool response may be sent on a socket whose setup failed',
+);
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);

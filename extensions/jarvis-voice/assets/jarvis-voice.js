@@ -330,7 +330,16 @@
           state.cancelConnect = null;
           clearTimeout(timer);
           state.connected = false;
-          if (ws && state.ws === ws) { try { ws.close(); } catch (_) {} }
+          // A setup that fails still owned a live socket, and closing it is not
+          // enough: revoke its authority atomically — advance the generation
+          // and drop the reference BEFORE rejecting — so a frame parked on an
+          // await (Blob decode) when the deadline fired fails its ownership
+          // recheck instead of acting for a session that never came up.
+          if (ws && state.ws === ws) {
+            state.disconnectEpoch += 1;
+            state.ws = null;
+            try { ws.close(); } catch (_) {}
+          }
           stopMic();
           reject(err instanceof Error ? err : new Error(String(err || 'Gemini connection failed')));
         };
