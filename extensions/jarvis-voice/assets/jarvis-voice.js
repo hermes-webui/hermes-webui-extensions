@@ -719,8 +719,15 @@
         for (const track of stream.getTracks()) {
           track.onended = () => { if (state.micStream === stream) { stopMic(); log('microphone ended'); } };
         }
-        state.captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        if (state.captureCtx.state === 'suspended' && typeof state.captureCtx.resume === 'function') await state.captureCtx.resume();
+        // The LOCAL handle, not state.captureCtx, is what the rest of this
+        // function dereferences: a Stop or Disconnect landing while resume()
+        // is pending runs stopMic(), which nulls state.captureCtx, and the
+        // continuation would otherwise crash on that null instead of
+        // cancelling cleanly.
+        const captureCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        state.captureCtx = captureCtx;
+        if (captureCtx.state === 'suspended' && typeof captureCtx.resume === 'function') await captureCtx.resume();
+        if (cancelled()) throw new Error('Jarvis microphone cancelled');
         // The worklet posts every render quantum. That is deliberately cheap —
         // postMessage carries a transferred buffer, no JSON and no base64 — and it
         // keeps the pending tail on the main thread, where stopMic() can flush it
@@ -745,11 +752,11 @@
         // processing the same PCM contiguously.
         const worklet = `class P extends AudioWorkletProcessor{constructor(){super();this.t=0;this.next=0;this.sum=0;this.n=0;}process(i){const c=i&&i[0]&&i[0][0];if(!c)return true;const ratio=sampleRate/16000;const out=[];for(let k=0;k<c.length;k+=1){if(this.t>=this.next){if(this.n){const v=this.sum/this.n;const s=Math.max(-1,Math.min(1,v));out.push(s<0?s*32768:s*32767);}this.sum=0;this.n=0;this.next+=ratio;}this.sum+=c[k];this.n+=1;this.t+=1;}if(!out.length)return true;const pcm=new Int16Array(out);this.port.postMessage(pcm.buffer,[pcm.buffer]);return true;}} registerProcessor('jarvis-capture',P);`;
         const url = URL.createObjectURL(new Blob([worklet], { type: 'application/javascript' }));
-        try { await state.captureCtx.audioWorklet.addModule(url); }
+        try { await captureCtx.audioWorklet.addModule(url); }
         finally { URL.revokeObjectURL(url); }
         if (cancelled()) throw new Error('Jarvis microphone cancelled');
-        state.sourceNode = state.captureCtx.createMediaStreamSource(state.micStream);
-        state.captureNode = new AudioWorkletNode(state.captureCtx, 'jarvis-capture');
+        state.sourceNode = captureCtx.createMediaStreamSource(stream);
+        state.captureNode = new AudioWorkletNode(captureCtx, 'jarvis-capture');
         state.captureNode.port.onmessage = (event) => {
           if (!state.listening || !state.connected) return;
           const chunk = new Int16Array(event.data);
@@ -758,11 +765,11 @@
           state.captureSamples += chunk.length;
           if (state.captureSamples >= CAPTURE_BATCH_SAMPLES) flushCapture();
         };
-        state.silentNode = state.captureCtx.createGain();
+        state.silentNode = captureCtx.createGain();
         state.silentNode.gain.value = 0;
         state.sourceNode.connect(state.captureNode);
         state.captureNode.connect(state.silentNode);
-        state.silentNode.connect(state.captureCtx.destination);
+        state.silentNode.connect(captureCtx.destination);
         state.listening = true;
         // Pressing Talk is a turn boundary: lift any Stop-induced suppression.
         resumePlayback();

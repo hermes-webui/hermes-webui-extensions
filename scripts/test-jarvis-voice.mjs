@@ -1524,5 +1524,40 @@ await assert.rejects(
 );
 assert.equal(widenWindowReads, 2, 'the widened read that exposed the ambiguity must be the last');
 
+// ---- Stop during capture-context resume must cancel, not crash ------------
+// stopMic() landing while startMic() is parked on AudioContext.resume() nulls
+// state.captureCtx and closes the context. The continuation used to
+// dereference that null (audioWorklet.addModule), surfacing a TypeError to
+// the user in place of the clean cancellation they asked for.
+const resumeSocket = await openJarvis();
+let releaseCaptureResume;
+sandbox.AudioContext = class SuspendedCaptureContext {
+  constructor() {
+    this.state = 'suspended';
+    this.destination = {};
+    this.audioWorklet = { addModule: async () => {} };
+  }
+  async resume() {
+    await new Promise((resolve) => { releaseCaptureResume = resolve; });
+    this.state = 'running';
+  }
+  createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+  createBuffer(channels, length, rate) { return { duration: length / rate, copyToChannel() {} }; }
+  createBufferSource() { return { buffer: null, connect() {}, start() {}, stop() {} }; }
+  createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} }; }
+  close() {}
+};
+sandbox.navigator = { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] }) } };
+const resumeParkedMic = jarvis.startMic();
+await flush();
+jarvis.stopMic();
+releaseCaptureResume();
+await assert.rejects(
+  resumeParkedMic,
+  /cancelled/,
+  'Stop during AudioContext.resume() must reject as a cancellation, not a TypeError',
+);
+assert.equal(resumeSocket.sent.some((m) => m.includes('audio/pcm')), false, 'no capture audio may follow a cancelled mic start');
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
