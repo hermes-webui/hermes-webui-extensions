@@ -517,10 +517,19 @@
   // If TWO rows in range match, the anchor is ambiguous — the user typed the same
   // thing during our turn, or message_count under-reported so an earlier row fell
   // inside the window. Text alone cannot say which row is ours, and picking one
-  // hands the model an answer to somebody else's question. Report the ambiguity
-  // instead of guessing; ROW_AMBIGUOUS is deliberately distinct from "not found
-  // yet" so the caller can keep waiting without ever resolving on a coin flip.
+  // hands the model an answer to somebody else's question. Ambiguity is TERMINAL,
+  // not retriable: core returns a bounded tail, so a later poll whose window has
+  // shifted past one duplicate makes the survivor look unique — the same coin
+  // flip, one poll later. Once two candidates have been seen, no subsequent
+  // window can be trusted to disambiguate, and the task must fail now.
   const ROW_AMBIGUOUS = -2;
+
+  function ambiguityError() {
+    return new Error(
+      'The Hermes reply could not be matched to this task because an identical '
+      + 'message was sent in the same window. Ask the user to check the conversation.'
+    );
+  }
 
   function findRequestRow(messages, offset, beforeCount, task) {
     let found = -1;
@@ -556,7 +565,6 @@
   async function waitForHermes(sid, beforeCount, timeoutMs, task, isStale = () => false) {
     const start = Date.now();
     let delay = POLL_MIN_MS;
-    let ambiguous = false;
     while (Date.now() - start < timeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, delay));
       if (isStale()) return null;
@@ -579,10 +587,7 @@
       let messages = Array.isArray(session.messages) ? session.messages : [];
       let offset = Number(session._messages_offset ?? 0);
       let row = findRequestRow(messages, offset, beforeCount, task);
-      if (row === ROW_AMBIGUOUS) {
-        ambiguous = true;
-        continue;
-      }
+      if (row === ROW_AMBIGUOUS) throw ambiguityError();
       // Belt for a coordinate-space mismatch: message_count is a display count,
       // so if it under-reports the rows in the turn our row can still fall
       // outside the window. Widen once rather than silently timing out.
@@ -593,21 +598,12 @@
         messages = Array.isArray(session.messages) ? session.messages : [];
         offset = Number(session._messages_offset ?? 0);
         row = findRequestRow(messages, offset, beforeCount, task);
-        if (row === ROW_AMBIGUOUS) {
-          ambiguous = true;
-          continue;
-        }
+        if (row === ROW_AMBIGUOUS) throw ambiguityError();
       }
       if (row < 0) continue;
       if (hermesBusy(session, {})) continue;
       const reply = replyForRequestRow(messages, row);
       if (reply) return reply.slice(0, 8000);
-    }
-    if (ambiguous) {
-      throw new Error(
-        'The Hermes reply could not be matched to this task because an identical '
-        + 'message was sent in the same window. Ask the user to check the conversation.'
-      );
     }
     throw new Error('Hermes did not finish before the Jarvis tool timeout');
   }

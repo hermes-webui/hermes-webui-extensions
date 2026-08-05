@@ -1418,5 +1418,111 @@ assert.equal(
   'no tool response may be sent on a socket whose setup failed',
 );
 
+// ---- ambiguity must be terminal, not retried ------------------------------
+// Flag-and-keep-polling turns the ambiguity guard into a delayed coin flip:
+// core's bounded tail shifts between polls, and a later window that drops ONE
+// of the two identical rows makes the survivor look unique — so the loop
+// resolves on somebody else's reply after all. Once two candidates have been
+// seen, no later window can be trusted to disambiguate.
+sandbox.Blob = class {};
+let shiftMetaReads = 0;
+let shiftWindowReads = 0;
+sandbox.__apiImpl = async (path) => {
+  if (/messages=0/.test(path)) {
+    shiftMetaReads += 1;
+    return { session: { message_count: shiftMetaReads === 1 ? 2 : 6, messages: [] } };
+  }
+  shiftWindowReads += 1;
+  if (shiftWindowReads === 1) {
+    return {
+      session: {
+        message_count: 6,
+        _messages_offset: 2,
+        messages: [
+          { role: 'user', content: 'shifting task' },
+          { role: 'assistant', content: 'reply A' },
+          { role: 'user', content: 'shifting task' },
+          { role: 'assistant', content: 'reply B' },
+        ],
+      },
+    };
+  }
+  // The tail shifted: the first duplicate scrolled out of the window and the
+  // survivor now looks unique. Resolving here returns the WRONG reply.
+  return {
+    session: {
+      message_count: 6,
+      _messages_offset: 4,
+      messages: [
+        { role: 'user', content: 'shifting task' },
+        { role: 'assistant', content: 'reply B' },
+      ],
+    },
+  };
+};
+input.value = '';
+await assert.rejects(
+  jarvis.runHermes('shifting task'),
+  /could not be matched/,
+  'an ambiguous anchor must fail the task immediately, not resolve on a later shifted window',
+);
+assert.equal(shiftWindowReads, 1, 'ambiguity must stop the poll loop at the window that exposed it');
+
+// ...and the widened-window branch is the same coin flip one layer down.
+let widenMetaReads = 0;
+let widenWindowReads = 0;
+sandbox.__apiImpl = async (path) => {
+  if (/messages=0/.test(path)) {
+    widenMetaReads += 1;
+    return { session: { message_count: widenMetaReads === 1 ? 2 : 6, messages: [] } };
+  }
+  widenWindowReads += 1;
+  const limit = Number((path.match(/msg_limit=(\d+)/) || [])[1] || 0);
+  if (limit < REPLY_MAX) {
+    if (widenWindowReads > 2) {
+      // A later round's sized window shows a unique survivor — the coin flip.
+      return {
+        session: {
+          message_count: 6,
+          _messages_offset: 4,
+          messages: [
+            { role: 'user', content: 'widened task' },
+            { role: 'assistant', content: 'reply B' },
+          ],
+        },
+      };
+    }
+    // Round one: the sized window missed the anchor and reports truncation...
+    return {
+      session: {
+        message_count: 6,
+        _messages_offset: 6,
+        messages: [{ role: 'assistant', content: 'tail row' }],
+        _messages_truncated: true,
+      },
+    };
+  }
+  // ...and the widened read exposes TWO identical anchors in range.
+  return {
+    session: {
+      message_count: 6,
+      _messages_offset: 2,
+      messages: [
+        { role: 'user', content: 'widened task' },
+        { role: 'assistant', content: 'reply A' },
+        { role: 'user', content: 'widened task' },
+        { role: 'assistant', content: 'reply B' },
+      ],
+    },
+  };
+};
+input.value = '';
+await assert.rejects(
+  jarvis.runHermes('widened task'),
+  /could not be matched/,
+  'ambiguity found in the widened window must also be terminal',
+);
+assert.equal(widenWindowReads, 2, 'the widened read that exposed the ambiguity must be the last');
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);
