@@ -70,9 +70,22 @@ The service runs only the reviewed standard-library sidecar:
 ```
 
 If your WebUI uses a non-default profile or state directory, the sidecar must
-look for the core-provisioned proxy token in the same place: add a local
-drop-in (`systemctl --user edit jarvis-voice-sidecar`) setting
-`Environment=HERMES_WEBUI_STATE_DIR=/path/to/that/state/dir`, then
+look for the core-provisioned proxy token in the same place — and it must
+also start from where the extension actually lives, because the shipped
+unit's `WorkingDirectory=` points at the default
+`~/.hermes/webui/extensions/jarvis-voice/sidecar` and Python fails before the
+sidecar starts if that path does not exist. Add a local drop-in
+(`systemctl --user edit jarvis-voice-sidecar`) overriding both:
+
+```ini
+[Service]
+Environment=HERMES_WEBUI_STATE_DIR=/path/to/that/state/dir
+WorkingDirectory=/path/to/that/state/dir/extensions/jarvis-voice/sidecar
+```
+
+If you have additionally relocated extensions with
+`HERMES_WEBUI_EXTENSION_DIR`, point `WorkingDirectory=` at
+`jarvis-voice/sidecar` under that directory instead. Then
 `systemctl --user daemon-reload && systemctl --user restart
 jarvis-voice-sidecar`. A drop-in on your machine does not modify the shipped
 unit file.
@@ -146,3 +159,8 @@ node --check extensions/jarvis-voice/assets/jarvis-voice.js
 - No screen/video input.
 - Gemini receives no direct Hermes tool access. `run_hermes` is the boundary.
 - Tool timeout defaults to 180 seconds.
+- Sessions do not survive Gemini's connection lifetime. The Live API closes
+  each WebSocket after roughly ten minutes (it announces this with a `goAway`
+  message), and Jarvis configures no session resumption — when the provider
+  closes the connection, the session ends and you must click **Connect**
+  again. Conversation context does not carry over.
