@@ -113,7 +113,7 @@ def register(app) -> None:
         file_key, file_error = _read_key_file()
         if file_error:
             return app.json({"error": file_error}, status=503)
-        api_key = file_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        api_key = file_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
             return app.json({"error": "Gemini API key is not configured"}, status=503)
         payload, error = _mint_token(api_key)

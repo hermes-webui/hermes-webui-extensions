@@ -179,4 +179,15 @@ assert status == 200
 assert attempts[0]["headers"]["X-goog-api-key"] == "env-key"
 os.environ.pop("GEMINI_API_KEY")
 
+# -- the ambient GOOGLE_API_KEY is never consulted -------------------------
+# That variable scopes far wider than Gemini (Maps, Cloud, every Google API a
+# machine has lying around), and the README documents GEMINI_API_KEY only. An
+# undisclosed fallback would spend a credential the user never offered.
+os.environ["GOOGLE_API_KEY"] = "ambient-key"
+install(lambda req: StubResponse(200, body=json.dumps({"name": "auth_tokens/ambient"}).encode()))
+status, _, body = handler(SimpleNamespace())
+assert status == 503, "GOOGLE_API_KEY must not be consulted"
+assert attempts == [], "no upstream request may be made with the ambient GOOGLE_API_KEY"
+os.environ.pop("GOOGLE_API_KEY")
+
 print("ok jarvis sidecar routes")
