@@ -2,7 +2,10 @@
   'use strict';
 
   const ID = 'jarvis-voice';
-  const WSS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
+  // v1beta, and only v1beta: the ephemeral-token flow is documented as working
+  // exclusively against it (ai.google.dev/gemini-api/docs/live-api/ephemeral-
+  // tokens), and the socket must speak the same version that minted the token.
+  const WSS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained';
   const state = {
     ws: null,
     connected: false,

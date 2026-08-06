@@ -7,7 +7,9 @@ import os
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-_TOKEN_URL = "https://generativelanguage.googleapis.com/v1alpha/auth_tokens"
+# v1beta is load-bearing: Google documents the ephemeral-token flow as working
+# only with v1beta, and the client WebSocket must match the minting version.
+_TOKEN_URL = "https://generativelanguage.googleapis.com/v1beta/auth_tokens"
 
 # Core's sidecar proxy allows roughly 10 s end to end (docs/SIDECAR_CONTRACT.md).
 # Spend well under half of it upstream so a slow provider surfaces as our own 502

@@ -91,7 +91,10 @@ result = json.loads(body)
 assert result["token"] == "auth_tokens/test"
 assert result["expires_at"].endswith("Z")
 assert len(attempts) == 1
-assert attempts[0]["url"] == "https://generativelanguage.googleapis.com/v1alpha/auth_tokens"
+# v1beta is load-bearing: the ephemeral-token flow only works against v1beta
+# (ai.google.dev/gemini-api/docs/live-api/ephemeral-tokens), and the client's
+# WebSocket version must match the version that minted the token.
+assert attempts[0]["url"] == "https://generativelanguage.googleapis.com/v1beta/auth_tokens"
 assert attempts[0]["headers"]["X-goog-api-key"] == "test-key"
 assert attempts[0]["body"]["uses"] == 1
 # Materially shorter than core's ~10 s sidecar-proxy budget so a slow provider
