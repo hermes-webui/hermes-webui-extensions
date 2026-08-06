@@ -596,9 +596,20 @@ def docker_update(container_id: str) -> dict[str, Any]:
              "--format", "{{.ID}}"],
             capture_output=True, text=True, timeout=10,
         )
-        replica_ids = [x.strip() for x in (ps.stdout or "").splitlines() if x.strip()]
     except Exception as exc:
         return {"ok": False, "error": f"{type(exc).__name__}"}
+    # Fail CLOSED on the replica enumeration. A non-zero `docker ps` exit (or any
+    # run that produced no rows) must NOT be read as "no hidden replicas" and let
+    # the pull/up proceed — that would defeat the promise that every replica of the
+    # service is visible in the filtered inventory before we recreate it. Require a
+    # clean exit AND ≥1 matching replica, THEN authorize every returned id.
+    if ps.returncode != 0:
+        return {"ok": False, "error": "replica_enum_failed"}
+    replica_ids = [x.strip() for x in (ps.stdout or "").splitlines() if x.strip()]
+    if not replica_ids:
+        # Nothing matched the (project, service) filter — we can't prove the recreate
+        # is scoped to authorized containers, so refuse rather than run a blind `up`.
+        return {"ok": False, "error": "no_replicas"}
     _inv = _inventory_ids()
 
     def _authorized(rid: str) -> bool:
@@ -713,12 +724,50 @@ _bulk_state: dict[str, Any] = {
     "running": False, "id": 0, "scope": "", "project": "", "total": 0, "done": 0,
     "current": "", "results": [], "started_at": 0, "finished_at": 0,
 }
-# Op/bulk ids are seeded from a process-start epoch (not 0) so that after a sidecar
+# Op/bulk ids are seeded from a per-process epoch (not 0) so that after a sidecar
 # restart new ids never collide with an id an old browser tab is still polling: a
 # stale poll for a pre-restart id then reads {unknown:true}, never a new op's record.
-# ×100000 keeps a full second of monotonic headroom between restarts (no realistic
-# op rate approaches it) while staying well under 2**53 for safe JSON round-trips.
-_ID_EPOCH = int(_time.time()) * 100000
+# The epoch is PERSISTED in the state dir and advanced strictly past the stored value
+# on every start, so two restarts within the SAME wall-clock second still get distinct
+# id spaces (int(time.time()) alone would collide — very relevant under a crash loop /
+# Restart=on-failure). ×100000 gives a full epoch-unit of id headroom per process (no
+# realistic op rate approaches it) while staying well under 2**53 for safe JSON ids.
+def _epoch_file():
+    from pathlib import Path
+    base = (os.environ.get("HERMES_SYSINFO_STATE_DIR")
+            or os.environ.get("HERMES_WEBUI_STATE_DIR")
+            or os.path.expanduser("~/.hermes/webui"))
+    return Path(base) / ".docker_op_epoch"
+
+
+def _next_process_epoch() -> int:
+    """Strictly-increasing per-process id base (``epoch × 100000``).
+
+    Reads the last epoch persisted in the state dir and advances to
+    ``max(now_seconds, stored + 1)`` — so a same-second restart still starts ABOVE
+    the previous process's id space. The advance is written back atomically
+    (tmp + ``os.replace``). If the state dir is unwritable it still returns a
+    time-seeded base (single-process sidecar; the file is the only cross-restart
+    coordination needed)."""
+    now = int(_time.time())
+    prev = 0
+    try:
+        prev = int(_epoch_file().read_text().strip() or "0")
+    except Exception:
+        prev = 0
+    epoch = now if now > prev else prev + 1
+    try:
+        f = _epoch_file()
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f.name + ".tmp")
+        tmp.write_text(str(epoch))
+        os.replace(tmp, f)          # atomic swap
+    except Exception:
+        pass
+    return epoch * 100000
+
+
+_ID_EPOCH = _next_process_epoch()
 _bulk_seq = _ID_EPOCH
 
 
@@ -842,7 +891,15 @@ _op_seq = _ID_EPOCH   # restart-safe id base (see _ID_EPOCH above)
 # report A as succeeded even when A failed (PR #67 review). Oldest/expired evicted.
 from collections import OrderedDict as _OrderedDict
 _OP_RESULTS_MAX = 64
-_OP_RESULTS_TTL = 900          # ≥ the longest single op (update ≤900s) + polling slack
+# Terminal-record retention, measured from finished_at. This MUST exceed the frontend's
+# poll RECOVERY window — the span _mcPollDockerOp / _mcBulkUpdatePoll keep retrying
+# across *consecutive* transport failures before giving up (~2 min). The frontend now
+# polls for as long as the op reports `running` (no fixed ceiling), so the only thing
+# that must outlast a blip is the post-completion record: if retention were shorter
+# than the client recovery window, a brief disconnect around completion could age the
+# record out and surface a false "result unavailable" while the client is still
+# legitimately retrying. 30 min is comfortably longer than that window (finding #5).
+_OP_RESULTS_TTL = 1800
 _op_results: "_OrderedDict[int, dict[str, Any]]" = _OrderedDict()
 
 
@@ -918,7 +975,26 @@ def _start_op(kind: str, runner, target: str = "", action: str = "") -> dict[str
             })
         _stats_cache["ts"] = 0.0  # reflect the new container state on the next poll
 
-    _threading_du.Thread(target=_run, name=f"docker-op-{kind}", daemon=True).start()
+    try:
+        _threading_du.Thread(target=_run, name=f"docker-op-{kind}", daemon=True).start()
+    except Exception as exc:
+        # Thread failed to start — RELEASE the single mutation reservation and write an
+        # id-owned terminal failure, so _op_state doesn't stay running:true forever
+        # (which would wedge EVERY later single/group/update mutation). Mirrors the
+        # bulk path's thread_start_failed guard (finding #3).
+        with _bulk_lock:
+            if _op_state["id"] == jid:
+                res = {"ok": False, "error": f"thread_start_failed: {type(exc).__name__}"}
+                _op_state["result"] = res
+                _op_state["running"] = False
+                _op_state["finished_at"] = int(_time.time())
+                _record_op_result_locked({
+                    "id": _op_state["id"], "kind": _op_state["kind"],
+                    "target": _op_state["target"], "action": _op_state["action"],
+                    "started_at": _op_state["started_at"],
+                    "finished_at": _op_state["finished_at"], "result": res,
+                })
+        return {"ok": False, "error": f"thread_start_failed: {type(exc).__name__}", "id": jid}
     return {"ok": True, "started": True, "id": jid, "kind": kind}
 
 

@@ -91,9 +91,13 @@ streams.
 |---|---|---|
 | Port | `sidecar/sidecar.json` | `17796` |
 | State dir (token + json state) | `HERMES_WEBUI_STATE_DIR` | `~/.hermes/webui` |
-| Show all containers | `MC_DOCKER_SHOW_ALL=1` | off (allow-list) |
-| Container allow-list | `MC_DOCKER_NAME_ALLOW` | `cybersec-toolkit,searxng,freqtrade` |
+| Show all containers | `MC_DOCKER_SHOW_ALL=1` | off |
+| Container allow-list | `MC_DOCKER_NAME_ALLOW` | empty / off (deny all) |
 | Compose workdir filter | `MC_DOCKER_WORKDIR_PREFIX` | off |
+
+The Docker card is **deny-by-default**: with none of the three knobs set, no container
+is shown or controllable. Opt stacks in with `MC_DOCKER_NAME_ALLOW` (comma-separated
+name prefixes) and/or `MC_DOCKER_WORKDIR_PREFIX`, or `MC_DOCKER_SHOW_ALL=1` to show all.
 
 Install `speedtest-cli` (optional), then the systemd user unit — it runs
 `/usr/bin/python3 -S -u sidecar.py` with no token in the unit (core provisions it

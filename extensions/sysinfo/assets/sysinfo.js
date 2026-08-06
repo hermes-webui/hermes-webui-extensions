@@ -341,14 +341,59 @@ async function _mcLoadDockerGroupNames() {
 function _mcGroupLabel(key) {
   return _mcDockerGroupNames[key] || key || 'Ungrouped';
 }
+// Group collapse state lives in ONE bounded localStorage key. It used to be one key
+// PER compose project (`mc.docker.group.<project>`) — an unbounded set that a churn-
+// heavy host grows without limit (a probe accumulated 1,000 keys), which can exhaust
+// origin storage and disrupt core WebUI keys. It is now a compact {project:'0'|'1'}
+// map, PRUNED to the currently-rendered inventory and hard-capped on every write.
+// Default = expanded (a project absent from the map is expanded). (finding #6)
+const _MC_GROUPS_KEY = 'mc.docker.groups';
+const _MC_GROUPS_CAP = 100;
+function _mcGroupStateMap() {
+  try {
+    const v = JSON.parse(localStorage.getItem(_MC_GROUPS_KEY) || '{}');
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+  } catch (_) { return {}; }
+}
 function _mcGroupExpanded(key) {
-  const v = localStorage.getItem('mc.docker.group.' + key);
-  return v === null ? true : v === '1';   // default expanded
+  const v = _mcGroupStateMap()[key];
+  return v === undefined ? true : v === '1';   // default expanded
+}
+function _mcSetGroupExpanded(key, expanded) {
+  const m = _mcGroupStateMap();
+  m[key] = expanded ? '1' : '0';
+  // Prune to the projects we actually render (plus the one just toggled) so churned /
+  // one-off project names can't accumulate; hard-cap as a backstop.
+  const live = new Set(_mcDockerGroupOrder || []); live.add(key);
+  const pruned = {};
+  for (const k of Object.keys(m)) { if (live.has(k)) pruned[k] = m[k]; }
+  const keys = Object.keys(pruned);
+  if (keys.length > _MC_GROUPS_CAP) {
+    for (const k of keys.slice(0, keys.length - _MC_GROUPS_CAP)) { if (k !== key) delete pruned[k]; }
+  }
+  try { localStorage.setItem(_MC_GROUPS_KEY, JSON.stringify(pruned)); } catch (_) {}
+}
+// One-time migration off the legacy per-project keys → the single bounded map, so a
+// host that already accumulated them reclaims the storage. The trailing dot on the
+// prefix is deliberate: it never matches the new `mc.docker.groups` key itself.
+let _mcGroupsMigrated = false;
+function _mcMigrateLegacyGroupKeys() {
+  if (_mcGroupsMigrated) return; _mcGroupsMigrated = true;
+  try {
+    const PFX = 'mc.docker.group.';
+    const legacy = [];
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(PFX) === 0) legacy.push(k); }
+    if (!legacy.length) return;
+    const m = _mcGroupStateMap();
+    for (const k of legacy) { const v = localStorage.getItem(k); if (v === '0' || v === '1') m[k.slice(PFX.length)] = v; localStorage.removeItem(k); }
+    const keys = Object.keys(m);
+    if (keys.length > _MC_GROUPS_CAP) { for (const k of keys.slice(0, keys.length - _MC_GROUPS_CAP)) delete m[k]; }
+    localStorage.setItem(_MC_GROUPS_KEY, JSON.stringify(m));
+  } catch (_) {}
 }
 window.mcDockerGroupToggle = function(idx) {
   const key = _mcDockerGroupOrder[idx]; if (key === undefined) return;
-  const next = !_mcGroupExpanded(key);
-  try { localStorage.setItem('mc.docker.group.' + key, next ? '1' : '0'); } catch (_) {}
+  _mcSetGroupExpanded(key, !_mcGroupExpanded(key));
   if (_mcLastDockerPayload) _mcRenderDockerCard(_mcLastDockerPayload);
 };
 window.mcDockerRenameGroup = async function(idx, ev) {
@@ -610,18 +655,31 @@ async function _mcPollDockerOp(startResp, r) {
   const myId = startResp && startResp.id;
   if (typeof myId !== 'number') throw new Error('no operation id returned');
   const url = BASE + '/api/system/docker/op-status?id=' + encodeURIComponent(myId);
-  for (let i = 0; i < 480; i++) {            // ~16min at 2s (single update ≤900s)
+  // Poll for as long as the SERVER reports our op as running. A group action
+  // (40s × up to 200 containers) or a single update (≤900s) can far outrun any fixed
+  // iteration ceiling, so a hard cap would abandon a still-live host mutation and
+  // report a false timeout. Bound ONLY *consecutive* transport failures (a valid
+  // status resets the budget); the server retains the terminal record for
+  // _OP_RESULTS_TTL — longer than this recovery window — so a brief proxy blip can't
+  // age us into a false "unavailable" (finding #5).
+  let fails = 0;
+  const MAX_FAILS = 40;                       // ~2 min of consecutive transport failures
+  for (;;) {
     await new Promise(res => setTimeout(res, 2000));
     let s = null;
     try {
       const pr = await fetch(url, { credentials: 'same-origin' });
       if (pr.ok) s = await pr.json();
-    } catch (_) { continue; }                // tolerate a transient proxy error
-    if (!s) continue;
+    } catch (_) { s = null; }                 // transient proxy error — counts below
+    if (!s) {
+      if (++fails > MAX_FAILS) throw new Error('operation status unavailable');
+      continue;
+    }
+    fails = 0;                                // a valid status resets the failure budget
     if (s.unknown) throw new Error('operation result unavailable');  // aged out — honest, no false success
     if (s.id === myId && !s.running) return s.result || { ok: true };
+    // else still running → keep polling (no fixed ceiling)
   }
-  throw new Error('operation timed out');
 }
 
 window.mcDockerAction = async function(cid, action, btnEl) {
@@ -737,13 +795,18 @@ async function _mcBulkUpdatePoll(label, bulkId){
   // every 3s for minutes would suppress unrelated notifications. Toast only on
   // completion/failure (the caller toasts on start). Tolerate transient proxy
   // errors until a bounded deadline rather than aborting on the first one.
+  // Poll while the bulk reports running — up to 200 sequential ~900s updates can far
+  // outrun any fixed ceiling, so a hard deadline would abandon a live host mutation.
+  // Give up ONLY after a bounded run of *consecutive* transport failures (a good poll
+  // resets the count); the server retains the terminal record longer than this window
+  // (_OP_RESULTS_TTL), so a brief blip can't age our bulk out falsely (finding #5).
   let fails = 0;
-  const deadline = Date.now() + 16 * 60 * 1000;   // ~16min ceiling
+  const MAX_FAILS = 20;                            // ~1 min of consecutive transport failures
   for(;;){
     let s;
     try { s = await api('/api/system/docker/update-bulk' + _q); fails = 0; }
     catch(_) {
-      if (++fails > 20 || Date.now() > deadline) {
+      if (++fails > MAX_FAILS) {
         showToast(`${label} — lost track of the update (it may still be running)`, undefined, 'error');
         break;
       }
@@ -764,7 +827,6 @@ async function _mcBulkUpdatePoll(label, bulkId){
         break;
       }
     }
-    if (Date.now() > deadline) { showToast(`${label} — timed out`, undefined, 'error'); break; }
     await new Promise(r => setTimeout(r, 3000));
   }
   window._mcBulkUpdating = null;
@@ -939,14 +1001,16 @@ window.mcDockerUpdate = async function(cid, btnEl) {
   if (menu) menu.hidden = true;
   const row = btnEl && btnEl.closest('.mc-docker-row');
   const nm = row ? (row.querySelector('.mc-docker-name')?.textContent || '').trim() : cid;
-  if (typeof showConfirmDialog === 'function') {
-    const ok = await showConfirmDialog({
-      title: `Update “${nm}”?`,
-      message: 'Pulls the newest image and recreates this container — it will be briefly unavailable while it restarts.',
-      confirmLabel: 'Pull & update',
-    });
-    if (!ok) return;
-  }
+  // A single-image update pulls + recreates a container on the host — gate it behind
+  // the SAME fail-closed confirm as stack/all updates. Deleting/absent showConfirmDialog
+  // must REFUSE (via _mcConfirmDestructive), never fall through and POST unconfirmed
+  // like the old `if (typeof showConfirmDialog === 'function')` path did (finding #2).
+  const ok = await _mcConfirmDestructive({
+    title: `Update “${nm}”?`,
+    message: 'Pulls the newest image and recreates this container — it will be briefly unavailable while it restarts.',
+    confirmLabel: 'Pull & update',
+  });
+  if (!ok) return;
   if (row) row.classList.add('mc-docker-row--busy');
   if (typeof showToast === 'function') showToast(`Updating “${nm}” — pulling image…`);
   try {
@@ -1003,6 +1067,7 @@ window.mcDockerUpdate = async function(cid, btnEl) {
     });
   }
   function init() {
+    _mcMigrateLegacyGroupKeys();   // one-time: fold legacy per-project keys into the bounded map
     _siTick();
     if ('MutationObserver' in window) {
       new MutationObserver(function (muts) {

@@ -19,10 +19,11 @@ class _FakeR:
 
 
 def _run_docker_update(*, workdir, config_files, ps_out, inventory,
-                       cid="abc123def456", compose_rc=0):
+                       cid="abc123def456", compose_rc=0, ps_rc=0):
     """Drive the REAL docker_update() with a faked docker CLI + inventory, so items
     1 & 2 (replica authorization, compose-file reconstruction, --no-deps) are exercised
-    end to end. Returns (result, compose_calls)."""
+    end to end. ``ps_rc`` sets the replica-enumeration exit code. Returns
+    (result, compose_calls)."""
     ds = docker_stats
     saved = (ds.subprocess.run, ds.docker_present, ds._inventory_ids,
              ds._image_local_digest, ds._image_version_label, ds.updates_forget)
@@ -33,7 +34,7 @@ def _run_docker_update(*, workdir, config_files, ps_out, inventory,
         if sub == "inspect":
             return _FakeR(0, "\t".join(["img:latest", "proj", "svc", workdir, config_files, "/proj-svc-1"]))
         if sub == "ps":
-            return _FakeR(0, ps_out)
+            return _FakeR(ps_rc, ps_out)
         if sub == "compose":
             compose_calls.append(argv)
             return _FakeR(compose_rc, "ok")
@@ -273,6 +274,100 @@ def test_unknown_bulk_id_is_honest():
     assert s["running"] is False and s.get("unknown") is True, s
 
 
+def test_docker_update_fails_closed_on_replica_enum_error():
+    # Finding #1: a non-zero `docker ps` (replica enumeration failed) must NOT be read
+    # as "no hidden replicas" — refuse before any pull/up, run no compose op.
+    d = tempfile.mkdtemp()
+    cfg = os.path.join(d, "docker-compose.yml"); open(cfg, "w").write("services: {}\n")
+    res, calls = _run_docker_update(
+        workdir=d, config_files=cfg, ps_out="", ps_rc=1, inventory={"abc123def456"})
+    assert res == {"ok": False, "error": "replica_enum_failed"}, res
+    assert calls == [], "no compose op may run when replica enumeration failed"
+
+
+def test_docker_update_fails_closed_on_empty_replica_set():
+    # Finding #1: a CLEAN `docker ps` that matched no replica must refuse — we can't
+    # prove the recreate is scoped to authorized containers, so no blind `up`.
+    d = tempfile.mkdtemp()
+    cfg = os.path.join(d, "docker-compose.yml"); open(cfg, "w").write("services: {}\n")
+    res, calls = _run_docker_update(
+        workdir=d, config_files=cfg, ps_out="   \n", ps_rc=0, inventory={"abc123def456"})
+    assert res == {"ok": False, "error": "no_replicas"}, res
+    assert calls == []
+
+
+def test_process_epoch_advances_across_same_second_restart():
+    # Finding #4: two sidecar starts within the SAME wall-clock second must still get
+    # strictly-increasing id bases, so a new op's id can't collide with one an old tab
+    # is still polling. We seed a stored epoch >= now (exactly the same-second /
+    # clock-not-advanced condition) and verify _next_process_epoch advances past it by
+    # the full per-process id headroom each time.
+    ds = docker_stats
+    d = tempfile.mkdtemp()
+    saved_env = os.environ.get("HERMES_SYSINFO_STATE_DIR")
+    try:
+        os.environ["HERMES_SYSINFO_STATE_DIR"] = d
+        future = int(ds._time.time()) + 10_000          # int(time.time()) can't exceed this
+        ds._epoch_file().write_text(str(future))
+        e1 = ds._next_process_epoch()
+        e2 = ds._next_process_epoch()                    # "restart" in the same second
+        e3 = ds._next_process_epoch()
+        assert e1 == (future + 1) * 100000, e1
+        assert e1 < e2 < e3, (e1, e2, e3)
+        assert e2 - e1 == 100000 and e3 - e2 == 100000, (e1, e2, e3)
+    finally:
+        if saved_env is None:
+            os.environ.pop("HERMES_SYSINFO_STATE_DIR", None)
+        else:
+            os.environ["HERMES_SYSINFO_STATE_DIR"] = saved_env
+
+
+def test_op_reservation_released_on_thread_start_failure():
+    # Finding #3: if the op thread fails to start, the single mutation slot must be
+    # RELEASED (not stuck running:true forever) and an id-owned terminal failure
+    # recorded — so the next mutation can still run.
+    ds = docker_stats
+    orig_thread = ds._threading_du.Thread
+
+    class _BoomThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            raise RuntimeError("cant_spawn")
+
+    try:
+        ds._threading_du.Thread = _BoomThread
+        r = ds._start_op("action", lambda: {"ok": True}, target="ct", action="stop")
+        assert r["ok"] is False and "thread_start_failed" in r["error"], r
+        jid = r["id"]
+        with ds._bulk_lock:
+            assert ds._op_state["running"] is False, ds._op_state          # slot released
+        st = ds.docker_op_status(jid)
+        assert st["running"] is False and st["result"]["ok"] is False, st  # id-owned terminal failure
+    finally:
+        ds._threading_du.Thread = orig_thread
+    # a subsequent op still starts — the slot wasn't wedged
+    ok = ds._start_op("action", lambda: {"ok": True}, target="ct2", action="start")
+    assert ok["ok"] is True, ok
+    assert _wait_until(lambda: not ds.docker_op_status(ok["id"])["running"])
+
+
+def test_op_retention_exceeds_client_recovery_window():
+    # Finding #5: the server MUST retain a terminal record longer than the frontend's
+    # poll RECOVERY window — the span _mcPollDockerOp/_mcBulkUpdatePoll keep retrying
+    # across *consecutive* transport failures (MAX_FAILS 40 × ~3s ≈ 2 min) before
+    # giving up. Otherwise a brief disconnect around completion could age the record
+    # out and surface a false "unavailable" while the client is still retrying.
+    CLIENT_RECOVERY_WINDOW_S = 40 * 3
+    assert docker_stats._OP_RESULTS_TTL > CLIENT_RECOVERY_WINDOW_S, docker_stats._OP_RESULTS_TTL
+    # and a finished op's record is actually served by id within the window
+    op = docker_stats._start_op("action", lambda: {"ok": True, "n": 1}, target="ct", action="restart")
+    oid = op["id"]
+    assert _wait_until(lambda: not docker_stats.docker_op_status(oid)["running"])
+    assert docker_stats.docker_op_status(oid)["result"] == {"ok": True, "n": 1}
+
+
 if __name__ == "__main__":
     test_op_poll_returns_own_failure_after_next_op_starts()
     test_unknown_op_id_is_honest()
@@ -284,4 +379,9 @@ if __name__ == "__main__":
     test_docker_update_rejects_hidden_replica()
     test_docker_update_fails_closed_when_compose_config_unrecoverable()
     test_unknown_bulk_id_is_honest()
+    test_docker_update_fails_closed_on_replica_enum_error()
+    test_docker_update_fails_closed_on_empty_replica_set()
+    test_process_epoch_advances_across_same_second_restart()
+    test_op_reservation_released_on_thread_start_failure()
+    test_op_retention_exceeds_client_recovery_window()
     print("ok — sysinfo op + bulk ownership + host-control regression passed")
