@@ -1563,5 +1563,141 @@ await assert.rejects(
 );
 assert.equal(resumeSocket.sent.some((m) => m.includes('audio/pcm')), false, 'no capture audio may follow a cancelled mic start');
 
+// ---- the endpoint must speak the ephemeral-token API version ---------------
+// The token flow only works against v1beta (ai.google.dev/gemini-api/docs/
+// live-api/ephemeral-tokens); a v1alpha socket paired with a v1beta-minted
+// token fails setup against the live service while every stub here passes.
+assert.match(
+  js,
+  /generativelanguage\.v1beta\.GenerativeService/,
+  'the Live WebSocket must target the v1beta API the ephemeral-token contract requires',
+);
+assert.equal(js.includes('v1alpha'), false, 'no v1alpha endpoint may remain in the client');
+
+// ---- model-initiated cancellation must revoke the tool call ----------------
+// A toolCallCancellation names calls whose results the model will discard: the
+// Live API contract is that cancelled ids must not execute. Ignoring the frame
+// lets a continuation parked on the baseline read resume, write the prompt,
+// and drive authenticated core send() for a call the model already withdrew.
+jarvis.disconnect();
+sandbox.AudioContext = class RevivedPlaybackContext {
+  constructor() {
+    this.state = 'running';
+    this.currentTime = 0;
+    this.destination = {};
+    this.audioWorklet = { addModule: async () => {} };
+    playbackCtx = this;
+  }
+  async resume() { this.state = 'running'; }
+  createBuffer(channels, length, rate) { return { duration: length / rate, copyToChannel() {} }; }
+  createBufferSource() { return { buffer: null, connect() {}, start(at) { started.push(at); }, stop() {} }; }
+  createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+  createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} }; }
+  close() {}
+};
+const cancelSocket = await openJarvis();
+let releaseCancelBaseline;
+let cancelBaselineReads = 0;
+sandbox.__apiImpl = async () => {
+  cancelBaselineReads += 1;
+  if (cancelBaselineReads === 1) {
+    await new Promise((resolve) => { releaseCancelBaseline = resolve; });
+    return { session: { message_count: 0, messages: [] } };
+  }
+  return { session: { message_count: 2, messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'ghost' }] } };
+};
+input.value = '';
+const sendCallsBeforeCancel = sendCalls;
+const cancelledDispatch = cancelSocket.onmessage({
+  data: JSON.stringify({ toolCall: { functionCalls: [{ id: 'cx1', name: 'run_hermes', args: { task: 'cancelled before send' } }] } }),
+});
+await flush();
+await cancelSocket.onmessage({ data: JSON.stringify({ toolCallCancellation: { ids: ['cx1'] } }) });
+releaseCancelBaseline();
+await cancelledDispatch;
+await flush();
+assert.equal(sendCalls, sendCallsBeforeCancel, 'a cancelled tool call must never reach core send()');
+assert.equal(input.value, '', 'a cancelled tool call must not leave a prompt in the composer');
+assert.equal(
+  cancelSocket.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'a cancelled id gets no toolResponse',
+);
+
+// ...and a cancellation that lands AFTER submission still silences the reply:
+// the model has discarded this call, so no toolResponse may follow it.
+jarvis.disconnect();
+const pollCancelSocket = await openJarvis();
+let pollCancelReads = 0;
+let releasePollGate;
+const pollGate = new Promise((resolve) => { releasePollGate = resolve; });
+sandbox.__apiImpl = async () => {
+  pollCancelReads += 1;
+  if (pollCancelReads === 1) return { session: { message_count: 0, messages: [] } };
+  await pollGate;
+  return { session: { message_count: 2, messages: [{ role: 'user', content: sentText }, { role: 'assistant', content: 'late reply' }] } };
+};
+input.value = '';
+const sendCallsBeforePollCancel = sendCalls;
+const pollDispatch = pollCancelSocket.onmessage({
+  data: JSON.stringify({ toolCall: { functionCalls: [{ id: 'cx2', name: 'run_hermes', args: { task: 'cancelled mid poll' } }] } }),
+});
+await flush();
+assert.equal(sendCalls, sendCallsBeforePollCancel + 1, 'this task really was submitted before the cancellation arrived');
+await pollCancelSocket.onmessage({ data: JSON.stringify({ toolCallCancellation: { ids: ['cx2'] } }) });
+releasePollGate();
+await pollDispatch;
+await flush();
+assert.equal(
+  pollCancelSocket.sent.some((message) => message.includes('toolResponse')),
+  false,
+  'no toolResponse may follow a model-initiated cancellation, even after submission',
+);
+
+// ---- audio expansion must be bounded, not just frame bytes ------------------
+// The 1 MiB frame cap does not bound WORK: a sub-cap frame can carry tens of
+// thousands of tiny inlineData parts, each spawning an AudioBuffer and a
+// source. A part-flood is a protocol violation and closes the socket.
+jarvis.disconnect();
+const partsSocket = await openJarvis();
+const startedBeforePartsFlood = started.length;
+await partsSocket.onmessage({
+  data: JSON.stringify({
+    serverContent: { modelTurn: { parts: Array.from({ length: 65 }, () => ({ inlineData: { data: audioChunk } })) } },
+  }),
+});
+assert.equal(started.length, startedBeforePartsFlood, 'a part-flood frame must not schedule any audio');
+assert.equal(partsSocket.readyState, 3, 'a part-flood frame must close the socket');
+
+// Repeated VALID frames must not grow the playback queue without bound either:
+// sources queue faster than they play, so the backlog is capped by count...
+jarvis.disconnect();
+const queueSocket = await openJarvis();
+const startedBeforeQueueFlood = started.length;
+for (let i = 0; i < 80; i += 1) await queueSocket.onmessage({ data: audioMessage });
+assert.ok(
+  started.length - startedBeforeQueueFlood <= 64,
+  `queued playback sources must be bounded (got ${started.length - startedBeforeQueueFlood})`,
+);
+assert.equal(queueSocket.readyState, 3, 'unbounded queued playback must close the socket');
+
+// ...and by total queued duration, which a few large legitimate-sized parts
+// can exhaust long before the source-count cap is reached.
+jarvis.disconnect();
+const durationSocket = await openJarvis();
+// Ten seconds of PCM per frame: 240k samples at 24 kHz, inside both the
+// per-part base64 cap and the whole-frame byte cap.
+const tenSecondChunk = Buffer.from(new Int16Array(240000).buffer).toString('base64');
+const tenSecondMessage = JSON.stringify({
+  serverContent: { modelTurn: { parts: [{ inlineData: { data: tenSecondChunk } }] } },
+});
+const startedBeforeDurationFlood = started.length;
+for (let i = 0; i < 10; i += 1) await durationSocket.onmessage({ data: tenSecondMessage });
+assert.ok(
+  started.length - startedBeforeDurationFlood < 10,
+  'queued playback duration must be bounded',
+);
+assert.equal(durationSocket.readyState, 3, 'exceeding the queued-duration budget must close the socket');
+
 console.log('ok jarvis voice runtime checks');
 process.exit(0);

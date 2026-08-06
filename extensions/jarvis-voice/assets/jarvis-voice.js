@@ -28,6 +28,11 @@
     cancelConnect: null,
     disconnectEpoch: 0,
     hermesToolRunning: false,
+    // Model-initiated tool cancellation. Only ids currently in flight are ever
+    // recorded, and each id is removed when its call settles, so neither set
+    // can grow past the in-flight call count however many ids a frame names.
+    inflightToolIds: new Set(),
+    cancelledToolIds: new Set(),
     panel: null,
     button: null,
     status: null,
@@ -177,6 +182,16 @@
   const MAX_FRAME_BYTES = 1024 * 1024;
   const MAX_TOOL_CALLS_DECODED = 8;
   const MAX_AUDIO_PART_B64_CHARS = 768 * 1024;
+  // The frame-byte cap bounds SIZE, not WORK: a sub-cap frame can still carry
+  // tens of thousands of tiny parts, each spawning an AudioBuffer and a source.
+  // Real turns arrive as a handful of parts per frame.
+  const MAX_CONTENT_PARTS_DECODED = 64;
+  // And across frames, sources queue faster than they play, so the playback
+  // backlog is bounded twice over: by scheduled-source count and by how far
+  // ahead of the clock the queue may reach. Violating either is treated like
+  // any other protocol violation — the socket is closed.
+  const MAX_QUEUED_AUDIO_SOURCES = 64;
+  const MAX_QUEUED_AUDIO_SECONDS = 60;
 
   function frameOversized(data) {
     if (typeof Blob !== 'undefined' && data instanceof Blob) return data.size > MAX_FRAME_BYTES;
@@ -185,7 +200,15 @@
 
   function frameViolation(parsed) {
     const calls = parsed && parsed.toolCall && parsed.toolCall.functionCalls;
-    return Array.isArray(calls) && calls.length > MAX_TOOL_CALLS_DECODED;
+    if (Array.isArray(calls) && calls.length > MAX_TOOL_CALLS_DECODED) return true;
+    const content = parsed && parsed.serverContent;
+    const parts = content && content.modelTurn && content.modelTurn.parts;
+    return Array.isArray(parts) && parts.length > MAX_CONTENT_PARTS_DECODED;
+  }
+
+  function playbackOverBudget() {
+    if (state.activeSources.length >= MAX_QUEUED_AUDIO_SOURCES) return true;
+    return !!state.playCtx && state.nextPlayAt - state.playCtx.currentTime > MAX_QUEUED_AUDIO_SECONDS;
   }
 
   function refuseFrame(ws) {
@@ -207,6 +230,8 @@
     const out = [];
     if (data.setupComplete) out.push({ type: 'setup' });
     if (data.toolCall) out.push({ type: 'tool', data: data.toolCall });
+    const cancelIds = data.toolCallCancellation && data.toolCallCancellation.ids;
+    if (Array.isArray(cancelIds)) out.push({ type: 'toolCancel', data: cancelIds });
     const content = data.serverContent;
     const parts = content && content.modelTurn && content.modelTurn.parts;
     if (Array.isArray(parts)) {
@@ -413,11 +438,25 @@
 
   async function handleGemini(msg, ws = state.ws, epoch = state.disconnectEpoch) {
     if (msg.type === 'setup') { log('jarvis ready'); return; }
-    if (msg.type === 'audio') { await playPcm24(msg.data); return; }
+    if (msg.type === 'audio') {
+      if (playbackOverBudget()) { refuseFrame(ws); return; }
+      await playPcm24(msg.data);
+      return;
+    }
     if (msg.type === 'input') { resumePlayback(); log(`you: ${msg.data}`); return; }
     if (msg.type === 'output' || msg.type === 'text') { log(`jarvis: ${msg.data}`); return; }
     if (msg.type === 'interrupted') { stopPlayback(); return; }
     if (msg.type === 'turnComplete') { resumePlayback(); return; }
+    // A cancellation names calls whose results the model will discard; the Live
+    // API contract is that they must not execute. This frame is handled while
+    // the named call is parked on an await, so marking the id here is what its
+    // isStale() recheck observes on resume.
+    if (msg.type === 'toolCancel') {
+      for (const id of msg.data) {
+        if (state.inflightToolIds.has(id)) state.cancelledToolIds.add(id);
+      }
+      return;
+    }
     if (msg.type === 'tool') { await handleToolCall(msg.data, ws, epoch); }
   }
 
@@ -444,12 +483,27 @@
           throw new Error(`task is too long (${task.length} characters, limit ${MAX_TASK_CHARS})`);
         }
         ran += 1;
-        const result = await runHermes(task, () => !socketCurrent(ws, epoch));
+        // Registered synchronously, before the first await: the cancellation
+        // frame that names this id arrives while runHermes() is parked, and it
+        // only marks ids it can see in flight.
+        state.inflightToolIds.add(call.id);
+        let result;
+        try {
+          result = await runHermes(task, () => !socketCurrent(ws, epoch) || state.cancelledToolIds.has(call.id));
+        } finally {
+          state.inflightToolIds.delete(call.id);
+        }
+        // A cancelled id must not execute — and must not answer either: the
+        // model has already discarded this call.
+        if (state.cancelledToolIds.delete(call.id)) continue;
         responses.push({ id: call.id, name, response: { result } });
       } catch (err) {
+        state.inflightToolIds.delete(call.id);
+        if (state.cancelledToolIds.delete(call.id)) continue;
         responses.push({ id: call.id, name, response: { error: String(err && err.message || err) } });
       }
     }
+    if (!responses.length) return;
     if (!socketCurrent(ws, epoch)) return;
     sendGemini({ toolResponse: { functionResponses: responses } }, ws);
   }
