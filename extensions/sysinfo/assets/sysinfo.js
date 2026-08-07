@@ -385,7 +385,10 @@ function _mcSetGroupExpanded(key, expanded) {
   // Prune to the projects we actually render (plus the one just toggled) so churned /
   // one-off project names can't accumulate; hard-cap as a backstop.
   const live = new Set(_mcDockerGroupOrder || []); live.add(key);
-  const pruned = {};
+  // Null-proto: a project literally named `__proto__` must persist as an OWN key.
+  // A plain `{}` here would invoke the inherited setter on assignment and write
+  // nothing, so that project's collapse toggle would silently re-expand.
+  const pruned = _mcNullMap();
   for (const k of Object.keys(m)) { if (live.has(k)) pruned[k] = m[k]; }
   const keys = Object.keys(pruned);
   if (keys.length > _MC_GROUPS_CAP) {
