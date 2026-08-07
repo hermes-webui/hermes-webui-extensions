@@ -40,6 +40,7 @@
         "/api/extensions/sysinfo/sidecar/api/system/speedtest/auto",
         "/api/extensions/sysinfo/sidecar/api/system/docker",
         "/api/extensions/sysinfo/sidecar/api/system/docker/groups",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/updates",
         "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk",
         "/api/extensions/sysinfo/sidecar/api/system/docker/op-status"
       ],
@@ -47,7 +48,6 @@
         "/api/extensions/sysinfo/sidecar/api/system/speedtest",
         "/api/extensions/sysinfo/sidecar/api/system/speedtest/auto",
         "/api/extensions/sysinfo/sidecar/api/system/docker/groups",
-        "/api/extensions/sysinfo/sidecar/api/system/docker/updates",
         "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk",
         "/api/extensions/sysinfo/sidecar/api/system/docker/action",
         "/api/extensions/sysinfo/sidecar/api/system/docker/group-action",
@@ -62,8 +62,8 @@
     "storage": {
       "owned": [
         "mc.docker.expanded",
-        "mc.docker.group.*",
-        "mc.docker.updates"
+        "mc.docker.groups",
+        "mc.docker.group.*"
       ],
       "shared_webui_keys": []
     },

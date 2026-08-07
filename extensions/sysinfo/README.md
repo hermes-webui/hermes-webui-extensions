@@ -41,7 +41,7 @@ WebUI sidecar proxy (after consent)
   -> /api/extensions/sysinfo/sidecar/api/system/...
   -> loopback sidecar on 127.0.0.1:17796 (sidecar/sysinfo.py + docker_stats.py)
      -> `speedtest-cli --json`, `docker stats/ps/inspect`, compose pull+up
-     -> state: $HERMES_SYSINFO_STATE_DIR/{speedtest_last.json, speedtest_auto.json, .docker_groups.json, .docker_updates.json}
+     -> state: $HERMES_SYSINFO_STATE_DIR/{speedtest_last.json, speedtest_auto.json, .docker_groups.json, .docker_updates.json, .docker_op_epoch}
 ```
 
 ## Supported WebUI version / API surface
@@ -127,9 +127,10 @@ where core and the sidecar share a network namespace and the state dir.
   injected on the next render. No restart required.
 - **Uninstall**: remove it in **Settings → Extensions** (or delete the
   directory). Server state (`speedtest_last.json`, `speedtest_auto.json`,
-  `.docker_groups.json`, `.docker_updates.json`) remains under the state dir; delete those files to
-  clear it. Browser keys (`mc.docker.expanded`, `mc.docker.group.*`,
-  `mc.docker.updates`) are small view-state strings, clearable from DevTools.
+  `.docker_groups.json`, `.docker_updates.json`, `.docker_op_epoch`) remains under the state dir; delete those files to
+  clear it. Browser keys (`mc.docker.expanded`, `mc.docker.groups`) are small
+  view-state strings, clearable from DevTools (a one-time migration folds any
+  legacy `mc.docker.group.*` keys into `mc.docker.groups` and removes them).
 
 ## Trust and permissions
 

@@ -42,7 +42,11 @@
   }
 
   // Minimal fetch wrapper matching the call-shape the ported code expects:
-  // api(path, {method, body, timeoutMs}) -> parsed JSON, throws on !ok.
+  // api(path, {method, body, timeoutMs, strict}) -> parsed JSON, throws on !ok.
+  // By default a non-2xx that still carries a JSON `{error}` body RESOLVES with it
+  // so one-shot callers can render the structured business error (e.g. speedtest
+  // 503 "speedtest-cli not installed"). POLLING callers must instead COUNT a non-2xx
+  // as a transport failure — pass {strict:true} and any non-2xx throws.
   async function api(path, opts) {
     opts = opts || {};
     var init = { method: opts.method || 'GET', credentials: 'same-origin', headers: {} };
@@ -56,7 +60,7 @@
     try {
       var r = await fetch(BASE + path, init);
       var d = await r.json().catch(function () { return {}; });
-      if (!r.ok && !(d && d.error)) throw new Error('HTTP ' + r.status);
+      if (!r.ok && (opts.strict || !(d && d.error))) throw new Error('HTTP ' + r.status);
       return d;
     } finally { if (timer) clearTimeout(timer); }
   }
@@ -321,17 +325,30 @@ window.mcDockerToggle = function() {
 // can be renamed (custom label persisted server-side via /api/system/docker/groups
 // so it sticks across devices). Plain `docker run` containers fall under
 // "Ungrouped" at the bottom.
-let _mcDockerGroupNames = {};        // compose project -> custom label
-let _mcDockerContainerNames = {};    // container name -> custom label
+// These maps are keyed by HOST-supplied strings (compose project + container
+// names). A container/project literally named `__proto__`, `constructor`,
+// `hasOwnProperty`, `toString`, … would otherwise read an INHERITED Object.prototype
+// member as a truthy value on a plain `{}` (wrong label/collapse state, or a
+// function stringified into the UI). Null-prototype objects carry no inherited
+// members, so `map[key]` is undefined for any key the host didn't actually set.
+function _mcNullMap(src) {
+  const m = Object.create(null);
+  if (src && typeof src === 'object' && !Array.isArray(src)) {
+    for (const k of Object.keys(src)) m[k] = src[k];   // own keys only
+  }
+  return m;
+}
+let _mcDockerGroupNames = _mcNullMap();     // compose project -> custom label
+let _mcDockerContainerNames = _mcNullMap(); // container name -> custom label
 let _mcDockerGroupNamesLoaded = false;
 let _mcLastDockerPayload = null;
 let _mcDockerGroupOrder = [];        // render-order keys, referenced by index from inline handlers
-let _mcDockerUpdates = {};           // container name -> update-check result (on demand)
+let _mcDockerUpdates = _mcNullMap();        // container name -> update-check result (on demand)
 
 function _mcApplyDockerNameMaps(d) {
   if (!d) return;
-  if (d.renames) _mcDockerGroupNames = d.renames;
-  if (d.containers) _mcDockerContainerNames = d.containers;
+  if (d.renames) _mcDockerGroupNames = _mcNullMap(d.renames);
+  if (d.containers) _mcDockerContainerNames = _mcNullMap(d.containers);
 }
 async function _mcLoadDockerGroupNames() {
   try { _mcApplyDockerNameMaps(await api('/api/system/docker/groups')); } catch (_) {}
@@ -352,8 +369,11 @@ const _MC_GROUPS_CAP = 100;
 function _mcGroupStateMap() {
   try {
     const v = JSON.parse(localStorage.getItem(_MC_GROUPS_KEY) || '{}');
-    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
-  } catch (_) { return {}; }
+    // Null-proto + own-keys-only: a legacy/tampered value carrying a `__proto__`
+    // or inherited key can't poison group-collapse lookups keyed by host names.
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return _mcNullMap();
+    return _mcNullMap(v);
+  } catch (_) { return _mcNullMap(); }
 }
 function _mcGroupExpanded(key) {
   const v = _mcGroupStateMap()[key];
@@ -804,7 +824,7 @@ async function _mcBulkUpdatePoll(label, bulkId){
   const MAX_FAILS = 20;                            // ~1 min of consecutive transport failures
   for(;;){
     let s;
-    try { s = await api('/api/system/docker/update-bulk' + _q); fails = 0; }
+    try { s = await api('/api/system/docker/update-bulk' + _q, { strict: true }); fails = 0; }
     catch(_) {
       if (++fails > MAX_FAILS) {
         showToast(`${label} — lost track of the update (it may still be running)`, undefined, 'error');
@@ -910,7 +930,7 @@ function _mcRefreshDockerBusy() {
 // localStorage copy made desktop and phone disagree — never bring it back.
 let _mcDockerUpdatesRestored = false, _mcDockerCheckedAt = 0;
 function _mcDockerApplyUpdatesData(data) {
-  _mcDockerUpdates = {};
+  _mcDockerUpdates = _mcNullMap();
   ((data && data.containers) || []).forEach(c => { if (c && c.name) _mcDockerUpdates[c.name] = c; });
   _mcDockerCheckedAt = data && data.checked_at ? Math.round(data.checked_at * 1000) : 0;
   _mcDockerSyncUpdatePill();
@@ -961,7 +981,12 @@ window.mcDockerCheckUpdates = async function(btn) {
       await new Promise(res => setTimeout(res, 3000));
       try {
         r = await fetch(BASE + '/api/system/docker/updates', { credentials: 'same-origin' });
-        data = await r.json().catch(() => data);
+        // Only adopt the body of a SUCCESSFUL poll. A non-2xx (proxy 502, sidecar
+        // 5xx) can still carry a parseable JSON error body with no `sweeping` flag;
+        // adopting it would exit the loop and let _mcDockerApplyUpdatesData() stamp
+        // "checked just now" — wiping real badges — on a transient blip. Keep the
+        // prior `data` and keep polling instead (same discipline as _mcPollDockerOp).
+        if (r.ok) data = await r.json().catch(() => data);
       } catch (_) { /* transient proxy hiccup — keep polling */ }
     }
     _mcDockerApplyUpdatesData(data);   // apply whatever badges we have so far
