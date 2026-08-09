@@ -61,6 +61,11 @@ jobs:
       - name: Test extension validator
         run: node scripts/test-extension-validator.mjs
 
+      - name: Test Typography
+        run: |
+          node scripts/test-typography-rail-entry.mjs
+          node scripts/test-typography.mjs
+
       - name: Test Message Pins observer sync
         run: node scripts/test-message-pins-sync.mjs
 

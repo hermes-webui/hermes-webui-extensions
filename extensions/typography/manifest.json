@@ -1,0 +1,20 @@
+{
+  "extensions": [
+    {
+      "id": "typography",
+      "name": "Typography",
+      "description": "Choose interface, conversation, and code fonts independently with curated Google Fonts, role-based presets, and browser-local imports.",
+      "scripts": [
+        "assets/typography.js"
+      ],
+      "stylesheets": [
+        "assets/typography.css"
+      ],
+      "permissions": {
+        "storage": {
+          "owned": true
+        }
+      }
+    }
+  ]
+}

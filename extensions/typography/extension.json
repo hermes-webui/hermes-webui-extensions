@@ -1,0 +1,49 @@
+{
+  "id": "typography",
+  "name": "Typography",
+  "description": "Choose interface, conversation, and code fonts independently with curated Google Fonts, role-based presets, and browser-local imports.",
+  "version": "0.1.0",
+  "author": "starship-s",
+  "assets": {
+    "scripts": [
+      "assets/typography.js"
+    ],
+    "stylesheets": [
+      "assets/typography.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "hermes-ext-typography-selection"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": true
+  }
+}
