@@ -108,6 +108,30 @@ assert.equal(
 );
 
 const validate = extension.debug.validateLocalFontMetadata;
+const capacity = extension.debug.localFontCapacity;
+const maxLocalFontCount = extension.debug.MAX_LOCAL_FONT_COUNT;
+const maxLocalFontTotalBytes = extension.debug.MAX_LOCAL_FONT_TOTAL_BYTES;
+assert.equal(capacity({ currentCount: 0, currentTotalBytes: 0, newBytes: 1 }).ok, true, 'an empty collection accepts its first font');
+assert.equal(capacity({ currentCount: 1, currentTotalBytes: 1, newBytes: 1 }).count, 2, 'capacity counts the existing and new fonts');
+assert.equal(capacity({ currentCount: maxLocalFontCount - 1, currentTotalBytes: 0, newBytes: 1 }).count, maxLocalFontCount, 'the maximum count is accepted exactly');
+assert.equal(capacity({ currentCount: maxLocalFontCount - 1, currentTotalBytes: 0, newBytes: 1 }).ok, true, 'the maximum count remains valid');
+assert.equal(capacity({ currentCount: maxLocalFontCount, currentTotalBytes: 0, newBytes: 1 }).ok, false, 'count above the maximum is rejected');
+assert.equal(capacity({ currentCount: maxLocalFontCount + 1, currentTotalBytes: 0, newBytes: 1 }).ok, false, 'an already over-count collection remains rejected');
+const maxCountReplacement = capacity({ currentCount: maxLocalFontCount, currentTotalBytes: 1, newBytes: 1, replacing: true, oldBytes: 1 });
+assert.equal(maxCountReplacement.ok, true, 'replacement is allowed at the maximum count');
+assert.equal(maxCountReplacement.count, maxLocalFontCount, 'replacement does not increase the count');
+assert.equal(capacity({ currentCount: 0, currentTotalBytes: maxLocalFontTotalBytes - 1, newBytes: 1 }).totalBytes, maxLocalFontTotalBytes, 'the aggregate byte maximum is accepted exactly');
+assert.equal(capacity({ currentCount: 0, currentTotalBytes: maxLocalFontTotalBytes - 1, newBytes: 1 }).ok, true, 'the aggregate byte maximum remains valid');
+assert.equal(capacity({ currentCount: 0, currentTotalBytes: maxLocalFontTotalBytes, newBytes: 1 }).ok, false, 'aggregate bytes above the maximum are rejected');
+const replacementCapacity = capacity({ currentCount: 3, currentTotalBytes: 30, newBytes: 20, replacing: true, oldBytes: 10 });
+assert.equal(replacementCapacity.ok, true, 'replacement keeps count and subtracts the old bytes before adding the new bytes');
+assert.equal(replacementCapacity.count, 3);
+assert.equal(replacementCapacity.totalBytes, 40);
+assert.equal(
+  capacity({ currentCount: 3, currentTotalBytes: maxLocalFontTotalBytes, newBytes: 2, replacing: true, oldBytes: 1 }).ok,
+  false,
+  'replacement rejects the aggregate total after subtracting the old record',
+);
 assert.equal(validate({ name: 'sample.woff2', type: 'font/woff2', size: 4, signature: 'wOF2' }).ok, true);
 assert.equal(validate({ name: 'sample.woff2', type: 'application/octet-stream', size: 4, signature: 'wOF2' }).ok, true);
 assert.equal(validate({ name: 'sample.woff', type: '', size: 4, signature: 'wOFF' }).ok, true);

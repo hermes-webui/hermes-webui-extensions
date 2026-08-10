@@ -176,6 +176,12 @@ jobs:
           mkdir -p "$COMPATIBILITY_EVIDENCE_DIR"
           python tests/compatibility/browser_smoke.py
 
+      - name: Run Typography browser compatibility smoke
+        env:
+          HERMES_CORE_DIR: .ci/hermes-webui-core
+          COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
+        run: python tests/compatibility/typography_smoke.py
+
       - name: Upload browser compatibility evidence
         if: always()
         # v5 @ 330a01c490aca151604b8cf639adc76d48f6c5d4

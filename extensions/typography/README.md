@@ -50,12 +50,13 @@ Click **Typography** in the rail to open the panel.
 
 ## Browser-local fonts
 
-The panel accepts `.woff2`, `.woff`, `.ttf`, and `.otf` files up to 10 MiB each.
-It rejects empty files, mismatched MIME types when a MIME type is present, and
-files whose signatures are not `wOF2`, `wOFF`, OpenType `OTTO`, or TrueType
-`0x00010000` (`true` is also accepted for `.ttf`). TrueType-outline `.otf`
-files may use `0x00010000`. `FontFace.load()` succeeds before a record is
-persisted.
+The panel accepts `.woff2`, `.woff`, `.ttf`, and `.otf` files up to 10 MiB each,
+with at most 8 browser-local fonts and 40 MiB aggregate. It rejects empty
+files, mismatched MIME types when a MIME type is present, and files whose
+signatures are not `wOF2`, `wOFF`, OpenType `OTTO`, or TrueType `0x00010000`
+(`true` is also accepted for `.ttf`). TrueType-outline `.otf` files may use
+`0x00010000`. Count and aggregate limits are checked before `FontFace.load()`
+and persistence. `FontFace.load()` succeeds before a record is persisted.
 
 Font bytes use native IndexedDB only:
 
@@ -64,15 +65,21 @@ Font bytes use native IndexedDB only:
 - records contain only an opaque ID, display name, format, bytes, and created /
   updated timestamps; browser source paths are not stored
 
-Stored faces are activated on startup with `document.fonts.add`. Active local
-fonts appear in a **Local fonts** group in all three role selectors under stable
-values such as `local:<opaque-id>`. Invalid or unavailable selections fall back
-to their role defaults without deleting stored records. Each imported font can
-be previewed, renamed, replaced, or deleted. Rename trims names to 80
-characters and rejects an empty result. Replace validates and loads first, so a
-failure leaves the previous record and active face intact. Delete removes the
-IndexedDB record and registered face, and returns only roles that directly
-select that font to their defaults.
+Stored faces are enumerated with a bounded cursor on startup and activated with
+`document.fonts.add`. At most 8 records and 40 MiB are retained in memory. If
+the database already exceeds either limit, extra stored fonts are not loaded,
+the retained in-cap records remain usable, and imports/replacements stay
+disabled until browser site-data controls clear the overflow; records are not
+auto-deleted. Active local fonts appear in a **Local fonts** group in all three
+role selectors under stable values such as `local:<opaque-id>`. Invalid or
+unavailable selections fall back to their role defaults without deleting stored
+records. Each imported font can be previewed, renamed, replaced, or deleted.
+Rename trims names to 80 characters and rejects an empty result. Replace
+validates and loads first, so a capacity or write failure leaves the previous
+record, active face, and selection intact. Delete removes the IndexedDB record
+and registered face, and returns only roles that directly select that font to
+their defaults. If `window.confirm` is unavailable, deletion fails closed with
+`Deleting is unavailable in this browser.`; cancel also makes no changes.
 
 Import management is disabled with an explanatory status if IndexedDB,
 `FontFace`, or `document.fonts` support is unavailable; curated fonts and

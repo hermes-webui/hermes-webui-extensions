@@ -15,11 +15,14 @@
   const FONT_STORE_NAME = 'hermes-ext-typography-font-records';
   const GOOGLE_FONTS_URL = 'https://fonts.googleapis.com/css2';
   const MAX_FONT_BYTES = 10 * 1024 * 1024;
+  const MAX_LOCAL_FONT_COUNT = 8;
+  const MAX_LOCAL_FONT_TOTAL_BYTES = 40 * 1024 * 1024;
   const FONT_ACCEPT = '.woff2,.woff,.ttf,.otf';
   const ROLES = ['interface', 'conversation', 'code'];
   const ROLE_LABELS = Object.freeze({ interface: 'Interface', conversation: 'Conversations', code: 'Code' });
   const DEFAULTS = Object.freeze({ interface: 'default', conversation: 'same-ui', code: 'default' });
   const LOCAL_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+  const LOCAL_FONT_OVERFLOW_MESSAGE = 'Some stored local fonts were not loaded because the browser-local limits were exceeded. Extra stored fonts were not loaded; use browser site-data controls to clear them. New imports and replacements are unavailable until then.';
 
   const PRESETS = Object.freeze([
     Object.freeze({ id: 'webui-default', label: 'WebUI Default', interface: 'default', conversation: 'same-ui', code: 'default' }),
@@ -113,9 +116,12 @@
   let initialSelection = { ...DEFAULTS };
   let opener = null;
   let localFonts = new Map();
+  let localFontStoredCount = 0;
+  let localFontStoredBytes = 0;
   let localFontState = {
     available: false,
     ready: false,
+    overflow: false,
     message: 'Local font imports are loading.',
     error: false,
   };
@@ -478,7 +484,7 @@
       replace.type = 'button';
       replace.className = 'hwx-type-local-action';
       replace.textContent = 'Replace';
-      replace.disabled = localFontBusy;
+      replace.disabled = localFontBusy || localFontState.overflow;
       replace.addEventListener('click', () => chooseReplacement(record.id));
       const remove = document.createElement('button');
       remove.type = 'button';
@@ -505,7 +511,7 @@
         populateSelect(select, role);
       }
     }
-    setLocalControlsDisabled(!localFontState.available || !localFontState.ready || localFontBusy);
+    setLocalControlsDisabled(!localFontState.available || !localFontState.ready || localFontBusy || localFontState.overflow);
     const status = document.getElementById('hwx-type-local-status');
     if (status) {
       status.textContent = localFontState.message;
@@ -546,7 +552,7 @@
           </div>
           <section class="hwx-type-local" aria-labelledby="hwx-type-local-title">
             <h3 id="hwx-type-local-title">Local fonts</h3>
-            <p class="hwx-type-local-disclosure">Import .woff2, .woff, .ttf, or .otf files up to 10 MiB each.</p>
+            <p class="hwx-type-local-disclosure">Import up to 8 .woff2, .woff, .ttf, or .otf files, 10 MiB each and 40 MiB total.</p>
             <input id="hwx-type-local-file" type="file" accept=".woff2,.woff,.ttf,.otf" hidden>
             <button type="button" id="hwx-type-import">Import font</button>
             <p class="hwx-type-local-help">Choose local fonts in any role selector.</p>
@@ -687,6 +693,23 @@
     return null;
   }
 
+  function byteLengthOf(value) {
+    if (value instanceof ArrayBuffer) return value.byteLength;
+    return ArrayBuffer.isView(value) ? value.byteLength : 0;
+  }
+
+  function localFontCapacity({ currentCount = 0, currentTotalBytes = 0, newBytes = 0, replacing = false, oldBytes = 0 } = {}) {
+    const count = currentCount + (replacing ? 0 : 1);
+    const totalBytes = currentTotalBytes - (replacing ? oldBytes : 0) + newBytes;
+    if (count > MAX_LOCAL_FONT_COUNT) {
+      return { ok: false, count, totalBytes, error: 'You can store up to 8 local fonts.' };
+    }
+    if (totalBytes > MAX_LOCAL_FONT_TOTAL_BYTES) {
+      return { ok: false, count, totalBytes, error: 'Local fonts can use up to 40 MiB in total.' };
+    }
+    return { ok: true, count, totalBytes };
+  }
+
   function signatureForBytes(bytes) {
     const view = new Uint8Array(bytes);
     if (view.length < 4) return '';
@@ -811,7 +834,50 @@
     const database = await openFontDatabase();
     try {
       const transaction = database.transaction(FONT_STORE_NAME, 'readonly');
-      return await transactionRequest(transaction, (store) => store.getAll());
+      const records = [];
+      let count = 0;
+      let totalBytes = 0;
+      let overflow = false;
+      const result = await new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (callback, value) => {
+          if (settled) return;
+          settled = true;
+          transaction.oncomplete = null;
+          transaction.onerror = null;
+          transaction.onabort = null;
+          callback(value);
+        };
+        transaction.oncomplete = () => finish(resolve, { records, count, totalBytes, overflow });
+        transaction.onerror = () => finish(reject, transaction.error || new Error('IndexedDB transaction failed.'));
+        transaction.onabort = () => finish(reject, transaction.error || new Error('IndexedDB transaction aborted.'));
+        try {
+          const request = transaction.objectStore(FONT_STORE_NAME).openCursor();
+          request.onerror = () => finish(reject, request.error || new Error('IndexedDB cursor failed.'));
+          request.onsuccess = () => {
+            const cursor = request.result;
+            if (!cursor) return;
+            const raw = cursor.value;
+            const capacity = localFontCapacity({
+              currentCount: count,
+              currentTotalBytes: totalBytes,
+              newBytes: byteLengthOf(raw && raw.bytes),
+            });
+            if (!capacity.ok) {
+              overflow = true;
+              return;
+            }
+            count = capacity.count;
+            totalBytes = capacity.totalBytes;
+            const record = normalizeStoredRecord(raw);
+            if (record) records.push(record);
+            cursor.continue();
+          };
+        } catch (error) {
+          finish(reject, error);
+        }
+      });
+      return result;
     } finally {
       database.close();
     }
@@ -889,7 +955,14 @@
   function importLocalFont(file) {
     runLocalOperation(async () => {
       try {
+        if (localFontState.overflow) throw new Error(LOCAL_FONT_OVERFLOW_MESSAGE);
         const imported = await readValidatedFile(file);
+        const capacity = localFontCapacity({
+          currentCount: localFontStoredCount,
+          currentTotalBytes: localFontStoredBytes,
+          newBytes: imported.bytes.byteLength,
+        });
+        if (!capacity.ok) throw new Error(capacity.error);
         let id = makeOpaqueId();
         while (localFonts.has(id)) id = makeOpaqueId();
         const face = await loadFace(id, imported.bytes);
@@ -913,6 +986,8 @@
           throw error;
         }
         localFonts.set(id, record);
+        localFontStoredCount = capacity.count;
+        localFontStoredBytes = capacity.totalBytes;
         setLocalStatus('');
         syncControls();
       } catch (error) {
@@ -956,7 +1031,16 @@
       const previous = localFonts.get(id);
       if (!previous) return;
       try {
+        if (localFontState.overflow) throw new Error(LOCAL_FONT_OVERFLOW_MESSAGE);
         const replacement = await readValidatedFile(file, previous.name);
+        const capacity = localFontCapacity({
+          currentCount: localFontStoredCount,
+          currentTotalBytes: localFontStoredBytes,
+          newBytes: replacement.bytes.byteLength,
+          replacing: true,
+          oldBytes: previous.bytes.byteLength,
+        });
+        if (!capacity.ok) throw new Error(capacity.error);
         const face = await loadFace(id, replacement.bytes);
         document.fonts.add(face);
         const next = {
@@ -976,6 +1060,7 @@
         }
         removeFace(previous.face);
         localFonts.set(id, next);
+        localFontStoredBytes = capacity.totalBytes;
         const persisted = loadSelection();
         if (persisted) {
           selection = normalizeSelection(persisted);
@@ -1019,12 +1104,23 @@
   function deleteLocalFont(id) {
     const record = localFonts.get(id);
     if (!record || localFontBusy) return;
-    if (typeof window.confirm === 'function' && !window.confirm('Delete this imported font?')) return;
+    if (typeof window.confirm !== 'function') {
+      setLocalStatus('Deleting is unavailable in this browser.', true);
+      return;
+    }
+    let confirmed;
+    try { confirmed = window.confirm('Delete this imported font?'); } catch (_) {
+      setLocalStatus('Deleting is unavailable in this browser.', true);
+      return;
+    }
+    if (!confirmed) return;
     runLocalOperation(async () => {
       try {
         await removeFontRecord(id);
         removeFace(record.face);
         localFonts.delete(id);
+        localFontStoredCount = Math.max(0, localFontStoredCount - 1);
+        localFontStoredBytes = Math.max(0, localFontStoredBytes - record.bytes.byteLength);
         const persisted = loadSelection();
         const before = persisted && typeof persisted === 'object' ? persisted : selection;
         const candidate = removeLocalFontFromSelection(before, id);
@@ -1048,6 +1144,7 @@
       localFontState = {
         available: false,
         ready: false,
+        overflow: false,
         message: 'Local font imports are unavailable here because IndexedDB and FontFace support are required. Curated fonts and presets remain available.',
         error: true,
       };
@@ -1056,15 +1153,14 @@
       syncControls();
       return;
     }
-    localFontState = { available: true, ready: false, message: 'Loading stored local fonts.', error: false };
+    localFontState = { available: true, ready: false, overflow: false, message: 'Loading stored local fonts.', error: false };
     syncControls();
     try {
-      const records = await readFontRecords();
+      const stored = await readFontRecords();
+      localFontStoredCount = stored.count;
+      localFontStoredBytes = stored.totalBytes;
       localFonts = new Map();
-      for (const raw of records || []) {
-        const record = normalizeStoredRecord(raw);
-        if (record) localFonts.set(record.id, record);
-      }
+      for (const record of stored.records) localFonts.set(record.id, record);
       let activationFailures = 0;
       for (const record of localFonts.values()) {
         if (record.invalid) {
@@ -1081,19 +1177,24 @@
           activationFailures += 1;
         }
       }
+      const messages = [];
+      if (stored.overflow) messages.push(LOCAL_FONT_OVERFLOW_MESSAGE);
+      if (activationFailures) messages.push('Some stored local fonts could not be activated; their records were kept. Replace or delete them if needed.');
       localFontState = {
         available: true,
         ready: true,
-        message: activationFailures
-          ? 'Some stored local fonts could not be activated; their records were kept. Replace or delete them if needed.'
-          : '',
-        error: Boolean(activationFailures),
+        overflow: stored.overflow,
+        message: messages.join(' '),
+        error: Boolean(messages.length),
       };
     } catch (_) {
       localFonts = new Map();
+      localFontStoredCount = 0;
+      localFontStoredBytes = 0;
       localFontState = {
         available: false,
         ready: false,
+        overflow: false,
         message: 'Local font imports are unavailable because this browser could not open IndexedDB. Curated fonts and presets remain available.',
         error: true,
       };
@@ -1110,6 +1211,9 @@
   }
 
   const DEBUG = Object.freeze({
+    MAX_LOCAL_FONT_COUNT,
+    MAX_LOCAL_FONT_TOTAL_BYTES,
+    localFontCapacity,
     normalizeSelection: (value, localIds = []) => normalizeSelection(value, new Set(localIds)),
     selectionForPersistence: (value, persisted, dirtyRoles = [], ready = false, localIds = []) => selectionForPersistence(
       value,
