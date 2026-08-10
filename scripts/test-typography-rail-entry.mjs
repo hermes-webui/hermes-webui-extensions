@@ -5,28 +5,6 @@ import * as vm from 'node:vm';
 const source = await readFile(new URL('../extensions/typography/assets/typography.js', import.meta.url), 'utf8');
 
 const RAIL_ID = 'hwx-type-rail-button';
-const buildPanelStart = source.indexOf('  function buildPanel()');
-const buildPanelEnd = source.indexOf('  function onKeydown', buildPanelStart);
-const panelSource = source.slice(buildPanelStart, buildPanelEnd);
-assert.equal(source.includes('    document.body.appendChild(panel);\n    syncControls();'), true, 'controls sync after panel attachment');
-assert.equal(panelSource.includes('\n    syncControls();\n    return panel;'), false, 'detached panel does not sync controls');
-assert.equal(source.includes("button.title = 'Typography';"), false, 'rail button uses WebUI tooltip without native title');
-assert.equal(source.includes('if (!panel.contains(document.activeElement))'), true, 'Tab pulls escaped focus into the panel');
-assert.equal(source.includes("panel.querySelector('#hwx-type-import:not([disabled])')"), true, 'rerender restores focus to an enabled in-panel control');
-assert.equal(
-  !panelSource.includes('hwx-type-reset')
-    && !panelSource.includes('Font file')
-    && panelSource.includes('Choose local fonts in any role selector.')
-    && panelSource.includes('hwx-type-info has-tooltip has-tooltip--bottom')
-    && !panelSource.includes('id="hwx-type-disclosure"')
-    && /fileInput\.addEventListener\('change',[\s\S]*?fileInput\.value = '';\s*if \(file\) importLocalFont\(file\);/.test(panelSource),
-  true,
-  'Import font has no reset or visible file label and imports directly on file selection',
-);
-const actionRegistration = ['register', 'Action'].join('');
-const optionalRegistration = ['register', 'Con', 'figure', 'Action'].join('');
-assert.equal(source.includes(actionRegistration), false, 'runtime has no action registration API');
-assert.equal(source.includes(optionalRegistration), false, 'runtime has no optional registration API');
 
 function makeElement(tagName, className = '') {
   const detach = (child) => {

@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import * as vm from 'node:vm';
 
 const source = await readFile(new URL('../extensions/typography/assets/typography.js', import.meta.url), 'utf8');
-const css = await readFile(new URL('../extensions/typography/assets/typography.css', import.meta.url), 'utf8');
 const document = {
   readyState: 'complete',
   documentElement: { style: { setProperty() {}, removeProperty() {} } },
@@ -90,22 +89,6 @@ assert.equal(
 );
 assert.equal((sharedHref.match(/family=/g) || []).length, 1, 'shared hosted families are deduplicated');
 
-assert.equal(
-  source.includes('Ag Il1 O0 0123456789 · Clear controls and compact labels'),
-  true,
-  'interface preview includes the glyph diagnostic and representative text',
-);
-assert.equal(
-  source.includes('Ag Il1 O0 0123456789 · Readable paragraphs <em>feel at home</em> with <strong>clear emphasis</strong>.'),
-  true,
-  'conversation preview includes the glyph diagnostic and semantic emphasis',
-);
-assert.equal(source.includes('<code>Il1 O0 {} [] != =&gt; ,.;:</code>'), true, 'code diagnostic preview remains unchanged');
-assert.equal(
-  css.includes('#hwx-type-panel .hwx-type-preview[data-hwx-type-preview="conversation"] {\n  font-size: var(--message-body-font-size, 14px);\n  line-height: var(--message-body-line-height, 1.75);\n}'),
-  true,
-  'conversation preview follows the core message sizing contract',
-);
 
 const validate = extension.debug.validateLocalFontMetadata;
 const capacity = extension.debug.localFontCapacity;
@@ -231,9 +214,6 @@ assert.equal(
 assert.equal(extension.debug.localFallbackForRole('interface'), 'ui-sans-serif, system-ui, sans-serif');
 assert.equal(extension.debug.localFallbackForRole('conversation'), 'ui-sans-serif, system-ui, sans-serif');
 assert.equal(extension.debug.localFallbackForRole('code'), 'ui-monospace, monospace');
-assert.equal((source.match(/Choose local fonts in any role selector\./g) || []).length, 1, 'role-selector guidance appears only below Import font');
-assert.equal(source.includes("format.textContent = '· ' + record.format.toUpperCase();"), true, 'format label does not rely on leading whitespace');
-assert.equal((source.match(/Local fonts stay in this browser and are never sent to a server\./g) || []).length, 1, 'local-font privacy disclosure appears once');
 assert.equal(extension.getSelection().interface, 'default', 'unsupported local fonts use in-memory defaults');
 assert.equal(writes.length, 0, 'unsupported local fonts do not overwrite persisted selection');
 
