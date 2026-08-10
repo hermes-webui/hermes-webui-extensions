@@ -148,7 +148,9 @@ jobs:
           repository: nesquena/hermes-webui
           # Pin the independently verified Core contract; update this SHA only
           # after a maintainer reruns the smoke against the new Core head.
-          ref: 320789ae596a3963d726d90f6c7f3bc86f7f2d6d
+          # exp-v0.52.184 — first release carrying the three-font contract
+          # (--font-ui/--font-conversation/--font-mono, #5918) this extension drives.
+          ref: 51e3d09ad677a6b7e4ec3db46611b383d67a2778
           path: .ci/hermes-webui-core
           fetch-depth: 1
           persist-credentials: false

@@ -4,6 +4,7 @@
   "description": "Choose interface, conversation, and code fonts independently with curated Google Fonts, role-based presets, and browser-local imports.",
   "version": "0.1.0",
   "author": "starship-s",
+  "min_webui_version": "0.52.184",
   "assets": {
     "scripts": [
       "assets/typography.js"
@@ -33,9 +34,7 @@
       "mutates_core_views": true
     },
     "storage": {
-      "owned": [
-        "hermes-ext-typography-selection"
-      ],
+      "owned": true,
       "shared_webui_keys": []
     },
     "loopback_sidecar": false,

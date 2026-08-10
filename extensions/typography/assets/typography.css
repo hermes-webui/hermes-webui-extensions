@@ -71,8 +71,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 1px solid var(--muted, #73777f);
   border-radius: 50%;
@@ -278,7 +278,7 @@
 }
 
 #hwx-type-panel .hwx-type-status-error {
-  color: var(--danger, #b33a3a);
+  color: var(--error, #b33a3a);
 }
 
 #hwx-type-panel .hwx-type-local-list {
@@ -349,7 +349,7 @@
 }
 
 #hwx-type-panel .hwx-type-local-delete {
-  color: var(--danger, #b33a3a);
+  color: var(--error, #b33a3a);
 }
 
 #hwx-type-panel .hwx-type-actions {
@@ -379,7 +379,7 @@
 #hwx-type-panel .hwx-type-close-action {
   border-color: var(--accent, #5b8def);
   background: var(--accent, #5b8def);
-  color: var(--accent-contrast, #111);
+  color: var(--accent-contrast, #fff);
 }
 
 #hwx-type-panel .hwx-type-close-action:hover {

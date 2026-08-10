@@ -373,6 +373,32 @@ def _main_flow(base_url: str, evidence_dir: Path, browser: Any, first_font: Path
         )
         if not all(expected in actual for expected, actual in zip(("Courier Prime", "Bitter", "Space Mono"), tokens)):
             raise CompatibilityFailure(f"role root tokens were not applied: {tokens!r}")
+        # Prove Core actually CONSUMES --font-conversation, not merely that the
+        # extension wrote the inline custom property. Core's base rule
+        # `.msg-body{font-family:var(--font-conversation);...}` (static/style.css)
+        # is global, so a probe element carrying that class resolves its computed
+        # font-family from the token this extension set. Asserting the inline
+        # property alone would pass even against a Core that predates the
+        # three-font contract (the vacuous-gate that let a stale Core pin slip by).
+        consumed = page.evaluate(
+            """() => {
+              const probe = document.createElement('div');
+              probe.className = 'msg-body';
+              probe.style.position = 'absolute';
+              probe.style.left = '-9999px';
+              probe.textContent = 'x';
+              document.body.appendChild(probe);
+              const family = getComputedStyle(probe).fontFamily;
+              probe.remove();
+              return family;
+            }"""
+        )
+        if "Bitter" not in consumed:
+            raise CompatibilityFailure(
+                "Core did not consume --font-conversation on .msg-body "
+                f"(computed font-family={consumed!r}); the pinned Core likely "
+                "predates the three-font contract (#5918)"
+            )
         page.select_option("#hwx-type-preset", "webui-default")
         page.locator("#hwx-type-google-fonts").wait_for(state="detached")
         default_tokens = page.evaluate(

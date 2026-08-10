@@ -109,10 +109,12 @@ stack, including a local font when selected.
 Generic selection values are stored through
 `window.HermesExtensionSettings.storageForExtension('typography')` when
 available, with the legacy `hermes-ext-typography-selection` localStorage key as
-the older-core fallback. The library metadata declares only that scalar
-selection key as user-visible owned storage; the runtime manifest grants Core's
-owned storage namespace for this accessor. Font bytes are never scalar settings
-values. There is intentionally no `settings_schema`.
+the older-core fallback. Because the runtime manifest grants Core's owned
+storage namespace for this accessor and the extension also creates its own
+`hermes-ext-typography-fonts` IndexedDB database for local font bytes, the
+library metadata declares `storage.owned: true` (whole-namespace ownership)
+rather than a single key. Font bytes are never scalar settings values. There is
+intentionally no `settings_schema`.
 
 The immutable public debug surface is `window.HermesTypographyExtension` with
 the version, curated catalog, preset metadata, selection accessors, and pure

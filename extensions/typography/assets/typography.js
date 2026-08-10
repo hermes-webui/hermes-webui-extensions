@@ -652,7 +652,7 @@
     button.className = 'rail-btn nav-tab has-tooltip hwx-type-rail-button';
     button.dataset.tooltip = 'Typography';
     button.setAttribute('aria-label', 'Typography');
-    button.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>';
+    button.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>';
     button.addEventListener('click', (event) => { event.preventDefault(); open(button); });
     const spacer = rail.querySelector('.rail-spacer');
     if (spacer) rail.insertBefore(button, spacer);
