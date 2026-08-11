@@ -154,6 +154,7 @@ function isSafeLocalPath(value) {
   const normalized = path.posix.normalize(value);
   if (normalized === '.' || normalized.startsWith('../') || normalized === '..') return false;
   if (normalized.includes('\0')) return false;
+  if (normalized.split('/').some((segment) => segment.startsWith('.'))) return false;
   return normalized === value;
 }
 
