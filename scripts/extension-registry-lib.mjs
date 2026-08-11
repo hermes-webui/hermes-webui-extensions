@@ -174,6 +174,7 @@ function localPathHasSymlink(entryRoot, rel) {
 function collectFiles(dir, prefix = '') {
   const files = [];
   for (const item of readdirSync(dir, { withFileTypes: true })) {
+    if (item.name.startsWith('.')) continue;
     const rel = prefix ? `${prefix}/${item.name}` : item.name;
     const target = path.join(dir, item.name);
     if (item.isDirectory()) {
