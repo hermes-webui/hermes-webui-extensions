@@ -557,8 +557,28 @@ def _mobile_flow(base_url: str, evidence_dir: Path, browser: Any) -> dict[str, A
                 _record_screenshot(page, screenshot)
             page.get_by_role("button", name="Close typography").click()
             page.locator("#hwx-type-panel").wait_for(state="detached", timeout=5_000)
-            if not mirror.evaluate("mirror => document.activeElement === mirror"):
-                raise CompatibilityFailure("mobile close did not restore focus to the mobile mirror")
+            focus_state = page.evaluate(
+                """
+                () => {
+                  const target = document.activeElement;
+                  const rect = target && target.getBoundingClientRect();
+                  return {
+                    id: target && target.id,
+                    renderable: Boolean(target && target.isConnected && target.getClientRects().length),
+                    intersectsViewport: Boolean(
+                      rect && rect.left < window.innerWidth && rect.right > 0
+                      && rect.top < window.innerHeight && rect.bottom > 0
+                    ),
+                  };
+                }
+                """
+            )
+            if focus_state != {
+                "id": "btnHamburger",
+                "renderable": True,
+                "intersectsViewport": True,
+            }:
+                raise CompatibilityFailure(f"mobile close focus target was not visible hamburger: {focus_state!r}")
         listener_stats = page.evaluate("() => window.__typographyListenerStats")
         if listener_stats != {"add": 2, "remove": 2}:
             raise CompatibilityFailure(f"mobile panel listener lifecycle duplicated: {listener_stats!r}")

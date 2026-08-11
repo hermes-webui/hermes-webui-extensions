@@ -645,7 +645,15 @@
     document.removeEventListener('keydown', onKeydown, true);
     const restore = opener;
     opener = null;
-    if (restore && restore.isConnected && typeof restore.focus === 'function') restore.focus();
+    const target = [restore, document.getElementById('btnHamburger')].find((candidate) => {
+      if (!candidate || !candidate.isConnected || typeof candidate.focus !== 'function'
+        || candidate.disabled || typeof candidate.getClientRects !== 'function'
+        || !candidate.getClientRects().length || typeof candidate.getBoundingClientRect !== 'function') return false;
+      const rect = candidate.getBoundingClientRect();
+      return rect.left < window.innerWidth && rect.right > 0
+        && rect.top < window.innerHeight && rect.bottom > 0;
+    });
+    if (target) target.focus();
   }
 
   function ensureRailButton() {
