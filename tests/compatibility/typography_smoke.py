@@ -522,9 +522,46 @@ def _mobile_flow(base_url: str, evidence_dir: Path, browser: Any) -> dict[str, A
     screenshot = evidence_dir / "typography-mobile.png"
     try:
         _boot_page(page, base_url)
-        page.evaluate("() => window.HermesTypographyExtension.open(document.getElementById('hwx-type-rail-button'))")
-        page.locator("#hwx-type-panel").wait_for(state="visible", timeout=5_000)
-        _record_screenshot(page, screenshot)
+        mirror = page.locator(
+            '.sidebar-nav [data-nav-action-mirror="hwx-type-rail-button"]'
+        )
+        mirror.wait_for(state="attached", timeout=15_000)
+        menu = page.locator("#btnHamburger")
+        menu.wait_for(state="visible", timeout=5_000)
+        page.evaluate(
+            """
+            () => {
+              window.__typographyListenerStats = {add: 0, remove: 0};
+              const add = document.addEventListener;
+              const remove = document.removeEventListener;
+              document.addEventListener = function(type, listener, options) {
+                if (type === 'keydown') window.__typographyListenerStats.add += 1;
+                return add.call(this, type, listener, options);
+              };
+              document.removeEventListener = function(type, listener, options) {
+                if (type === 'keydown') window.__typographyListenerStats.remove += 1;
+                return remove.call(this, type, listener, options);
+              };
+            }
+            """
+        )
+        for attempt in range(2):
+            menu.click()
+            page.locator(".sidebar.mobile-open").wait_for(state="visible", timeout=5_000)
+            mirror.wait_for(state="visible", timeout=5_000)
+            mirror.click()
+            page.locator("#hwx-type-panel").wait_for(state="visible", timeout=5_000)
+            if page.locator("#hwx-type-panel").count() != 1:
+                raise CompatibilityFailure("mobile mirror open created a duplicate panel")
+            if attempt == 0:
+                _record_screenshot(page, screenshot)
+            page.get_by_role("button", name="Close typography").click()
+            page.locator("#hwx-type-panel").wait_for(state="detached", timeout=5_000)
+            if not mirror.evaluate("mirror => document.activeElement === mirror"):
+                raise CompatibilityFailure("mobile close did not restore focus to the mobile mirror")
+        listener_stats = page.evaluate("() => window.__typographyListenerStats")
+        if listener_stats != {"add": 2, "remove": 2}:
+            raise CompatibilityFailure(f"mobile panel listener lifecycle duplicated: {listener_stats!r}")
         _assert_typography_health(
             case_name="typography-mobile",
             console_errors=console_errors,

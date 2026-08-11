@@ -621,7 +621,14 @@
       if (first) first.focus();
       return;
     }
-    opener = openerElement && typeof openerElement.focus === 'function' ? openerElement : document.activeElement;
+    const passedOpener = openerElement && typeof openerElement.focus === 'function' ? openerElement : null;
+    const focusedOpener = document.activeElement;
+    const passedRendered = passedOpener && passedOpener.isConnected
+      && typeof passedOpener.getClientRects === 'function' && passedOpener.getClientRects().length;
+    const focusedRendered = focusedOpener && focusedOpener !== document.body
+      && focusedOpener.isConnected && typeof focusedOpener.focus === 'function'
+      && typeof focusedOpener.getClientRects === 'function' && focusedOpener.getClientRects().length;
+    opener = !passedRendered && focusedRendered ? focusedOpener : passedOpener || focusedOpener;
     if (!document.body) return;
     const panel = buildPanel();
     document.body.appendChild(panel);
