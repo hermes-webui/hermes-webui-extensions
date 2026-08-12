@@ -1,0 +1,75 @@
+{
+  "id": "paperclip-session-hider",
+  "name": "Paperclip Session Hider",
+  "description": "Hide Paperclip/Hermes tool-origin session rows such as repeated generic \"Tool Session\" entries from the Hermes WebUI conversation sidebar without deleting or archiving them.",
+  "version": "0.1.0",
+  "author": "nesquena-hermes",
+  "assets": {
+    "scripts": [
+      "assets/paperclip-session-hider.js"
+    ],
+    "stylesheets": [
+      "assets/paperclip-session-hider.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "sessions"
+      ],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  },
+  "settings_schema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Hide Paperclip tool sessions",
+      "description": "Hide matching tool-origin rows from the conversation sidebar. This only changes visibility in this browser.",
+      "default": true
+    },
+    {
+      "key": "mode",
+      "type": "enum",
+      "label": "Rows to hide",
+      "description": "Generic mode hides repeated Tool Session rows only. All tool-origin mode also hides named tool-origin rows such as approval sessions.",
+      "options": [
+        {
+          "value": "generic-tool",
+          "label": "Generic Tool Session rows only"
+        },
+        {
+          "value": "all-tool-source",
+          "label": "All tool-origin rows"
+        }
+      ],
+      "default": "generic-tool"
+    }
+  ]
+}

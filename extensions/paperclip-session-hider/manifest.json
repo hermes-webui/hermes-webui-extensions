@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "paperclip-session-hider",
+      "name": "Paperclip Session Hider",
+      "description": "Hide Paperclip/Hermes tool-origin rows from the conversation sidebar.",
+      "scripts": [
+        "assets/paperclip-session-hider.js"
+      ],
+      "stylesheets": [
+        "assets/paperclip-session-hider.css"
+      ]
+    }
+  ]
+}

@@ -22,6 +22,8 @@ need it and maintainers agree on the shared contract.
   drawer close X, and long-press shortcuts for the existing Hermes WebUI mobile drawer.
 - `message-pins`: pin individual messages in a conversation, with a header
   popover, click-to-jump, and client-side per-session persistence.
+- `paperclip-session-hider`: hide repeated Paperclip/Hermes tool-origin
+  `Tool Session` rows from the conversation sidebar without deleting sessions.
 - `model-favorites`: star your most-used models; favorites are promoted to a
   ★ Favorites group at the top of the composer model picker.
 - `custom-avatar`: give the assistant a custom avatar image in the chat
