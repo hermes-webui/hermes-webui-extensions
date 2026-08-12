@@ -154,6 +154,7 @@ function isSafeLocalPath(value) {
   const normalized = path.posix.normalize(value);
   if (normalized === '.' || normalized.startsWith('../') || normalized === '..') return false;
   if (normalized.includes('\0')) return false;
+  if (normalized.split('/').some((segment) => segment.startsWith('.'))) return false;
   return normalized === value;
 }
 
@@ -174,6 +175,7 @@ function localPathHasSymlink(entryRoot, rel) {
 function collectFiles(dir, prefix = '') {
   const files = [];
   for (const item of readdirSync(dir, { withFileTypes: true })) {
+    if (item.name.startsWith('.')) continue;
     const rel = prefix ? `${prefix}/${item.name}` : item.name;
     const target = path.join(dir, item.name);
     if (item.isDirectory()) {

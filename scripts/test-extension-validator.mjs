@@ -167,6 +167,74 @@ try {
   assert(JSON.parse(listed.stdout).includes(`${unicodeResult.id}/${unicodeAsset}`),
     'ZIP artifacts must mark UTF-8 member names so consumers decode them losslessly');
 
+  // Regression: artifact collection must omit every dot-prefixed path segment,
+  // including dotfiles and files nested under dot-directories, while retaining
+  // ordinary files in the same extension tree.
+  const filteredPathResult = validationResult('', {}, {}, ({ root }) => {
+    writeFileSync(path.join(root, '.gitkeep'), 'placeholder\n', 'utf8');
+    mkdirSync(path.join(root, '.config', 'nested'), { recursive: true });
+    writeFileSync(path.join(root, '.config', 'settings.json'), '{}\n', 'utf8');
+    mkdirSync(path.join(root, 'docs', 'nested'), { recursive: true });
+    writeFileSync(path.join(root, 'docs', 'nested', 'guide.md'), '# Guide\n', 'utf8');
+  });
+  assert.deepEqual(filteredPathResult.errors, []);
+  const filteredPathArtifact = buildExtensionArtifact(filteredPathResult);
+  const filteredPathZip = path.join(tmpRoot, 'filtered-dot-path-artifact.zip');
+  writeFileSync(filteredPathZip, filteredPathArtifact.buffer);
+  const filteredPathListed = spawnSync('python3', [
+    '-c',
+    'import json,sys,zipfile; print(json.dumps(zipfile.ZipFile(sys.argv[1]).namelist()))',
+    filteredPathZip
+  ], { encoding: 'utf8' });
+  assert.equal(filteredPathListed.status, 0, filteredPathListed.stderr);
+  const filteredPathMembers = JSON.parse(filteredPathListed.stdout);
+  assert(
+    !filteredPathMembers.some((name) => name.split('/').some((segment) => segment.startsWith('.'))),
+    `ZIP artifacts must omit dot-prefixed path segments: ${filteredPathMembers.join(', ')}`
+  );
+  assert(
+    filteredPathMembers.includes(`${filteredPathResult.id}/docs/nested/guide.md`),
+    'ZIP artifacts must retain ordinary files while filtering dot-prefixed paths'
+  );
+
+  // Regression: declared assets with dot-prefixed path segments must fail
+  // validation instead of being silently omitted from generated artifacts.
+  const hiddenAsset = '.hidden/adapter.js';
+  errors = validationErrors('', {
+    assets: { scripts: [hiddenAsset], stylesheets: [] }
+  }, {
+    scripts: [hiddenAsset], stylesheets: []
+  }, ({ root }) => {
+    mkdirSync(path.join(root, '.hidden'), { recursive: true });
+    writeFileSync(path.join(root, hiddenAsset), 'console.log("hidden asset");\n', 'utf8');
+  });
+  assert(
+    errors.includes('asset path is not safe/local: .hidden/adapter.js'),
+    'declared assets under dot-prefixed directories must fail closed'
+  );
+
+  // The same path contract applies to vendored sidecar runtime directories;
+  // runtime paths that artifact collection would omit must be rejected.
+  const hiddenRuntime = 'sidecar/.runtime';
+  errors = validationErrors('', {
+    capabilities: ['manifest-bundle', 'loopback-sidecar'],
+    sidecar: {
+      type: 'loopback',
+      origin: 'http://127.0.0.1:17790',
+      health_path: '/health',
+      proxy_auth: 'token-v1',
+      runtime: { kind: 'vendored', path: hiddenRuntime }
+    },
+    lifecycle: { sidecar_start_required: true },
+    permissions: { loopback_sidecar: true }
+  }, {}, ({ root }) => {
+    mkdirSync(path.join(root, hiddenRuntime), { recursive: true });
+  });
+  assert(
+    errors.includes('sidecar.runtime.path is required for a vendored runtime'),
+    'vendored sidecar runtime paths with dot-prefixed segments must fail closed'
+  );
+
   errors = validationErrors("fetch('/api/session/draft');\n");
   assert(errors.includes('permissions.webui_api.write must include session/draft'));
   assert(!errors.includes('permissions.webui_api.read must include session'));
