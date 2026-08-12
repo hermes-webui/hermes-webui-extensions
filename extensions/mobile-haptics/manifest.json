@@ -7,7 +7,20 @@
       "scripts": [
         "assets/mobile-haptics.js"
       ],
-      "stylesheets": []
+      "stylesheets": [],
+      "permissions": {
+        "storage": {
+          "owned": true
+        }
+      },
+      "settings_schema": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "label": "Vibrate when a turn finishes",
+          "default": true
+        }
+      ]
     }
   ]
 }
