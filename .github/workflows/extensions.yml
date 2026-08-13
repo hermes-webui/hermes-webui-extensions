@@ -148,9 +148,9 @@ jobs:
           repository: nesquena/hermes-webui
           # Pin the independently verified Core contract; update this SHA only
           # after a maintainer reruns the smoke against the new Core head.
-          # exp-v0.52.184 — first release carrying the three-font contract
-          # (--font-ui/--font-conversation/--font-mono, #5918) this extension drives.
-          ref: 51e3d09ad677a6b7e4ec3db46611b383d67a2778
+          # exp-v0.52.201 — first release carrying both the cooperative E0
+          # identity handle and B1 turn-lifecycle event contract.
+          ref: 3c7fbe3809ff573199faee9d812179fcbeff2028
           path: .ci/hermes-webui-core
           fetch-depth: 1
           persist-credentials: false
@@ -177,6 +177,12 @@ jobs:
         run: |
           mkdir -p "$COMPATIBILITY_EVIDENCE_DIR"
           python tests/compatibility/browser_smoke.py
+
+      - name: Run E0/B1 capability baseline smoke
+        env:
+          HERMES_CORE_DIR: .ci/hermes-webui-core
+          COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
+        run: python tests/compatibility/capability_smoke.py
 
       - name: Run Typography browser compatibility smoke
         env:

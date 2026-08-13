@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "capability-probe",
+      "name": "E0/B1 capability compatibility probe",
+      "description": "Test-only extension for the pinned Core identity and turn-lifecycle contract.",
+      "scripts": [
+        "assets/capability-probe.js"
+      ],
+      "stylesheets": []
+    }
+  ]
+}

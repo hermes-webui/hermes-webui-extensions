@@ -1,8 +1,9 @@
 # Browser compatibility smoke
 
-The first compatibility-certification stage runs a real Hermes WebUI Core
-checkout and headless Chromium. It is deliberately an allowlist, not a claim
-that every changed extension has browser coverage.
+The compatibility-certification job runs a real Hermes WebUI Core checkout and
+headless Chromium. It combines an allow-listed merged extension reference, a
+test-only E0/B1 capability probe, and Typography's dedicated browser scenarios;
+it is not a claim that every changed extension has browser coverage.
 
 ## Current contract
 
@@ -57,6 +58,26 @@ Assertions use the extension's own id/data/ARIA surfaces. The Core host
 selector is only a readiness precondition, not the extension pass/fail oracle;
 Core remains the real host that serves the app shell and injected assets.
 
+### E0/B1 capability baseline
+
+The separate test-only `capability-probe` fixture certifies the public Core
+foundation that merged extensions can build on. It runs in the same isolated,
+no-provider real Core browser environment and proves that:
+
+- a boot-trusted manifest ID receives the frozen E0 handle with the documented
+  `id`, `settings`, `storage`, and `events` fields;
+- an unknown ID fails closed without creating browser-storage state;
+- Core's real `attachLiveStream` → SSE `done` path emits one `turn:start` and
+  one `turn:complete` with the original session/stream identity;
+- the terminal callback observes the active stream cleared, the pane idle, and
+  the settled assistant transcript; and
+- a duplicate terminal dispatch for that session/stream is rejected.
+
+The fixture replaces `EventSource` only for the controlled lifecycle invocation;
+Core still owns the live-stream handler, state transition, event normalization,
+and duplicate suppression being exercised. It does not contact a provider or
+claim durable/global event delivery.
+
 ## Local run
 
 Install the hash-locked Core/browser-smoke dependencies in an isolated
@@ -70,25 +91,28 @@ python3.12 -m playwright install --with-deps chromium
 Run with an explicit independent Core checkout:
 
 ```bash
-HERMES_CORE_DIR=/path/to/hermes-webui \
-COMPATIBILITY_EVIDENCE_DIR="$PWD/compatibility-evidence" \
+export HERMES_CORE_DIR=/path/to/hermes-webui
+export COMPATIBILITY_EVIDENCE_DIR="$PWD/compatibility-evidence"
 python3.12 tests/compatibility/browser_smoke.py
+python3.12 tests/compatibility/capability_smoke.py
+python3.12 tests/compatibility/typography_smoke.py
 ```
 
-The command exits `0` only when the normal reference case passes and the
-resource-only case detects the missing entry. A compatibility assertion exits
-`1` with status `failed`. Missing setup (for example, a Core checkout or
-Playwright browser that is unavailable) and unexpected harness/driver
-exceptions exit `2`; the latter is recorded as status `harness_error` with a
-traceback rather than being reported as an extension regression. Evidence
-includes `compatibility-results.json`, one server log and one network-block
-record per case, and screenshots when the browser reaches the relevant page.
+Each command exits `0` only when its positive and negative contracts pass. A
+compatibility assertion exits `1` with status `failed`. Missing setup (for
+example, a Core checkout or Playwright browser that is unavailable) and
+unexpected harness/driver exceptions exit `2`; the latter is recorded as
+status `harness_error` with a traceback rather than being reported as an
+extension regression. Evidence includes JSON results, server logs,
+network-block records, and screenshots when the browser reaches the relevant
+page.
 
 ## CI boundary
 
 The `browser-compatibility` job checks out `nesquena/hermes-webui` independently
 at the pinned, maintainer-verified Core SHA in
-`.github/workflows/extensions.yml` (`320789ae596a3963d726d90f6c7f3bc86f7f2d6d`),
+`.github/workflows/extensions.yml` (`3c7fbe3809ff573199faee9d812179fcbeff2028`,
+release `exp-v0.52.201`),
 installs the complete hash-locked Core/browser-smoke and Playwright dependency
 surface from `tests/compatibility/requirements.txt` with
 `pip --require-hashes`, and
@@ -102,11 +126,11 @@ To update the pin, first rerun this smoke against the candidate Core checkout,
 review the logs/screenshots/results, then change the SHA and repeat the CI
 verification. Do not replace the pin with a moving branch reference.
 
-Adding another reference requires a merged entry, an explicit `ReferenceSpec`
-allowlist item, an extension-owned id/ARIA observable, and a positive plus
-resource-only negative scenario. Until then, this stage covers only
-`mobile-conversations`; it does not certify all 16 entries or every changed
-extension.
+Adding another merged reference requires an explicit `ReferenceSpec` allowlist
+item, an extension-owned id/ARIA observable, and a positive plus resource-only
+negative scenario. Until then, the merged-entry reference covers only
+`mobile-conversations`; the E0/B1 and Typography tracks have their own explicit
+contracts and none of these tracks certifies every merged or changed extension.
 
 The Playwright requirement is kept in `tests/compatibility/requirements.txt`
 because a real browser is necessary to execute injected JavaScript. Removing
