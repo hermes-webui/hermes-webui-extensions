@@ -2,141 +2,118 @@
   'use strict';
 
   // ── Mobile Haptics extension for Hermes WebUI ────────────────────────────
-  // Gives a short device vibration when an assistant turn finishes, so a phone
-  // user who set the device down gets a physical "it's done" cue. Opt-in and
-  // mobile-only by nature (navigator.vibrate is a no-op on desktop and is not
-  // supported on iOS Safari — so this is effectively an Android / Android-PWA
-  // feature; it degrades silently everywhere else).
-  //
-  // It cannot see SSE events, so it detects "turn complete" purely from the DOM:
-  // the composer send button (#btnSend) carries a busy action (stop / steer /
-  // interrupt) while the assistant is generating, and returns to the idle 'send'
-  // action when the turn finishes. The busy -> idle transition is the trigger.
+  // Give a short device vibration when the current page observes a completed
+  // assistant turn. This extension relies only on the cooperative E0/B1
+  // extension capability handle; it does not inspect Core-owned DOM state.
 
   const EXT = 'mobile-haptics';
   if (window.__hermesMobileHapticsLoaded) return;
   window.__hermesMobileHapticsLoaded = true;
 
-  const PREF_KEY = 'hermes-ext-haptics-enabled';      // legacy localStorage key (pre-settings_schema)
-  const COMPLETE_PATTERN = [18];                       // short single buzz on turn-complete
-  const BUSY_ACTIONS = new Set(['stop', 'steer', 'interrupt']);
-  const MIN_BUSY_MS = 100;                            // tiny floor: filters pure flicker; the sawBusy flag is the real "a turn happened" gate
-
-  let sawBusy = false;        // have we observed a genuine busy (stop/steer/interrupt) action this turn?
-  let busyStartedAt = 0;      // when the busy period began
-  let observer = null;
+  const COMPLETE_PATTERN = [18];
 
   function hapticsSupported() {
     return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
   }
 
-  // The 'enabled' preference now lives in the sanctioned extension-settings store
-  // (settings_schema key `enabled`), so it renders as a native toggle under
-  // Settings → Extensions → Mobile Haptics. Read through HermesExtensionSettings
-  // when core supports it; fall back to the legacy localStorage key on older core
-  // (so the toggle still works if this loads against a build without the settings
-  // system). Default ON either way. (Retrofit — issue #34.)
-  function extSettings() {
-    try {
-      var api = window.HermesExtensionSettings;
-      if (api && typeof api.settingsForExtension === 'function') {
-        var s = api.settingsForExtension('mobile-haptics');
-        if (s && s.supported) return s;
-      }
-    } catch (_) {}
-    return null;
+  function warn(message) {
+    try { console.warn('[' + EXT + '] ' + message); } catch (_) {}
   }
 
-  function enabled() {
-    var s = extSettings();
-    if (s) { var v = s.get('enabled'); return v === undefined ? true : v !== false; }
-    // Legacy fallback: localStorage key, default ON.
+  function scopedCapability() {
+    const api = window.hermesExt;
+    if (!api || typeof api.register !== 'function') {
+      warn('hermesExt.register is unavailable; haptics disabled');
+      return null;
+    }
+
+    let ext;
     try {
-      const v = localStorage.getItem(PREF_KEY);
-      return v === null ? true : v === '1';
-    } catch (_) { return true; }
+      ext = api.register(EXT);
+    } catch (_) {
+      warn('hermesExt.register failed; haptics disabled');
+      return null;
+    }
+    if (!ext || ext.id !== EXT) {
+      warn('scoped extension handle is unavailable; haptics disabled');
+      return null;
+    }
+
+    const settings = ext.settings;
+    if (!settings || typeof settings.get !== 'function' || typeof settings.set !== 'function') {
+      warn('scoped settings are unavailable; haptics disabled');
+      return null;
+    }
+    if (!ext.events || typeof ext.events.on !== 'function') {
+      warn('scoped lifecycle events are unavailable; haptics disabled');
+      return null;
+    }
+    return ext;
+  }
+
+  const ext = scopedCapability();
+  const settings = ext && ext.settings;
+  let lifecycleReady = false;
+
+  function enabled() {
+    if (!settings) return false;
+    try {
+      const value = settings.get('enabled');
+      return value === undefined ? true : value !== false;
+    } catch (_) {
+      return false;
+    }
   }
 
   function setEnabled(on) {
-    var s = extSettings();
-    if (s) { try { s.set('enabled', !!on); return; } catch (_) {} }
-    try { localStorage.setItem(PREF_KEY, on ? '1' : '0'); } catch (_) {}
-  }
-
-  function sendBtnAction() {
-    const btn = document.getElementById('btnSend');
-    if (!btn) return null;
-    const a = btn.dataset ? btn.dataset.action : null;
-    if (a) return a;
-    for (const cls of BUSY_ACTIONS) if (btn.classList.contains(cls)) return cls;
-    return 'send';
-  }
-
-  // Turn lifecycle as reflected by #btnSend's action:
-  //   send  -> (busy: stop/steer/interrupt, possibly interleaved with 'disabled'
-  //             while the composer is empty mid-stream) -> back to send/disabled idle.
-  // The reliable "turn complete" signal is: we saw a genuine busy action, and the
-  // button has now returned to the idle 'send'/'disabled' state. 'disabled' alone
-  // is NOT busy (empty composer) and NOT a completion on its own — only the
-  // transition OUT of a confirmed-busy turn counts.
-  function onStateMaybeChanged() {
-    const action = sendBtnAction();
-    const busy = BUSY_ACTIONS.has(action);
-    if (busy) {
-      if (!sawBusy) { sawBusy = true; busyStartedAt = Date.now(); }
-      return;
+    if (!settings) return false;
+    try {
+      const result = settings.set('enabled', !!on);
+      return !!(result && typeof result === 'object' && result.ok === true);
+    } catch (_) {
+      return false;
     }
-    // 'queue' is NOT completion: core sets #btnSend.dataset.action to 'queue' while
-    // an assistant turn is STILL active and the user has typed/queued a follow-up
-    // (static/ui.js getComposerPrimaryAction). Treat it as a holding state so a
-    // mid-turn stop->queue transition does not fire a premature buzz (and then a
-    // second one on the real completion). (Codex gate, PR #22.)
-    if (sawBusy && action === 'queue') return;
-    // Not a busy/holding action. If we had seen a busy action this turn, it's done.
-    if (sawBusy) {
-      const ranFor = Date.now() - busyStartedAt;
-      sawBusy = false;
-      if (ranFor >= MIN_BUSY_MS && enabled() && hapticsSupported()) {
-        try { navigator.vibrate(COMPLETE_PATTERN); } catch (_) {}
+  }
+
+  function onTurnComplete(event) {
+    if (!lifecycleReady) return;
+    if (!event || event.type !== 'turn:complete') return;
+    if (!enabled() || !hapticsSupported()) return;
+    try { navigator.vibrate(COMPLETE_PATTERN); } catch (_) {}
+  }
+
+  if (ext) {
+    try {
+      const unsubscribe = ext.events.on('turn:complete', onTurnComplete);
+      if (typeof unsubscribe === 'function') {
+        lifecycleReady = true;
+      } else {
+        warn('turn:complete subscription was rejected; haptics disabled');
       }
+    } catch (_) {
+      warn('turn:complete subscription failed; haptics disabled');
     }
   }
 
-  function startObserver() {
-    const btn = document.getElementById('btnSend');
-    if (!btn || observer) return !!observer;
-    // Watch the send button's class + data-action for the busy/idle flip.
-    observer = new MutationObserver(onStateMaybeChanged);
-    observer.observe(btn, { attributes: true, attributeFilter: ['class', 'data-action'] });
-    sawBusy = BUSY_ACTIONS.has(sendBtnAction());
-    if (sawBusy) busyStartedAt = Date.now();
-    return true;
-  }
-
-  function install(attempt) {
-    attempt = attempt || 0;
-    if (document.getElementById('btnSend')) {
-      startObserver();
-      window.HermesMobileHapticsExtension = {
-        version: '0.1.0',
-        supported: hapticsSupported(),
-        isEnabled: enabled,
-        setEnabled: setEnabled,
-        test() { if (hapticsSupported()) { try { navigator.vibrate(COMPLETE_PATTERN); return true; } catch (_) {} } return false; }
-      };
-      if (!hapticsSupported()) {
-        console.info('[' + EXT + '] navigator.vibrate not supported on this device (desktop / iOS Safari); haptics inactive.');
+  window.HermesMobileHapticsExtension = {
+    version: '0.1.0',
+    supported: hapticsSupported(),
+    isEnabled: enabled,
+    setEnabled,
+    test() {
+      if (!lifecycleReady || !hapticsSupported()) return false;
+      try {
+        navigator.vibrate(COMPLETE_PATTERN);
+        return true;
+      } catch (_) {
+        return false;
       }
-      return true;
-    }
-    if (attempt < 80) { setTimeout(() => install(attempt + 1), 150); return false; }
-    console.warn('[' + EXT + '] send button (#btnSend) not found; haptics not installed');
-    return false;
-  }
+    },
+  };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => install(), { once: true });
-  } else {
-    install();
+  if (!hapticsSupported()) {
+    try {
+      console.info('[' + EXT + '] navigator.vibrate not supported on this device (desktop / iOS Safari); haptics inactive.');
+    } catch (_) {}
   }
 })();

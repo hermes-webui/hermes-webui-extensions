@@ -1,17 +1,17 @@
 # Mobile Haptics
 
 Mobile Haptics is a trusted local Hermes WebUI extension that gives your phone a
-short vibration when an assistant turn finishes — so if you fire off a long task
-and set the device down, you get a physical "it's done" cue.
+short vibration when an assistant turn finishes. If you start a long task and
+set the device down, the buzz is a physical "it's done" cue.
 
 ## What It Does
 
-- Watches for the end of an assistant turn and triggers a short
+- Subscribes to the Core `turn:complete` lifecycle event and triggers a short
   `navigator.vibrate()` buzz.
-- Opt-in preference, on by default; managed via the native Settings → Extensions toggle (sanctioned extension-settings store, legacy `hermes-ext-haptics-enabled` localStorage fallback on older core)
-  where vibration is supported.
-- Ignores sub-100ms flickers; the real "a turn happened" gate is observing a
-  genuine busy action (stop/steer/interrupt), so only real turns buzz.
+- Vibrates only when the extension is enabled and the platform exposes
+  `navigator.vibrate`.
+- Keeps the preference in the native Settings → Extensions toggle through the
+  scoped extension settings handle.
 
 ## Platform support (important)
 
@@ -28,12 +28,17 @@ Android-leaning feature.
 
 ## How it detects "turn complete"
 
-Extensions can't see the server's streaming (SSE) events, so this reads the DOM
-instead: the composer send button (`#btnSend`) carries a busy action
-(`stop` / `steer` / `interrupt`) while the assistant is generating and returns
-to the idle `send` action when the turn finishes. A `MutationObserver` on that
-button's `class` / `data-action` catches the busy → idle transition and fires
-the buzz.
+The extension uses the cooperative E0/B1 capability handle:
+
+1. It calls `window.hermesExt.register('mobile-haptics')` to obtain its scoped
+   handle.
+2. It subscribes only to `ext.events.on('turn:complete', handler)`.
+3. The handler reads `ext.settings.get('enabled')` and, when enabled on a
+   supported device, calls `navigator.vibrate([18])` once.
+
+The extension does not depend on Core's private implementation details. If the
+scoped E0/B1 handle is unavailable (as on an older Core), it warns and fails
+closed without subscribing or vibrating.
 
 ## Current Shape
 
@@ -41,8 +46,9 @@ the buzz.
 Hermes WebUI page
   -> manifest-bundled extension assets
   -> /extensions/assets/mobile-haptics.js
-  -> MutationObserver on #btnSend (busy -> idle) -> navigator.vibrate()
-  -> setting `enabled` via window.HermesExtensionSettings (Settings → Extensions toggle)
+  -> scoped E0 handle (hermesExt.register)
+  -> B1 turn:complete event -> navigator.vibrate([18])
+  -> scoped ext.settings `enabled` preference
 ```
 
 This extension is `static-ui` / manifest-bundle only. It does not add backend
@@ -60,24 +66,23 @@ cd /path/to/hermes-webui
 HERMES_WEBUI_EXTENSION_DIR=/path/to/hermes-webui-extensions/extensions/mobile-haptics HERMES_WEBUI_EXTENSION_MANIFEST=manifest.json ./start.sh
 ```
 
-Open the WebUI on an Android device (or Android-PWA), send a message, and feel a
-short buzz when the reply completes.
+Open the WebUI on an Android device (or Android-PWA), send a message, and feel
+a short buzz when the reply completes.
 
 ## Controls
 
 The **on/off toggle renders natively in Settings → Extensions → Mobile Haptics**
-("Vibrate when a turn finishes"), via the sanctioned extension-settings system
-(`settings_schema` + `permissions.storage.owned: true`). Toggling it there persists
-through `window.HermesExtensionSettings` — no separate panel.
+(`settings_schema` + `permissions.storage.owned: true`). The extension reads and
+writes this value only through the returned `ext.settings` handle.
 
-A small JS control surface is also exposed on `window.HermesMobileHapticsExtension`:
+A small JS control surface is also exposed on
+`window.HermesMobileHapticsExtension`:
 
 - `.supported` — whether `navigator.vibrate` exists on this device
-- `.isEnabled()` — current opt-in state (reads the settings store; falls back to the
-  legacy `hermes-ext-haptics-enabled` localStorage key on older core without the
-  settings system)
-- `.setEnabled(true|false)` — toggle and persist (settings store, legacy fallback)
-- `.test()` — fire a test buzz (returns false if unsupported)
+- `.isEnabled()` — current opt-in state from the scoped settings handle
+- `.setEnabled(true|false)` — toggle and persist through scoped settings
+- `.test()` — fire a test buzz (returns false if unsupported or the lifecycle
+  capability is unavailable)
 
 ## Disable And Uninstall
 
@@ -90,29 +95,28 @@ keeping the extension installed, or restart Hermes WebUI without
 
 This is trusted local code. Current disclosed behavior:
 
-- calls `navigator.vibrate()` when an assistant turn completes (if enabled +
-  supported)
-- observes the `#btnSend` button's `class` / `data-action` via a
-  `MutationObserver` (read-only)
-- reads/writes the `enabled` setting through the sanctioned `window.HermesExtensionSettings`
-  store (`permissions.storage.owned: true`); on older core without that system it
-  falls back to the single localStorage key `hermes-ext-haptics-enabled`
-- creates NO DOM
+- calls `navigator.vibrate([18])` when Core emits `turn:complete` and the
+  extension is enabled on a supported device
+- obtains the scoped E0 handle with `window.hermesExt.register('mobile-haptics')`
+  and subscribes to the B1 `turn:complete` event
+- reads/writes the `enabled` setting through the returned `ext.settings` handle
+- creates NO DOM and does not inspect Core-owned DOM views
 - does not call WebUI HTTP APIs
-- does not access cookies
-- does not contact loopback or external network services
+- does not access cookies, unscoped browser storage, loopback, or external
+  network services
 - does not use arbitrary filesystem or native host APIs
 
 ## Compatibility
 
-- manifest-bundled extension assets + same-origin serving under `/extensions/`
-- the composer send button `#btnSend` with its `data-action` / busy-class
-  contract (used to detect turn completion)
-- a device with `navigator.vibrate` (Android) for any actual effect
+The minimum lifecycle contract is **exp-v0.52.201 / Core #6924**, which provides
+the cooperative E0 scoped identity handle and B1 turn-lifecycle events. Older
+Core builds fail closed with a warning; this extension does not fall back to
+private DOM state or legacy storage.
 
 ## Verification
 
 ```bash
+node scripts/test-mobile-haptics.mjs
 node scripts/validate-extensions.mjs
 node scripts/scan-extension-safety.mjs
 node scripts/generate-registry.mjs --out dist/registry.json
@@ -121,20 +125,19 @@ python3 -m json.tool extensions/mobile-haptics/extension.json
 python3 -m json.tool extensions/mobile-haptics/manifest.json
 ```
 
-Functional verification (the busy → idle detection is the testable core; the
-actual vibration only fires on Android hardware):
+Functional verification (the lifecycle handler is covered by the Node contract
+test; the actual vibration only fires on Android hardware):
 
 - on a desktop browser, `HermesMobileHapticsExtension.supported` is `false` and
   no error occurs
-- sending a message flips `#btnSend` to a busy action and back; the extension's
-  state machine logs/triggers on the idle transition
-- on an Android device, completing a turn produces a short buzz when enabled
+- with Core exp-v0.52.201 or newer, completing a turn emits one
+  `turn:complete` event and produces a short buzz when enabled
+- on an older Core without E0/B1, the extension logs a warning and remains
+  inactive
 
 ## Known Limitations
 
 - No effect on desktop or iOS (platform limitation of `navigator.vibrate`).
-- Detects turn completion from the send-button state, so it relies on the
-  current `#btnSend` `data-action` / busy-class contract.
 - Browsers may suppress vibration until the user has interacted with the page
   (a standard mobile-browser gesture requirement); sending a message satisfies
   that.

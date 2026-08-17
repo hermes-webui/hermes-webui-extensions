@@ -69,6 +69,9 @@ jobs:
       - name: Test Message Pins observer sync
         run: node scripts/test-message-pins-sync.mjs
 
+      - name: Test Mobile Haptics E0/B1 lifecycle
+        run: node scripts/test-mobile-haptics.mjs
+
       - name: Test sidecar contract enforcement
         run: node scripts/test-sidecar-contract.mjs
 
