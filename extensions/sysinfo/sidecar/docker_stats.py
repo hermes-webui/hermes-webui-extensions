@@ -119,6 +119,10 @@ _STATS_TTL = float(os.environ.get("MC_DOCKER_STATS_TTL", "5") or 5)
 _stats_cache: dict[str, Any] = {"ts": 0.0, "data": None}
 _stats_lock = _threading.Lock()  # single-flight the cache refresh across concurrent SSE polls
 _MAX_CONTAINERS = 200  # cap the inventory list so a churn-heavy host can't exceed the 512 KiB proxy cap
+# Hard ceiling on rows MATERIALIZED per sweep (before the _MAX_CONTAINERS output slice):
+# stop collecting once we hit it so a host with tens of thousands of containers can't
+# balloon the working set. Generous vs the 200-row output cap; truncation is reported.
+_MAX_SCAN = int(os.environ.get("MC_DOCKER_MAX_SCAN", "2000") or 2000)
 
 
 _LABEL_UNSAFE = _re.compile(r"[^A-Za-z0-9_.\-]")
@@ -198,6 +202,8 @@ def _docker_stats_uncached() -> dict[str, Any]:
             capture_output=True, text=True, timeout=3,
         )
         for line in r.stdout.splitlines():
+            if len(stats_by_id) >= _MAX_SCAN:
+                break                         # bound the working set on a huge host
             try:
                 obj = _json.loads(line)
             except Exception:
@@ -224,7 +230,11 @@ def _docker_stats_uncached() -> dict[str, Any]:
             capture_output=True, text=True, timeout=3,
         )
         containers: list[dict[str, Any]] = []
+        scan_truncated = False
         for line in r.stdout.splitlines():
+            if len(containers) >= _MAX_SCAN:
+                scan_truncated = True         # stop materializing; report truncation below
+                break
             try:
                 obj = _json.loads(line)
             except Exception:
@@ -261,7 +271,7 @@ def _docker_stats_uncached() -> dict[str, Any]:
         # 512 KiB proxy response. Running containers sort first so the cap keeps
         # the most relevant rows.
         containers.sort(key=lambda c: 0 if (c.get("state") == "running") else 1)
-        truncated = len(containers) > _MAX_CONTAINERS
+        truncated = scan_truncated or len(containers) > _MAX_CONTAINERS
         containers = containers[:_MAX_CONTAINERS]
         # Tell the UI whether the operator has opted any containers in, so an
         # empty list can distinguish "no allowlist configured" from "nothing ran".

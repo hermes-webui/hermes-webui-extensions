@@ -1125,7 +1125,10 @@ window.mcDockerUpdate = async function(cid, btnEl) {
   // ── Boot: wait for the Insights panel, keep the card fresh ─────────────
   function _siTick() {
     sidecarStatus().then(function (st) {
-      var ok = st.consented;
+      // Consent alone is NOT sufficient once WebUI auth is off: fail closed if the proxy
+      // reports an unprotected posture, so a local_unprotected host can never reach the
+      // Docker control surface even if a stale consent record still says consented.
+      var ok = st.consented && st.posture !== 'local_unprotected';
       var prev = _siConsent; _siConsent = ok;
       if (ok && prev === false) { var old = document.getElementById('siSysinfoCard'); if (old) old.remove(); }
       if (!_siEnsureCard()) return;

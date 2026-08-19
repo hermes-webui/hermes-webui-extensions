@@ -28,8 +28,10 @@ is decoupled, not update-proof.
   persisted server-side so they stick across devices).
 - Per-container actions (start / stop / restart) via a kebab menu.
 - **Image updates**: "Check updates" flags containers whose remote image
-  digest changed; update one container, a whole stack, or everything —
-  dependency-first, on a background thread with progress toasts.
+  digest changed; update one compose stack or all stacks — in a heuristic
+  category order (data stores → infra → apps, matched by name/image, **not** a
+  Compose dependency graph), on a background thread with progress toasts.
+  Standalone (`docker run`) containers are shown but not updatable in-app.
 
 ## Current Shape
 

@@ -189,6 +189,43 @@ def test_op_poll_returns_own_failure_after_next_op_starts():
     assert docker_stats.docker_op_status(b_id)["result"] == {"ok": True}
 
 
+def test_inventory_scan_is_bounded():
+    # PR #67: the inventory must stop materializing at a bounded working set (not build the
+    # full list first) so a host with tens of thousands of containers can't balloon memory.
+    ds = docker_stats
+    saved = (ds.subprocess.run, ds.docker_present, ds._MAX_SCAN)
+    ds._MAX_SCAN = 5
+
+    def fake_run(argv, **kw):
+        sub = argv[1] if len(argv) > 1 else ""
+        if sub == "info":
+            return _FakeR(0, "ok")
+        if sub == "stats":
+            return _FakeR(0, "")
+        if sub == "ps":
+            import json as _j
+            rows = [_j.dumps({"ID": f"id{i}", "Names": f"c{i}", "Image": "img",
+                              "State": "running", "Status": "Up", "Labels": ""})
+                    for i in range(50)]
+            return _FakeR(0, "\n".join(rows))
+        return _FakeR(0, "")
+
+    ds.subprocess.run = fake_run
+    ds.docker_present = lambda: True
+    old_show = os.environ.get("MC_DOCKER_SHOW_ALL")
+    os.environ["MC_DOCKER_SHOW_ALL"] = "1"
+    try:
+        out = ds._docker_stats_uncached()
+    finally:
+        ds.subprocess.run, ds.docker_present, ds._MAX_SCAN = saved
+        if old_show is None:
+            os.environ.pop("MC_DOCKER_SHOW_ALL", None)
+        else:
+            os.environ["MC_DOCKER_SHOW_ALL"] = old_show
+    assert len(out.get("containers", [])) <= 5, out
+    assert out.get("truncated") is True, "a scan-capped inventory must report truncated:true"
+
+
 def test_unknown_op_id_is_honest():
     # An id that never ran (or has aged out) reports unknown — never a fabricated
     # success. The frontend surfaces this as an error, not a silent {ok:true}.
@@ -436,6 +473,7 @@ if __name__ == "__main__":
     test_docker_update_unknown_old_digest_is_not_reported_as_latest()
     test_docker_update_established_no_change_still_says_latest()
     test_remote_manifest_cache_is_bounded()
+    test_inventory_scan_is_bounded()
     test_unknown_bulk_id_is_honest()
     test_docker_update_fails_closed_on_replica_enum_error()
     test_docker_update_fails_closed_on_empty_replica_set()
