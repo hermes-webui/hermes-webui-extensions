@@ -382,6 +382,10 @@
 /* stack-header roll-up: N image updates available inside this collapsed group */
 .mc-docker-group-upd { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); border: 0; cursor: pointer; font-family: inherit; line-height: 1.7; }
 .mc-docker-group-upd:hover { background: rgba(59,157,219,.34); }
+/* Standalone (Ungrouped) roll-up: informational only — not updatable in-app, so it
+   reads as muted and non-interactive (no pointer, no hover lift). */
+.mc-docker-group-upd--manual { background: rgba(148,163,184,.16); color: var(--muted, #94a3b8); cursor: default; }
+.mc-docker-group-upd--manual:hover { background: rgba(148,163,184,.16); }
 /* Kill the dead space above/below the collapsed Speed test row */
   .mc-speedtest { margin-top: 8px; padding-top: 0; }
 .mc-speedtest .mc-docker-toggle { margin-top: 0; }

@@ -5,7 +5,7 @@
    can never break it (worst case: reinstall the extension).
    Docker: live stats, compose-project grouping with custom display names,
    start/stop/restart per container or per stack, image-update checks and
-   one-click updates (single, stack, or all — dependency-first).
+   one-click updates (single stack, or all stacks — heuristic data→infra→apps order).
    Speed test: on-demand runs + optional auto-schedule (every N hours or
    daily at HH:MM), last reading persisted server-side. */
 (function () {
@@ -102,7 +102,7 @@
         '</button>' +
         // Real button, OUTSIDE the collapse toggle — keyboard-reachable and not nested
         // interactive content (it triggers the destructive "update all").
-        '<button type="button" class="mc-docker-update-pill" id="mcDockerUpdatePill" hidden onclick="mcDockerUpdateAll()" title="Update everything, dependency-first" aria-label="Update all containers, dependency-first"></button>' +
+        '<button type="button" class="mc-docker-update-pill" id="mcDockerUpdatePill" hidden onclick="mcDockerUpdateAll()" title="Update every compose stack that has an image update" aria-label="Update all compose stacks with an available image update"></button>' +
         '<span class="mc-docker-update-when" id="mcDockerUpdateWhen"></span>' +
         '<button type="button" class="mc-docker-checkupd" id="mcDockerCheckUpdBtn" onclick="mcDockerCheckUpdates(this)">\u27f3 Check updates</button>' +
       '</div>' +
@@ -469,7 +469,7 @@ function _mcDockerRowHtml(c) {
   const upd = _mcDockerUpdates[c.name];
   const hasUpdate = !!(upd && upd.update_available);
   const updBadge = hasUpdate
-    ? `<span class="mc-docker-updbadge" title="${esc(upd.note || 'update available')}">update</span>` : '';
+    ? `<span class="mc-docker-updbadge" title="${esc(upd.compose_service ? (upd.note || 'update available') : 'update available — standalone container, update manually')}">update</span>` : '';
   const updItem = (upd && upd.compose_service) && hasUpdate
     ? `<button type="button" role="menuitem" class="mc-docker-mi mc-docker-mi--update"
                     data-mc-act="update">⬆ Update</button>` : '';
@@ -571,19 +571,28 @@ function _mcRenderDockerCard(payload) {
       const gRunning = items.filter(c => (c.state || '').toLowerCase() === 'running').length;
       const gDot = gRunning === gTotal ? 'mc-docker-dot--ok' : gRunning === 0 ? 'mc-docker-dot--err' : 'mc-docker-dot--warn';
       const expanded = _mcGroupExpanded(key);
-      // Roll-up: how many containers in this stack have an image update — shown on
-      // the stack header so it's visible without expanding the group.
+      // Stack-level controls (rename + Start/Restart/Stop all + the stack UPDATE
+      // button) only make sense for real compose stacks — the synthetic "Ungrouped"
+      // bucket gets none. Posting scope:stack with an empty project fails backend-side
+      // (missing_project), and its members are plain `docker run` containers that this
+      // extension cannot update anyway.
+      const isStack = key !== '';
+      // Roll-up: how many containers in this group have an image update — shown on
+      // the header so it's visible without expanding the group.
       const gUpd = items.filter(c => { const u = _mcDockerUpdates[c.name]; return u && u.update_available; }).length;
       const _bu = window._mcBulkUpdating;
-      const _stackBusy = _bu && _bu.running && (_bu.scope === 'all' || _bu.project === key);
+      // During an "all stacks" bulk, only real stacks that actually have a pending
+      // update show the busy spinner — an untouched stack (or the Ungrouped bucket)
+      // must not look like it's being updated.
+      const _stackBusy = _bu && _bu.running && ((_bu.scope === 'all' && isStack && gUpd > 0) || _bu.project === key);
       const gUpdBadge = _stackBusy
         ? `<span class="mc-docker-group-upd mc-docker-upd-busy" title="Updating…">⟳ ${_bu.done||0}/${_bu.total||'?'}</span>`
         : (gUpd
-          ? `<button type="button" class="mc-docker-group-upd" title="Update this stack — ${gUpd} image update${gUpd === 1 ? '' : 's'}, dependency-first" onclick="event.stopPropagation();mcDockerUpdateStack(${idx}, this)">⬆ ${gUpd}</button>` : '');
+          ? (isStack
+            ? `<button type="button" class="mc-docker-group-upd" title="Update this stack — ${gUpd} image update${gUpd === 1 ? '' : 's'}, in order: data → infra → apps" onclick="event.stopPropagation();mcDockerUpdateStack(${idx}, this)">⬆ ${gUpd}</button>`
+            : `<span class="mc-docker-group-upd mc-docker-group-upd--manual" title="${gUpd} standalone image update${gUpd === 1 ? '' : 's'} — update manually (docker run); not updatable in-app">⬆ ${gUpd}</span>`)
+          : '');
       const rows = items.map(_mcDockerRowHtml).join('');
-      // Stack-level controls (rename + Start/Restart/Stop all) only make sense
-      // for real compose stacks — the synthetic "Ungrouped" bucket gets none.
-      const isStack = key !== '';
       // Visible per-stack controls: rename + Start all / Restart all / Stop all.
       const controls = isStack ? `
           <button type="button" class="mc-docker-group-rename" title="Rename group"
@@ -860,7 +869,11 @@ window.mcDockerUpdateStack = async function(idx, btn){
   // idx (not the raw label) is passed in from the render so a crafted compose
   // project name can never reach the inline onclick string. Resolve it here.
   const project = _mcDockerGroupOrder[idx]; if (project === undefined) return;
-  const _ok = await _mcConfirmDestructive({ title:'Update stack', message:`Update the "${project}" stack now? Its updatable images will be pulled and the containers recreated (dependency-first).`, confirmLabel:'Update' });
+  // The "Ungrouped" bucket has an empty project and is not a compose stack — its
+  // members are plain `docker run` containers that can't be updated in-app (a
+  // scope:stack post would fail missing_project). Never route it here.
+  if (!project) { showToast('Standalone containers must be updated manually (docker run)', undefined, 'info'); return; }
+  const _ok = await _mcConfirmDestructive({ title:'Update stack', message:`Update the "${project}" stack now? Its updatable images will be pulled and the containers recreated, in order: data stores → infra → apps.`, confirmLabel:'Update' });
   if (!_ok) return;
   if (btn) btn.disabled = true;
   try {
@@ -875,18 +888,29 @@ window.mcDockerUpdateStack = async function(idx, btn){
   finally { if (btn) btn.disabled = false; }
 };
 window.mcDockerUpdateAll = async function(){
-  const _ok = await _mcConfirmDestructive({ title:'Update all stacks', message:'Update ALL stacks now? Every stack with an available update will be pulled and recreated, dependency-first (data stores → infra → apps). Affected services briefly restart.', confirmLabel:'Update all' });
+  const _ok = await _mcConfirmDestructive({ title:'Update all stacks', message:'Update ALL compose stacks now? Every stack with an available image update will be pulled and recreated, in order: data stores → infra → apps. Standalone (non-compose) containers are not included. Affected services briefly restart.', confirmLabel:'Update stacks' });
   if (!_ok) return;
   try {
     const r = await api('/api/system/docker/update-bulk', { method:'POST', body: JSON.stringify({ scope:'all' }) });
     if (r && r.error) { showToast('Update failed: ' + r.error, undefined, 'error'); return; }
     if (r && r.started === false) { showToast('Nothing to update', undefined, 'info'); return; }
-    showToast(`Updating all — ${r.total} image${r.total===1?'':'s'}, dependency-first…`, undefined, 'info');
+    showToast(`Updating ${r.total} stack image${r.total===1?'':'s'} — data → infra → apps…`, undefined, 'info');
     window._mcBulkUpdating = { running: true, id: r.id, scope: 'all', project: '', done: 0, total: r.total || 0 };
     _mcRefreshDockerBusy();
-    _mcBulkUpdatePoll('Update all', r.id);
+    _mcBulkUpdatePoll('Update stacks', r.id);
   } catch(e) { showToast('Update failed: ' + ((e && e.message)||'error'), undefined, 'error'); }
 };
+// The bulk action only updates COMPOSE stacks — docker_update() on a plain
+// `docker run` container returns not_compose_managed. So the pill count, its label,
+// and the bulk target set must all describe the SAME compose-managed set. Standalone
+// / ungrouped images are surfaced per-row (informational badge) but never counted here
+// nor offered an in-app update. Keeps the header count and action in parity (PR #67).
+function _mcDockerStackUpdates() {
+  return Object.values(_mcDockerUpdates).filter(u => u && u.update_available && u.compose_service);
+}
+function _mcDockerStandaloneUpdates() {
+  return Object.values(_mcDockerUpdates).filter(u => u && u.update_available && !u.compose_service);
+}
 function _mcDockerSyncUpdatePill() {
   const pill = document.getElementById('mcDockerUpdatePill');
   if (!pill) return;
@@ -898,22 +922,24 @@ function _mcDockerSyncUpdatePill() {
     pill.textContent = `⟳ updating ${bu.done||0}/${bu.total||'?'}`;
     return;
   }
-  const n = Object.values(_mcDockerUpdates).filter(u => u && u.update_available).length;
+  // Count only the compose stacks the bulk action can actually update — standalone
+  // images are excluded so the count matches the action (see _mcDockerStackUpdates).
+  const n = _mcDockerStackUpdates().length;
   if (n > 0) {
-    // Updates available → green + actionable ("Update all (N)").
+    // Stack updates available → green + actionable ("Update stacks (N)").
     pill.hidden = false;
     pill.disabled = false;
     pill.className = 'mc-docker-update-pill mc-docker-has-updates';
-    pill.textContent = `⬆ Update all (${n})`;
-    pill.title = `Update all ${n} — dependency-first`;
+    pill.textContent = `⬆ Update stacks (${n})`;
+    pill.title = `Update ${n} stack image${n === 1 ? '' : 's'} — in order: data stores → infra → apps`;
   } else if (_mcDockerCheckedAt) {
-    // Checked, nothing to update → greyed-out, non-actionable update icon
+    // Checked, no stack updates → greyed-out, non-actionable update icon
     // (not a hidden/empty pill leaking as a weird circle).
     pill.hidden = false;
     pill.disabled = true;
     pill.className = 'mc-docker-update-pill';
     pill.textContent = '⬆';
-    pill.title = 'All container images up to date';
+    pill.title = 'All compose stacks up to date';
   } else {
     // Not checked yet → show nothing until "Check updates" runs.
     pill.hidden = true;
@@ -952,12 +978,20 @@ function _mcDockerRestoreUpdates() {
 function _mcDockerShowWhen() {
   const whenEl = document.getElementById('mcDockerUpdateWhen');
   if (!whenEl) return;
-  const n = Object.values(_mcDockerUpdates).filter(u => u && u.update_available).length;
+  // Report stack (actionable) and standalone (manual) updates separately so the
+  // summary never implies the pill will update a standalone image it can't touch.
+  const stack = _mcDockerStackUpdates().length;
+  const standalone = _mcDockerStandaloneUpdates().length;
+  const n = stack + standalone;
   if (!_mcDockerCheckedAt && !n) { return; }   // nothing to show (preserve a fresh "just now")
   if (!_mcDockerCheckedAt) return;
   const mins = Math.round((Date.now() - _mcDockerCheckedAt) / 60000);
   const ago = mins < 1 ? 'just now' : mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`;
-  whenEl.textContent = (n > 0 ? `${n} update${n === 1 ? '' : 's'} · ` : 'up to date · ') + `checked ${ago}`;
+  let summary;
+  if (stack > 0) summary = `${stack} stack update${stack === 1 ? '' : 's'}` + (standalone ? ` · ${standalone} standalone (manual)` : '');
+  else if (standalone > 0) summary = `${standalone} standalone update${standalone === 1 ? '' : 's'} (manual)`;
+  else summary = 'up to date';
+  whenEl.textContent = `${summary} · checked ${ago}`;
 }
 
 // on-demand image-update check. Compares each container's local image digest
