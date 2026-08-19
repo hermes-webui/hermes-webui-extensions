@@ -298,7 +298,31 @@ def _image_local_digest(image: str) -> str | None:
 # re-hammering the registry (which was draining the budget → updates "vanishing").
 _REMOTE_TTL_OK = float(os.environ.get("MC_DOCKER_REMOTE_TTL", "900") or 900)   # 15 min for a good answer
 _REMOTE_TTL_FAIL = 180.0                                                        # retry failures sooner, not every click
+_REMOTE_CACHE_MAX = int(os.environ.get("MC_DOCKER_REMOTE_CACHE_MAX", "512") or 512)  # hard entry ceiling
 _remote_cache: dict[str, tuple[float, "str | None", str]] = {}                 # image -> (ts, digest, status)
+
+
+def _remote_cache_ttl(status: str) -> float:
+    return _REMOTE_TTL_OK if status in ("ok", "absent") else _REMOTE_TTL_FAIL
+
+
+def _remote_cache_put(image: str, ts: float, digest: "str | None", status: str) -> None:
+    """Insert/refresh a remote-manifest entry while keeping the cache BOUNDED.
+
+    Without a cap the TTL only governs reuse, never removal — so a long-lived sidecar
+    that sees churning image tags across sweeps grows this dict without limit. Evict
+    fully-TTL-expired entries first, then, if still over ``_REMOTE_CACHE_MAX``, drop the
+    oldest by timestamp (the entry just written has ts=now, so it is never evicted)."""
+    _remote_cache[image] = (ts, digest, status)
+    if len(_remote_cache) <= _REMOTE_CACHE_MAX:
+        return
+    for k in [k for k, (t, _d, s) in list(_remote_cache.items())
+              if (ts - t) >= _remote_cache_ttl(s)]:
+        _remote_cache.pop(k, None)
+    if len(_remote_cache) > _REMOTE_CACHE_MAX:
+        overflow = len(_remote_cache) - _REMOTE_CACHE_MAX
+        for k, _v in sorted(_remote_cache.items(), key=lambda kv: kv[1][0])[:overflow]:
+            _remote_cache.pop(k, None)
 
 
 def _image_remote_digest(image: str) -> tuple[str | None, str]:
@@ -332,7 +356,7 @@ def _image_remote_digest(image: str) -> tuple[str | None, str]:
                 res = (None, "error")
     except Exception:
         res = (None, "error")
-    _remote_cache[image] = (now, res[0], res[1])
+    _remote_cache_put(image, now, res[0], res[1])
     return res
 
 
@@ -645,20 +669,36 @@ def docker_update(container_id: str) -> dict[str, Any]:
     # this container from the persisted update-check so every device stops
     # showing its "update available" badge.
     _stats_cache["ts"] = 0.0
-    changed = bool(old_digest and new_digest and old_digest != new_digest)
+    # Tri-state change detection: only claim "no change" when equality was ACTUALLY
+    # established (both digests known and equal). If the pre-pull digest was unknown,
+    # the pull succeeded but we cannot say whether the image changed — report that
+    # honestly (changed=None) instead of a false "already on the latest image".
+    if old_digest and new_digest:
+        changed = old_digest != new_digest          # True/False — equality established
+    else:
+        changed = None                              # unknown: missing pre- or post-pull baseline
     # updates records + the frontend map are keyed by NAME, not ID — forget by
     # name (was container_id) so the "update available" badge actually clears.
     updates_forget(cname or container_id)
+    if changed is True:
+        note = "updated"
+    elif changed is False:
+        note = "already on the latest image"
+    elif new_digest:
+        note = "pulled — previous image unknown, change status unverified"
+    else:
+        note = "update ran — image state could not be confirmed"
     return {
         "ok": True,
         "name": cname or container_id,
         "image": image,
         "service": service,
-        "changed": changed,
+        "changed": changed,                         # True | False | None (unknown)
+        "changed_known": changed is not None,
         "old_digest": (old_digest or "")[:19],   # "sha256:" + 12 hex
         "new_digest": (new_digest or "")[:19],
         "version": _image_version_label(image),
-        "note": "updated" if changed else "already on the latest image",
+        "note": note,
     }
 
 
@@ -793,7 +833,10 @@ def _bulk_worker(targets: list[dict[str, Any]], bid: int) -> None:
                 _bulk_state["results"].append({
                     "name": c.get("name"), "stack": c.get("compose_project"),
                     "prio": _update_priority(c), "ok": bool(res.get("ok")),
-                    "changed": bool(res.get("changed")), "error": res.get("error"),
+                    # Carry the tri-state honestly: True/False/None(unknown) — a
+                    # bool() here would report an unverified pull as "no change".
+                    "changed": res.get("changed"), "note": res.get("note"),
+                    "error": res.get("error"),
                 })
     finally:
         with _bulk_lock:

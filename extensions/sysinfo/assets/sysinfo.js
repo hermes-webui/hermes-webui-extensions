@@ -718,8 +718,16 @@ window.mcDockerAction = async function(cid, action, btnEl) {
   // Close the kebab menu the item lives in (the card re-renders after the poll).
   const _menu = btnEl && btnEl.closest('.mc-docker-menu');
   if (_menu) _menu.hidden = true;
-  if (btnEl) btnEl.disabled = true;
   const row = btnEl && btnEl.closest('.mc-docker-row');
+  // Stop/restart take a container down — confirm first and fail CLOSED if the host
+  // has no dialog, mirroring the stack-level contract in mcDockerGroupAction. (start
+  // is non-destructive, so it proceeds without a prompt.)
+  if (action === 'stop' || action === 'restart') {
+    const nm = ((row && row.querySelector('.mc-docker-name-text')) || {}).textContent || 'this container';
+    const verb = action === 'stop' ? 'Stop' : 'Restart';
+    if (!(await _mcConfirmDestructive({ title: `${verb} “${nm}”?`, message: `This will ${action} the container.`, confirmLabel: verb }))) return;
+  }
+  if (btnEl) btnEl.disabled = true;
   if (row) row.classList.add('mc-docker-row--busy');
   try {
     const r = await fetch(BASE + '/api/system/docker/action', {
@@ -1098,7 +1106,13 @@ window.mcDockerUpdate = async function(cid, btnEl) {
     if (data.name && _mcDockerUpdates[data.name]) delete _mcDockerUpdates[data.name];
     _mcDockerSyncUpdatePill();
     const ver = data.version ? `v${data.version}` : (data.new_digest || 'latest');
-    const verb = data.changed ? `updated → ${ver}` : 'already on the latest image';
+    // Tri-state: only say "already latest" when the backend actually established
+    // equality (changed===false). changed===null means the pull succeeded but the
+    // prior image was unknown — surface the backend's honest note, never a false
+    // "already latest".
+    const verb = data.changed === true ? `updated → ${ver}`
+      : data.changed === false ? 'already on the latest image'
+      : (data.note || 'pulled — change status unverified');
     if (typeof showToast === 'function') showToast(`“${nm}” ${verb}`);
     if (typeof _siPollDocker === 'function') { try { await _siPollDocker(); } catch (_) {} }
   } catch (e) {

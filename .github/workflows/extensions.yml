@@ -73,6 +73,11 @@ jobs:
       - name: Test Profile Avatars
         run: python scripts/test-profile-avatars.py
 
+      - name: Test sysinfo sidecar regressions (op/bulk ownership + update-target parity)
+        run: |
+          python extensions/sysinfo/sidecar/test_op_ownership.py
+          python extensions/sysinfo/sidecar/test_update_target_parity.py
+
       - name: Test auto-list keyboard contracts
         run: node --test scripts/test-auto-list-keyboard.mjs
 

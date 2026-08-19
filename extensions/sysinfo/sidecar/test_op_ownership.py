@@ -10,6 +10,11 @@ import tempfile
 import threading
 import time
 
+# Isolate persisted sidecar state: docker_stats writes `.docker_op_epoch` at import time
+# (via _next_process_epoch()). Point HERMES_SYSINFO_STATE_DIR at a temp dir BEFORE
+# importing it so this regression never mutates the reviewer's real ~/.hermes/webui.
+os.environ.setdefault("HERMES_SYSINFO_STATE_DIR", tempfile.mkdtemp(prefix="sysinfo-op-"))
+
 import docker_stats
 
 
@@ -19,7 +24,7 @@ class _FakeR:
 
 
 def _run_docker_update(*, workdir, config_files, ps_out, inventory,
-                       cid="abc123def456", compose_rc=0, ps_rc=0):
+                       cid="abc123def456", compose_rc=0, ps_rc=0, digests=None):
     """Drive the REAL docker_update() with a faked docker CLI + inventory, so items
     1 & 2 (replica authorization, compose-file reconstruction, --no-deps) are exercised
     end to end. ``ps_rc`` sets the replica-enumeration exit code. Returns
@@ -43,7 +48,8 @@ def _run_docker_update(*, workdir, config_files, ps_out, inventory,
     ds.subprocess.run = fake_run
     ds.docker_present = lambda: True
     ds._inventory_ids = lambda: set(inventory)
-    ds._image_local_digest = lambda img: "sha256:" + ("new" if compose_calls else "old")
+    _old_d, _new_d = digests or ("sha256:old", "sha256:new")
+    ds._image_local_digest = lambda img: (_new_d if compose_calls else _old_d)
     ds._image_version_label = lambda img: "v1"
     ds.updates_forget = lambda name: None
     try:
@@ -90,6 +96,55 @@ def test_docker_update_fails_closed_when_compose_config_unrecoverable():
         workdir=d, config_files="", ps_out="abc123def456\n", inventory={"abc123def456"})
     assert res == {"ok": False, "error": "compose_config_unrecoverable"}, res
     assert calls == []
+
+
+def test_docker_update_unknown_old_digest_is_not_reported_as_latest():
+    # PR #67: when the pre-pull image id is UNKNOWN but the pull succeeds and a valid new
+    # digest exists, we must NOT claim "already on the latest image" — equality was never
+    # established. Report changed=None (unknown) with an honest note.
+    d = tempfile.mkdtemp()
+    cfg = os.path.join(d, "docker-compose.yml")
+    open(cfg, "w").write("services: {}\n")
+    res, calls = _run_docker_update(
+        workdir=d, config_files=cfg, ps_out="abc123def456\n", inventory={"abc123def456"},
+        digests=(None, "sha256:new1234"))            # old unknown, new valid
+    assert res.get("ok") is True, res
+    assert calls, "the pull/up must still run"
+    assert res.get("changed") is None, f"unknown pre-pull digest must be tri-state None, got {res.get('changed')!r}"
+    assert res.get("changed_known") is False, res
+    assert "latest" not in (res.get("note") or "").lower(), res.get("note")
+
+
+def test_docker_update_established_no_change_still_says_latest():
+    # Guard the other side: when both digests are known and EQUAL, "already latest" is
+    # the correct, honest note (changed=False).
+    d = tempfile.mkdtemp()
+    cfg = os.path.join(d, "docker-compose.yml")
+    open(cfg, "w").write("services: {}\n")
+    res, _calls = _run_docker_update(
+        workdir=d, config_files=cfg, ps_out="abc123def456\n", inventory={"abc123def456"},
+        digests=("sha256:same", "sha256:same"))
+    assert res.get("changed") is False and res.get("changed_known") is True, res
+    assert "already" in (res.get("note") or "").lower(), res.get("note")
+
+
+def test_remote_manifest_cache_is_bounded():
+    # PR #67: _remote_cache must not grow without bound as image tags churn across sweeps.
+    # Writing past the cap evicts (TTL-expired first, then oldest), keeping the newest.
+    ds = docker_stats
+    saved_max, saved_cache = ds._REMOTE_CACHE_MAX, dict(ds._remote_cache)
+    ds._REMOTE_CACHE_MAX = 8
+    ds._remote_cache.clear()
+    try:
+        for i in range(50):
+            ds._remote_cache_put(f"img:{i}", 1000.0 + i, "sha256:x", "ok")
+        assert len(ds._remote_cache) <= ds._REMOTE_CACHE_MAX, len(ds._remote_cache)
+        assert "img:49" in ds._remote_cache, "the most-recent entry must survive eviction"
+        assert "img:0" not in ds._remote_cache, "the oldest entry must be evicted"
+    finally:
+        ds._REMOTE_CACHE_MAX = saved_max
+        ds._remote_cache.clear()
+        ds._remote_cache.update(saved_cache)
 
 
 def _wait_until(pred, timeout=5.0):
@@ -378,6 +433,9 @@ if __name__ == "__main__":
     test_docker_update_reconstructs_compose_files_and_uses_no_deps()
     test_docker_update_rejects_hidden_replica()
     test_docker_update_fails_closed_when_compose_config_unrecoverable()
+    test_docker_update_unknown_old_digest_is_not_reported_as_latest()
+    test_docker_update_established_no_change_still_says_latest()
+    test_remote_manifest_cache_is_bounded()
     test_unknown_bulk_id_is_honest()
     test_docker_update_fails_closed_on_replica_enum_error()
     test_docker_update_fails_closed_on_empty_replica_set()
