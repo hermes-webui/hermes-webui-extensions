@@ -2,7 +2,7 @@
 
 The compatibility-certification job runs a real Hermes WebUI Core checkout and
 headless Chromium. It combines an allow-listed merged extension reference, a
-test-only E0/B1 capability probe, and Typography's dedicated browser scenarios;
+test-only E0/B1/Configure capability probe, and Typography's dedicated browser scenarios;
 it is not a claim that every changed extension has browser coverage.
 
 ## Current contract
@@ -58,7 +58,7 @@ Assertions use the extension's own id/data/ARIA surfaces. The Core host
 selector is only a readiness precondition, not the extension pass/fail oracle;
 Core remains the real host that serves the app shell and injected assets.
 
-### E0/B1 capability baseline
+### E0/B1/Configure capability certification
 
 The separate test-only `capability-probe` fixture certifies the public Core
 foundation that merged extensions can build on. It runs in the same isolated,
@@ -72,11 +72,27 @@ no-provider real Core browser environment and proves that:
 - the terminal callback observes the active stream cleared, the pane idle, and
   the settled assistant transcript; and
 - a duplicate terminal dispatch for that session/stream is rejected.
+- a boot-trusted fixture with no `settings_schema` and no
+  `permissions.storage.owned` receives `ext.settings.registerConfigure` as a
+  function; one handler registers, a duplicate fails closed, and its
+  unregister function is idempotent;
+- the effective-enabled fixture renders exactly one **Configure** button under
+  Settings → Extensions → Installed and none under Diagnostics;
+- Configure enters pending before the handler runs, suppresses a second click,
+  settles back to a reusable button, and restores focus exactly once to the
+  opener; and
+- an intentional handler failure emits the exact Core diagnostic
+  `[Hermes extensions] capability-probe Configure handler failed: Error:
+  capability-probe intentional Configure failure`, shows Core's generic
+  `Extension configuration failed.` UI, leaves Settings usable, and produces
+  no unhandled page error.
 
 The fixture replaces `EventSource` only for the controlled lifecycle invocation;
 Core still owns the live-stream handler, state transition, event normalization,
-and duplicate suppression being exercised. It does not contact a provider or
-claim durable/global event delivery.
+and duplicate suppression being exercised. Configure uses the real Settings UI;
+the fixture only controls its deterministic first (thenable) and second
+(intentional failure) handler outcomes. It does not contact a provider or claim
+durable/global event delivery.
 
 ## Local run
 
@@ -111,8 +127,8 @@ page.
 
 The `browser-compatibility` job checks out `nesquena/hermes-webui` independently
 at the pinned, maintainer-verified Core SHA in
-`.github/workflows/extensions.yml` (`3c7fbe3809ff573199faee9d812179fcbeff2028`,
-release `exp-v0.52.201`),
+`.github/workflows/extensions.yml` (`b1c2bea92ee8369797d051a0e0789968bd351343`,
+release `exp-v0.52.241`),
 installs the complete hash-locked Core/browser-smoke and Playwright dependency
 surface from `tests/compatibility/requirements.txt` with
 `pip --require-hashes`, and

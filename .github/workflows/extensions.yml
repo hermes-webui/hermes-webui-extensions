@@ -151,9 +151,10 @@ jobs:
           repository: nesquena/hermes-webui
           # Pin the independently verified Core contract; update this SHA only
           # after a maintainer reruns the smoke against the new Core head.
-          # exp-v0.52.201 — first release carrying both the cooperative E0
-          # identity handle and B1 turn-lifecycle event contract.
-          ref: 3c7fbe3809ff573199faee9d812179fcbeff2028
+          # exp-v0.52.241 — first release carrying the cooperative E0
+          # identity handle, B1 turn-lifecycle event contract, and scoped
+          # Configure hook.
+          ref: b1c2bea92ee8369797d051a0e0789968bd351343
           path: .ci/hermes-webui-core
           fetch-depth: 1
           persist-credentials: false
@@ -181,7 +182,7 @@ jobs:
           mkdir -p "$COMPATIBILITY_EVIDENCE_DIR"
           python tests/compatibility/browser_smoke.py
 
-      - name: Run E0/B1 capability baseline smoke
+      - name: Run E0/B1/Configure capability smoke
         env:
           HERMES_CORE_DIR: .ci/hermes-webui-core
           COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence

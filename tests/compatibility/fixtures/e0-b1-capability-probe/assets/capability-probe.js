@@ -4,7 +4,17 @@
   const EXTENSION_ID = 'capability-probe';
   const SESSION_ID = 'capability-session';
   const STREAM_ID = 'capability-stream';
+  const EXPECTED_CONFIGURE_FAILURE = 'capability-probe intentional Configure failure';
   const events = [];
+  const configureProbe = {
+    api_function: false,
+    registered: false,
+    duplicate_rejected: false,
+    invocations: 0,
+    pending_before_handler: false,
+  };
+  let configureUnregister = null;
+  let configureResolver = null;
 
   const storageKeys = () => Array.from(
     { length: window.localStorage.length },
@@ -18,6 +28,31 @@
   const unknown = register ? register('untrusted-capability-probe') : undefined;
   const afterUnknown = storageKeys();
   const extension = register ? register(EXTENSION_ID) : null;
+  const settingsRuntime = window.HermesExtensionSettings;
+
+  if (extension && extension.settings) {
+    const registerConfigure = extension.settings.registerConfigure;
+    configureProbe.api_function = typeof registerConfigure === 'function';
+    if (configureProbe.api_function) {
+      configureUnregister = registerConfigure(({ opener }) => {
+        configureProbe.invocations += 1;
+        configureProbe.pending_before_handler = Boolean(
+          settingsRuntime
+          && settingsRuntime._configureStateForExtension
+          && settingsRuntime._configureStateForExtension(EXTENSION_ID).pending,
+        );
+        configureProbe.opener_connected = Boolean(opener && opener.isConnected);
+        if (configureProbe.invocations === 1) {
+          return new Promise(resolve => {
+            configureResolver = resolve;
+          });
+        }
+        throw new Error(EXPECTED_CONFIGURE_FAILURE);
+      });
+      configureProbe.registered = typeof configureUnregister === 'function';
+      configureProbe.duplicate_rejected = registerConfigure(() => {}) === null;
+    }
+  }
 
   const probe = {
     ready: false,
@@ -31,8 +66,32 @@
       unknown_storage_unchanged: JSON.stringify(beforeUnknown) === JSON.stringify(afterUnknown),
     },
     events,
+    configure: configureProbe,
   };
   window.HermesCapabilityBaselineProbe = probe;
+
+  probe.resolveConfigure = () => {
+    if (typeof configureResolver !== 'function') return false;
+    const resolve = configureResolver;
+    configureResolver = null;
+    resolve();
+    return true;
+  };
+
+  probe.finishConfigureRegistration = () => {
+    const first = typeof configureUnregister === 'function'
+      ? configureUnregister()
+      : null;
+    const second = typeof configureUnregister === 'function'
+      ? configureUnregister()
+      : null;
+    return {
+      api_function: configureProbe.api_function,
+      registered: configureProbe.registered,
+      duplicate_rejected: configureProbe.duplicate_rejected,
+      unregister_idempotent: first === true && second === false,
+    };
+  };
 
   if (!extension) {
     probe.error = register
