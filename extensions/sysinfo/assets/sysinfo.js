@@ -660,10 +660,26 @@ window.mcDockerMenu = function(btn, ev) {
       document.removeEventListener('keydown', onKey, true);
     };
     const close = (e) => { if (!menu.contains(e.target) && e.target !== btn) teardown(); };
-    // Escape closes the menu and returns focus to the kebab trigger.
+    // Keyboard contract for role="menu": Escape closes (focus back to the trigger);
+    // ArrowDown/ArrowUp move roving focus between enabled items (wrapping); Home/End
+    // jump to the first/last. Completes the menuitem semantics the a11y pass flagged.
     const onKey = (e) => {
-      if (e.key === 'Escape' && !menu.hidden) {
+      if (menu.hidden) return;
+      if (e.key === 'Escape') {
         e.preventDefault(); teardown(); try { btn.focus(); } catch (_) {}
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+        const items = Array.from(menu.querySelectorAll('[role="menuitem"]:not([disabled])'));
+        if (!items.length) return;
+        e.preventDefault();
+        const cur = items.indexOf(document.activeElement);
+        let next;
+        if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = items.length - 1;
+        else if (e.key === 'ArrowDown') next = cur < 0 ? 0 : (cur + 1) % items.length;
+        else next = cur < 0 ? items.length - 1 : (cur - 1 + items.length) % items.length;
+        try { items[next].focus(); } catch (_) {}
       }
     };
     setTimeout(() => {
