@@ -87,6 +87,17 @@ jobs:
       - name: Scan extension safety gates
         run: node scripts/scan-extension-safety.mjs
 
+      - name: Install test dependencies
+        run: npm ci
+
+      - name: Run chat-tiling behavior tests
+        run: node scripts/test-chat-tiling.mjs
+
+      - name: Install Playwright browser for real-Core smoke test
+        run: npx playwright install --with-deps chromium
+
+      - name: Run chat-tiling browser smoke test (current Core page)
+        run: node scripts/smoke-chat-tiling-browser.mjs
       - name: Check sidecar scaffold is in sync
         run: node scripts/sync-sidecar-base.mjs --check
 
