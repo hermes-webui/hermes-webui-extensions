@@ -1,7 +1,7 @@
 import unittest
 
 from browser_smoke import EXPECTED_CORE_BASELINE_REQUESTS
-from typography_smoke import _filtered_unexpected_http
+from typography_smoke import CONFIGURE_SELECTOR, FONT_CANDIDATES, _filtered_unexpected_http
 
 
 class TypographyNetworkFilterTests(unittest.TestCase):
@@ -20,6 +20,18 @@ class TypographyNetworkFilterTests(unittest.TestCase):
             [reload_event, wrong_method],
         )
         self.assertEqual(_filtered_unexpected_http([reload_event], False), [reload_event])
+
+
+class TypographyConfigureSurfaceTests(unittest.TestCase):
+    def test_configure_selector_targets_installed_typography_only(self) -> None:
+        self.assertEqual(
+            CONFIGURE_SELECTOR,
+            '#extensionsInstalled [data-extension-configure-id="typography"]',
+        )
+
+    def test_macos_fallback_candidates_are_distinct_paths(self) -> None:
+        self.assertIn("/System/Library/Fonts/SFNS.ttf", FONT_CANDIDATES)
+        self.assertIn("/System/Library/Fonts/SFNSMono.ttf", FONT_CANDIDATES)
 
 
 if __name__ == "__main__":

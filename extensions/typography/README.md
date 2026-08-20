@@ -1,8 +1,9 @@
 # Typography
 
 Typography lets users choose curated fonts, role-based presets, and browser-local
-font files for the Hermes WebUI interface, conversations, and code. It adds a
-**Typography** button to the WebUI rail.
+font files for the Hermes WebUI interface, conversations, and code. On a Core
+build with the authenticated Configure hook, it adds a **Configure** action under
+Settings → Extensions → Installed.
 
 ## Install for local testing
 
@@ -14,7 +15,8 @@ HERMES_WEBUI_EXTENSION_DIR=/path/to/hermes-webui-extensions/extensions/typograph
 HERMES_WEBUI_EXTENSION_MANIFEST=manifest.json ./start.sh
 ```
 
-Click **Typography** in the rail to open the panel.
+Open Settings → Extensions → Installed and click Typography's **Configure**
+action to open the panel.
 
 ## Behavior
 
@@ -132,7 +134,14 @@ does not need to contact a server.
 
 ## Compatibility and verification
 
-Compatibility requires a manifest bundle and the core font tokens listed above.
+Compatibility requires a manifest bundle, the core font tokens listed above, and
+the authenticated E0 `window.hermesExt.register('typography')` handle with
+`ext.settings.registerConfigure`. Configure is registered only when that hook is
+present; older Core builds fail closed without creating a rail fallback. The
+Core-owned Configure lifecycle keeps the action pending while this editor is
+open, suppresses duplicate clicks, and restores focus to the Configure opener
+after close. The extension's direct `open(opener)` programmatic API remains
+available on older Core builds and retains its own opener-focus restoration.
 The three-font Core contract was introduced by `nesquena/hermes-webui#5918`; older
 Core builds do not support all roles.
 The extension-owned storage API is used when available, with a namespaced
@@ -150,8 +159,10 @@ fallback stack.
 
 Manual checks:
 
-1. Click the Typography rail button and confirm it opens the panel and the
-   first selector receives focus.
+1. In Settings → Extensions → Installed, click **Configure** and confirm it
+   opens the panel, the Configure action stays pending while it is open, and a
+   second click is suppressed. Close the panel and confirm Core restores focus to
+   the Configure opener; the extension itself does not focus that opener.
 2. Choose every preset, then change one role and confirm **Custom** appears;
    restore a triple and confirm its preset is identified again.
 3. Change each role and confirm its preview and root token update. Confirm the
@@ -171,7 +182,7 @@ Automated checks:
 ```bash
 node --check extensions/typography/assets/typography.js
 node -e "JSON.parse(require('fs').readFileSync('extensions/typography/extension.json')); JSON.parse(require('fs').readFileSync('extensions/typography/manifest.json'))"
-node scripts/test-typography-rail-entry.mjs
+node scripts/test-typography-configure.mjs
 node scripts/test-typography.mjs
 node scripts/validate-extensions.mjs
 node scripts/scan-extension-safety.mjs

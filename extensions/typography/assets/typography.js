@@ -5,7 +5,6 @@
   window.__hermesTypographyLoaded = true;
 
   const VERSION = '0.1.0';
-  const RAIL_BUTTON_ID = 'hwx-type-rail-button';
   const PANEL_ID = 'hwx-type-panel';
   const GOOGLE_STYLE_ID = 'hwx-type-google-fonts';
   const DISCLOSURE = 'Google-hosted choices load selected families from Google and expose your browser IP to Google. WebUI default choices use core-provided system font stacks; this extension makes no external font request for them. Local fonts stay in this browser and are never sent to a server.';
@@ -115,6 +114,8 @@
   let selection = { ...DEFAULTS };
   let initialSelection = { ...DEFAULTS };
   let opener = null;
+  let restoreFocusOnClose = true;
+  let configureResolve = null;
   let localFonts = new Map();
   let localFontStoredCount = 0;
   let localFontStoredBytes = 0;
@@ -614,13 +615,19 @@
     }
   }
 
-  function open(openerElement) {
+  function open(openerElement, options = {}) {
+    const restoreFocus = !options || options.restoreFocus !== false;
     const existing = document.getElementById(PANEL_ID);
     if (existing) {
+      if (!restoreFocus) {
+        opener = null;
+        restoreFocusOnClose = false;
+      }
       const first = existing.querySelector('select');
       if (first) first.focus();
       return;
     }
+    restoreFocusOnClose = restoreFocus;
     const passedOpener = openerElement && typeof openerElement.focus === 'function' ? openerElement : null;
     const focusedOpener = document.activeElement;
     const passedRendered = passedOpener && passedOpener.isConnected
@@ -628,7 +635,9 @@
     const focusedRendered = focusedOpener && focusedOpener !== document.body
       && focusedOpener.isConnected && typeof focusedOpener.focus === 'function'
       && typeof focusedOpener.getClientRects === 'function' && focusedOpener.getClientRects().length;
-    opener = !passedRendered && focusedRendered ? focusedOpener : passedOpener || focusedOpener;
+    opener = restoreFocus
+      ? (!passedRendered && focusedRendered ? focusedOpener : passedOpener || focusedOpener)
+      : null;
     if (!document.body) return;
     const panel = buildPanel();
     document.body.appendChild(panel);
@@ -643,9 +652,14 @@
     if (!panel) return;
     panel.remove();
     document.removeEventListener('keydown', onKeydown, true);
-    const restore = opener;
+    const resolveConfigure = configureResolve;
+    configureResolve = null;
+    if (resolveConfigure) resolveConfigure();
+    const shouldRestoreFocus = restoreFocusOnClose;
+    const restore = shouldRestoreFocus ? opener : null;
     opener = null;
-    const target = [restore, document.getElementById('btnHamburger')].find((candidate) => {
+    restoreFocusOnClose = true;
+    const target = shouldRestoreFocus && [restore, document.getElementById('btnHamburger')].find((candidate) => {
       if (!candidate || !candidate.isConnected || typeof candidate.focus !== 'function'
         || candidate.disabled || typeof candidate.getClientRects !== 'function'
         || !candidate.getClientRects().length || typeof candidate.getBoundingClientRect !== 'function') return false;
@@ -656,40 +670,28 @@
     if (target) target.focus();
   }
 
-  function ensureRailButton() {
-    const existing = document.getElementById(RAIL_BUTTON_ID);
-    if (existing) return existing;
-    const rail = document.querySelector('.rail');
-    if (!rail) return null;
-    const button = document.createElement('button');
-    button.id = RAIL_BUTTON_ID;
-    button.type = 'button';
-    button.className = 'rail-btn nav-tab has-tooltip hwx-type-rail-button';
-    button.dataset.tooltip = 'Typography';
-    button.setAttribute('aria-label', 'Typography');
-    button.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16"/><path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/><path d="M9 20h6"/></svg>';
-    button.addEventListener('click', (event) => { event.preventDefault(); open(button); });
-    const spacer = rail.querySelector('.rail-spacer');
-    if (spacer) rail.insertBefore(button, spacer);
-    else rail.appendChild(button);
-    if (typeof MutationObserver === 'function') {
-      new MutationObserver(() => {
-        const currentSpacer = rail.querySelector('.rail-spacer');
-        const children = Array.from(rail.children);
-        const buttonIndex = children.indexOf(button);
-        const spacerIndex = children.indexOf(currentSpacer);
-        if (buttonIndex < 0 || spacerIndex < 0 || spacerIndex <= buttonIndex) return;
-        if (children.slice(buttonIndex + 1, spacerIndex).some((child) =>
-          child.classList.contains('nav-tab') && child.dataset.panel !== undefined
-        )) rail.insertBefore(button, currentSpacer);
-      }).observe(rail, { childList: true });
-    }
-    return button;
-  }
-
-  function installRailButton(attempt = 0) {
-    if (ensureRailButton() || attempt >= 80) return;
-    setTimeout(() => installRailButton(attempt + 1), 150);
+  function registerConfigureHook() {
+    const api = window.hermesExt;
+    if (!api || typeof api.register !== 'function') return;
+    let extension;
+    try { extension = api.register('typography'); } catch (_) { return; }
+    if (!extension || extension.id !== 'typography') return;
+    const settings = extension.settings;
+    if (!settings || typeof settings.registerConfigure !== 'function') return;
+    try {
+      settings.registerConfigure(() => new Promise((resolve) => {
+        let active = true;
+        const finish = () => {
+          if (!active) return;
+          active = false;
+          if (configureResolve === finish) configureResolve = null;
+          resolve();
+        };
+        configureResolve = finish;
+        open(null, { restoreFocus: false });
+        if (!document.getElementById(PANEL_ID)) finish();
+      }));
+    } catch (_) {}
   }
 
   function hasLocalFontSupport() {
@@ -1260,7 +1262,7 @@
     initialSelection = loadSelection();
     selection = normalizeSelection(initialSelection);
     apply();
-    installRailButton();
+    registerConfigureHook();
     initializeLocalFonts();
   }
 

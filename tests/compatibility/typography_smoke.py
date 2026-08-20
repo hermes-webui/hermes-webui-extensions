@@ -54,7 +54,10 @@ FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/liberation2/LiberationSerif-Regular.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "/System/Library/Fonts/SFNS.ttf",
+    "/System/Library/Fonts/SFNSMono.ttf",
 )
+CONFIGURE_SELECTOR = '#extensionsInstalled [data-extension-configure-id="typography"]'
 
 
 def _parse_args() -> argparse.Namespace:
@@ -89,11 +92,11 @@ def _parse_args() -> argparse.Namespace:
 def _find_fonts() -> tuple[Path, Path]:
     found = [Path(candidate) for candidate in FONT_CANDIDATES if Path(candidate).is_file()]
     if not found:
-        raise SetupFailure(f"no installed Liberation/DejaVu font found in {FONT_CANDIDATES!r}")
+        raise SetupFailure(f"no installed test font found in {FONT_CANDIDATES!r}")
     first = found[0]
     second = next((candidate for candidate in found[1:] if candidate.stat().st_size != first.stat().st_size), None)
     if second is None:
-        raise SetupFailure("two installed Liberation/DejaVu fonts with distinct sizes are required")
+        raise SetupFailure("two installed test fonts with distinct sizes are required")
     return first, second
 
 
@@ -200,12 +203,143 @@ def _boot_page(page: Any, base_url: str) -> None:
         arg=list(EXTENSION_RESOURCES),
         timeout=15_000,
     )
-    page.locator("#hwx-type-rail-button").wait_for(state="attached", timeout=15_000)
+    if page.locator("#hwx-type-rail-button").count() != 0:
+        raise CompatibilityFailure("Typography created a legacy rail button")
+
+
+def _open_extensions_installed(page: Any) -> Any:
+    button = page.locator(CONFIGURE_SELECTOR)
+    if button.count() and button.is_visible():
+        return button
+    settings_button = page.locator('button[data-panel="settings"]').first
+    if not settings_button.is_visible():
+        menu = page.locator("#btnHamburger")
+        menu.wait_for(state="visible", timeout=5_000)
+        menu.click()
+        page.locator(".sidebar.mobile-open").wait_for(state="visible", timeout=5_000)
+        settings_button = page.locator('.sidebar.mobile-open button[data-panel="settings"]').first
+    settings_button.click()
+    page.locator("#panelSettings").wait_for(state="visible", timeout=10_000)
+    page.locator('#settingsMenu button[data-settings-section="extensions"]').click()
+    page.locator("#settingsPaneExtensions").wait_for(state="visible", timeout=10_000)
+    page.locator('button[data-extensions-tab="installed"]').click()
+    page.locator("#extensionsInstalled .extension-installed-list").wait_for(
+        state="visible", timeout=10_000
+    )
+    button.wait_for(state="visible", timeout=15_000)
+    return button
 
 
 def _open_panel(page: Any) -> None:
-    page.locator("#hwx-type-rail-button").click()
+    button = _open_extensions_installed(page)
+    if page.locator("#hwx-type-panel").count():
+        return
+    button.click()
     page.locator("#hwx-type-panel").wait_for(state="visible", timeout=5_000)
+
+
+def _wait_configure_pending(page: Any, label: str) -> None:
+    try:
+        page.wait_for_function(
+            """selector => {
+              const button = document.querySelector(selector);
+              const state = window.HermesExtensionSettings
+                && window.HermesExtensionSettings._configureStateForExtension('typography');
+              return button && button.disabled && button.getAttribute('aria-busy') === 'true'
+                && state && state.pending === true;
+            }""",
+            arg=CONFIGURE_SELECTOR,
+            timeout=10_000,
+        )
+    except Exception as exc:
+        raise CompatibilityFailure(f"Configure did not enter pending state before {label}") from exc
+
+
+def _assert_configure_settled(page: Any, label: str) -> None:
+    page.locator("#hwx-type-panel").wait_for(state="detached", timeout=5_000)
+    try:
+        page.wait_for_function(
+            """selector => {
+              const button = document.querySelector(selector);
+              const state = window.HermesExtensionSettings
+                && window.HermesExtensionSettings._configureStateForExtension('typography');
+              return button && !button.disabled && button.getAttribute('aria-busy') === 'false'
+                && state && state.pending === false;
+            }""",
+            arg=CONFIGURE_SELECTOR,
+            timeout=10_000,
+        )
+    except Exception as exc:
+        raise CompatibilityFailure(f"Configure {label} close did not settle Core state") from exc
+
+
+def _exercise_configure_entry(page: Any) -> dict[str, Any]:
+    button = _open_extensions_installed(page)
+    installed_buttons = page.locator(CONFIGURE_SELECTOR).count()
+    page.locator('button[data-extensions-tab="diagnostics"]').click()
+    page.locator("#extensionsDiagnostics .extension-installed-list").wait_for(
+        state="visible", timeout=10_000
+    )
+    diagnostics_buttons = page.locator(
+        '#extensionsDiagnostics [data-extension-configure-id="typography"]'
+    ).count()
+    page.locator('button[data-extensions-tab="installed"]').click()
+    button.wait_for(state="visible", timeout=10_000)
+    button.evaluate(
+        """button => {
+          button.__configureFocusRestoreCount = 0;
+          const nativeFocus = button.focus.bind(button);
+          button.focus = (...args) => {
+            button.__configureFocusRestoreCount += 1;
+            return nativeFocus(...args);
+          };
+        }"""
+    )
+    button.click()
+    page.locator("#hwx-type-panel").wait_for(state="visible", timeout=5_000)
+    _wait_configure_pending(page, "the first Configure click")
+    pending_before_second_click = True
+    page.evaluate(
+        """selector => {
+          const button = document.querySelector(selector);
+          if (button) button.click();
+        }""",
+        CONFIGURE_SELECTOR,
+    )
+    page.wait_for_timeout(50)
+    if page.locator("#hwx-type-panel").count() != 1:
+        raise CompatibilityFailure("second Configure click created a duplicate Typography editor")
+    page.get_by_role("button", name="Close typography").click()
+    _assert_configure_settled(page, "title-button")
+    focus_restores = button.evaluate("button => button.__configureFocusRestoreCount")
+    if focus_restores != 1:
+        raise CompatibilityFailure(
+            f"Core did not restore Configure opener focus exactly once: {focus_restores!r}"
+        )
+    close_settlements = ["title-button"]
+    for close_method in ("escape", "backdrop", "bottom-action"):
+        close_button = _open_extensions_installed(page)
+        close_button.click()
+        page.locator("#hwx-type-panel").wait_for(state="visible", timeout=5_000)
+        _wait_configure_pending(page, close_method)
+        if close_method == "escape":
+            page.keyboard.press("Escape")
+        elif close_method == "backdrop":
+            page.locator("#hwx-type-panel").evaluate(
+                "panel => panel.dispatchEvent(new MouseEvent('click', {bubbles: true}))"
+            )
+        else:
+            page.locator("#hwx-type-panel .hwx-type-close-action").click()
+        _assert_configure_settled(page, close_method)
+        close_settlements.append(close_method)
+    return {
+        "installed_buttons": installed_buttons,
+        "diagnostics_buttons": diagnostics_buttons,
+        "pending_before_second_click": pending_before_second_click,
+        "second_click_suppressed": True,
+        "focus_restores": focus_restores,
+        "close_settlements": close_settlements,
+    }
 
 
 def _wait_for_status(page: Any, expected: str, *, contains: bool = False) -> None:
@@ -323,6 +457,7 @@ def _main_flow(base_url: str, evidence_dir: Path, browser: Any, first_font: Path
         if _network_summary(network_events).get("google_css_requests", 0):
             raise CompatibilityFailure("default choices requested Google CSS")
 
+        configure_result = _exercise_configure_entry(page)
         page.evaluate(
             """
             () => {
@@ -340,16 +475,10 @@ def _main_flow(base_url: str, evidence_dir: Path, browser: Any, first_font: Path
             }
             """
         )
-        rail = page.locator("#hwx-type-rail-button")
-        rail.click()
-        page.locator("#hwx-type-panel").wait_for(state="visible")
-        page.evaluate("() => window.HermesTypographyExtension.open(document.getElementById('hwx-type-rail-button'))")
-        if page.locator("#hwx-type-panel").count() != 1:
-            raise CompatibilityFailure("repeated panel open created a duplicate panel")
+        _open_panel(page)
         page.get_by_role("button", name="Close typography").click()
         page.locator("#hwx-type-panel").wait_for(state="detached")
-        rail.click()
-        page.locator("#hwx-type-panel").wait_for(state="visible")
+        _open_panel(page)
         listener_stats = page.evaluate("() => window.__typographyListenerStats")
         if listener_stats != {"add": 2, "remove": 1}:
             raise CompatibilityFailure(f"panel listener lifecycle duplicated: {listener_stats!r}")
@@ -430,7 +559,6 @@ def _main_flow(base_url: str, evidence_dir: Path, browser: Any, first_font: Path
         _record_screenshot(page, screenshot)
 
         page.reload(wait_until="domcontentloaded", timeout=30_000)
-        page.locator("#hwx-type-rail-button").wait_for(state="visible", timeout=15_000)
         _open_panel(page)
         page.locator("#hwx-type-import:not([disabled])").wait_for(state="visible", timeout=10_000)
         if local_value not in _local_option_values(page) or _selection(page)["interface"] != local_value:
@@ -501,6 +629,8 @@ def _main_flow(base_url: str, evidence_dir: Path, browser: Any, first_font: Path
         return {
             "status": "passed",
             "checks": [
+                "settings-installed-configure/diagnostics-exclusion/pending-second-click/core-focus",
+                "close-settlement/escape-backdrop-bottom-action",
                 "defaults/root-tokens",
                 "hosted-stylesheet/network-block",
                 "import/persistence/reload",
@@ -508,6 +638,7 @@ def _main_flow(base_url: str, evidence_dir: Path, browser: Any, first_font: Path
                 "delete-unavailable/cancel/confirm",
                 "panel-deduplication/listeners",
             ],
+            "configure": configure_result,
             "screenshot": screenshot.name,
         }
     except Exception:
@@ -522,12 +653,7 @@ def _mobile_flow(base_url: str, evidence_dir: Path, browser: Any) -> dict[str, A
     screenshot = evidence_dir / "typography-mobile.png"
     try:
         _boot_page(page, base_url)
-        mirror = page.locator(
-            '.sidebar-nav [data-nav-action-mirror="hwx-type-rail-button"]'
-        )
-        mirror.wait_for(state="attached", timeout=15_000)
-        menu = page.locator("#btnHamburger")
-        menu.wait_for(state="visible", timeout=5_000)
+        button = _open_extensions_installed(page)
         page.evaluate(
             """
             () => {
@@ -546,17 +672,20 @@ def _mobile_flow(base_url: str, evidence_dir: Path, browser: Any) -> dict[str, A
             """
         )
         for attempt in range(2):
-            menu.click()
-            page.locator(".sidebar.mobile-open").wait_for(state="visible", timeout=5_000)
-            mirror.wait_for(state="visible", timeout=5_000)
-            mirror.click()
+            _open_panel(page)
             page.locator("#hwx-type-panel").wait_for(state="visible", timeout=5_000)
             if page.locator("#hwx-type-panel").count() != 1:
-                raise CompatibilityFailure("mobile mirror open created a duplicate panel")
+                raise CompatibilityFailure("mobile Configure open created a duplicate panel")
             if attempt == 0:
                 _record_screenshot(page, screenshot)
             page.get_by_role("button", name="Close typography").click()
             page.locator("#hwx-type-panel").wait_for(state="detached", timeout=5_000)
+            button = _open_extensions_installed(page)
+            page.wait_for_function(
+                "selector => { const button = document.querySelector(selector); return button && !button.disabled; }",
+                arg=CONFIGURE_SELECTOR,
+                timeout=10_000,
+            )
             focus_state = page.evaluate(
                 """
                 () => {
@@ -564,6 +693,7 @@ def _mobile_flow(base_url: str, evidence_dir: Path, browser: Any) -> dict[str, A
                   const rect = target && target.getBoundingClientRect();
                   return {
                     id: target && target.id,
+                    configureId: target && target.dataset && target.dataset.extensionConfigureId,
                     renderable: Boolean(target && target.isConnected && target.getClientRects().length),
                     intersectsViewport: Boolean(
                       rect && rect.left < window.innerWidth && rect.right > 0
@@ -573,12 +703,8 @@ def _mobile_flow(base_url: str, evidence_dir: Path, browser: Any) -> dict[str, A
                 }
                 """
             )
-            if focus_state != {
-                "id": "btnHamburger",
-                "renderable": True,
-                "intersectsViewport": True,
-            }:
-                raise CompatibilityFailure(f"mobile close focus target was not visible hamburger: {focus_state!r}")
+            if focus_state.get("configureId") != "typography" or not focus_state["renderable"] or not focus_state["intersectsViewport"]:
+                raise CompatibilityFailure(f"mobile close focus target was not Configure opener: {focus_state!r}")
         listener_stats = page.evaluate("() => window.__typographyListenerStats")
         if listener_stats != {"add": 2, "remove": 2}:
             raise CompatibilityFailure(f"mobile panel listener lifecycle duplicated: {listener_stats!r}")
@@ -588,7 +714,11 @@ def _mobile_flow(base_url: str, evidence_dir: Path, browser: Any) -> dict[str, A
             page_errors=page_errors,
             network_events=network_events,
         )
-        return {"status": "passed", "screenshot": screenshot.name}
+        return {
+            "status": "passed",
+            "checks": ["settings-installed-configure/mobile-focus", "panel-deduplication/listeners"],
+            "screenshot": screenshot.name,
+        }
     except Exception:
         _record_screenshot(page, screenshot)
         raise
@@ -669,7 +799,6 @@ def _write_failure_flow(base_url: str, browser: Any, first_font: Path, second_fo
 
         page.evaluate("() => { IDBObjectStore.prototype.put = window.__typographyOriginalPut; }")
         page.reload(wait_until="domcontentloaded", timeout=30_000)
-        page.locator("#hwx-type-rail-button").wait_for(state="visible", timeout=15_000)
         _open_panel(page)
         page.locator("#hwx-type-import:not([disabled])").wait_for(state="visible", timeout=10_000)
         page.evaluate(
