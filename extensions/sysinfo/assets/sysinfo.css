@@ -54,7 +54,7 @@
 .mc-docker-startall:hover { background: var(--accent-bg, rgba(46, 158, 122, 0.12)); }
 .mc-docker-restartall { color: var(--text-muted, var(--text)); }
 .mc-docker-restartall:hover { background: var(--surface-subtle, rgba(120, 120, 120, 0.12)); }
-.mc-docker-stopall { color: var(--danger, #d9534f); }
+.mc-docker-stopall { color: var(--error, #d9534f); }
 .mc-docker-stopall:hover { background: rgba(217, 83, 79, 0.12); }
 .mc-docker-startall:disabled,
 .mc-docker-restartall:disabled,
@@ -229,8 +229,10 @@
 @media (prefers-reduced-motion: reduce) {
   /* Kill BOTH animations and transitions — the speed-test bar fills via a width
      transition (not a keyframe animation), so `animation: none` alone leaves it
-     moving. Zero the transition duration too. */
-  .si-sysinfo-card, .si-sysinfo-card * {
+     moving. Include ::before/::after: the row-busy spinner is a pseudo-element and
+     `animation` is non-inherited, so a bare `*` selector wouldn't stop it. */
+  .si-sysinfo-card, .si-sysinfo-card *,
+  .si-sysinfo-card *::before, .si-sysinfo-card *::after {
     animation: none !important;
     transition: none !important;
   }

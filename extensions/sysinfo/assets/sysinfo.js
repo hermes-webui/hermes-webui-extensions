@@ -1068,6 +1068,14 @@ window.mcDockerCheckUpdates = async function(btn) {
       if (typeof showToast === 'function') showToast('Update check is still running — check back shortly', undefined, 'info');
       return;
     }
+    if (data.sweep_error) {
+      // The sweep finished but FAILED (thread-start failure, docker unavailable, or a
+      // worker exception). Do NOT stamp "all up to date" — that would report success
+      // for a check that never ran. Surface the real error and keep any prior badges.
+      if (whenEl) whenEl.textContent = 'check failed';
+      if (typeof showToast === 'function') showToast(`Update check failed: ${data.sweep_error}`, undefined, 'error');
+      return;
+    }
     const n = data.updatable || 0;
     const rl = data.rate_limited || 0;
     const rlNote = rl > 0 ? ` · ${rl} rate-limited by Docker Hub` : '';

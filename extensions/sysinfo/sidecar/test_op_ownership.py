@@ -509,14 +509,21 @@ def test_updates_sweep_reservation_released_on_thread_start_failure():
 
     with ds._updates_sweep_lock:
         ds._updates_sweeping["on"] = False
+        ds._updates_sweep_error["msg"] = ""
     try:
         ds._threading.Thread = _BoomThread
         out = ds.docker_updates(refresh=True)
         assert out.get("sweeping") is False, "a failed sweep-thread start must roll back sweeping"
+        # The failure must be SURFACED (not silently swallowed into {sweeping:false},
+        # which the frontend would read as "all up to date").
+        assert out.get("sweep_error"), f"a failed sweep must report a terminal error, got {out!r}"
         with ds._updates_sweep_lock:
             assert ds._updates_sweeping["on"] is False, "sweep reservation must not stick true"
+            assert ds._updates_sweep_error["msg"], "the terminal error must be recorded"
     finally:
         ds._threading.Thread = orig_thread
+        with ds._updates_sweep_lock:
+            ds._updates_sweep_error["msg"] = ""
 
 
 if __name__ == "__main__":

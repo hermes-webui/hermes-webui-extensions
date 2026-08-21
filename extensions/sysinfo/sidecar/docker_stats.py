@@ -389,6 +389,7 @@ def _image_version_label(image: str) -> str:
 _UPDATES_TTL = float(os.environ.get("MC_DOCKER_UPDATES_TTL", "3600") or 3600)
 _updates_cache: dict[str, Any] = {"ts": 0.0, "data": None}
 _updates_sweeping = {"on": False}          # a background registry sweep is in flight
+_updates_sweep_error = {"msg": ""}         # last sweep's terminal error ("" = none); surfaced to the UI
 _updates_sweep_lock = _threading.Lock()
 
 
@@ -500,16 +501,24 @@ def docker_updates(refresh: bool = False) -> dict[str, Any]:
     with _updates_sweep_lock:
         if refresh and not _updates_sweeping["on"]:
             _updates_sweeping["on"] = True
+            _updates_sweep_error["msg"] = ""   # a fresh sweep clears the prior error
             try:
                 _threading.Thread(target=_updates_sweep, name="docker-updates-sweep",
                                   daemon=True).start()
-            except Exception:
+            except Exception as exc:
                 # Thread start failed — ROLL BACK the reservation so a single failure
                 # doesn't leave every later update check reporting sweeping:true
-                # forever. (Mirrors the op/bulk thread-start guards below.)
+                # forever, AND record a terminal error so the frontend surfaces the
+                # failure instead of stamping a stale "all up to date" (mirrors the
+                # op/bulk thread-start guards below).
                 _updates_sweeping["on"] = False
+                _updates_sweep_error["msg"] = f"could not start update check: {type(exc).__name__}"
         out = dict(base)
         out["sweeping"] = _updates_sweeping["on"]
+        # Surface the last sweep's terminal error (if any) so the UI can show a real
+        # failure rather than treating {sweeping:false} as success.
+        if _updates_sweep_error["msg"]:
+            out["sweep_error"] = _updates_sweep_error["msg"]
     return out
 
 
@@ -518,9 +527,14 @@ def _updates_sweep() -> None:
     shared cache. Single-flight is guarded by ``_updates_sweeping``."""
     import concurrent.futures as _f
     now = _time.monotonic()
+    sweep_error = ""
     try:
         inv = _docker_stats_uncached()
         if not inv.get("available"):
+            # No usable inventory — record a terminal error so the UI reports the
+            # failure instead of stamping a stale "all up to date". Do NOT overwrite
+            # the last good cache with an empty result.
+            sweep_error = "update check unavailable: " + str(inv.get("reason") or "docker unavailable")
             return
         containers = inv.get("containers") or []
         # Previous results, so a transient failure (rate-limit/timeout) on this pass
@@ -551,9 +565,14 @@ def _updates_sweep() -> None:
         _updates_cache["ts"] = now
         _updates_cache["data"] = data
         _updates_save()
+    except Exception as exc:
+        # An unexpected sweep failure must be surfaced, not silently swallowed into a
+        # {sweeping:false} the UI reads as success.
+        sweep_error = f"update check failed: {type(exc).__name__}"
     finally:
         with _updates_sweep_lock:
             _updates_sweeping["on"] = False
+            _updates_sweep_error["msg"] = sweep_error
 
 
 def docker_update(container_id: str) -> dict[str, Any]:
