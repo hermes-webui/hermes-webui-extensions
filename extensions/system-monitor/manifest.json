@@ -1,0 +1,11 @@
+{
+  "extensions": [
+    {
+      "id": "system-monitor",
+      "name": "System Monitor",
+      "description": "Inline titlebar system monitor with curved bars for CPU, RAM, Disk, and Network.",
+      "scripts": ["assets/monitor.js"],
+      "stylesheets": ["assets/monitor.css"]
+    }
+  ]
+}
