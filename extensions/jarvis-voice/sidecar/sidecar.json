@@ -1,0 +1,5 @@
+{
+  "id": "jarvis-voice",
+  "port": 18787,
+  "proxy_auth": "token-v1"
+}

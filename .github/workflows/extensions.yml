@@ -96,6 +96,15 @@ jobs:
       - name: Validate Desktop Companion and loopback example
         run: node scripts/validate-desktop-companion.mjs
 
+      - name: Check Jarvis Voice asset syntax
+        run: node --check extensions/jarvis-voice/assets/jarvis-voice.js
+
+      - name: Test Jarvis Voice runtime behaviour
+        run: node scripts/test-jarvis-voice.mjs
+
+      - name: Test Jarvis Voice sidecar routes
+        run: python extensions/jarvis-voice/sidecar/test_routes.py
+
       - name: Generate registry
         run: node scripts/generate-registry.mjs --out dist/registry.json
 
