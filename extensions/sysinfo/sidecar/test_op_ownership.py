@@ -11,9 +11,10 @@ import threading
 import time
 
 # Isolate persisted sidecar state: docker_stats writes `.docker_op_epoch` at import time
-# (via _next_process_epoch()). Point HERMES_SYSINFO_STATE_DIR at a temp dir BEFORE
+# (via _next_process_epoch()). Point HERMES_SYSINFO_STATE_DIR at a FRESH temp dir BEFORE
 # importing it so this regression never mutates the reviewer's real ~/.hermes/webui.
-os.environ.setdefault("HERMES_SYSINFO_STATE_DIR", tempfile.mkdtemp(prefix="sysinfo-op-"))
+# Assign unconditionally (not setdefault) — a pre-existing value could point at real state.
+os.environ["HERMES_SYSINFO_STATE_DIR"] = tempfile.mkdtemp(prefix="sysinfo-op-")
 
 import docker_stats
 
@@ -460,6 +461,64 @@ def test_op_retention_exceeds_client_recovery_window():
     assert docker_stats.docker_op_status(oid)["result"] == {"ok": True, "n": 1}
 
 
+def test_speedtest_reservation_released_on_thread_start_failure():
+    # Codex finding #1: if the speed-test worker thread fails to start, _start_speedtest
+    # must ROLL BACK its reservation — otherwise _st_running stays True forever and every
+    # later manual/scheduled speed test is silently blocked until a restart.
+    import sysinfo
+    orig_thread = sysinfo.threading.Thread
+
+    class _BoomThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            raise RuntimeError("cant_spawn")
+
+    # Make sure we start from a clean slate.
+    with sysinfo._st_run_lock:
+        sysinfo._st_running = False
+        sysinfo._st_run_thread = None
+    try:
+        sysinfo.threading.Thread = _BoomThread
+        started = sysinfo._start_speedtest()
+        assert started is False, "a failed thread start must not report a started run"
+        assert sysinfo._st_running is False, "reservation must be rolled back on thread-start failure"
+        assert "thread_start_failed" in (sysinfo._st_last_error or ""), sysinfo._st_last_error
+    finally:
+        sysinfo.threading.Thread = orig_thread
+    # A subsequent healthy start still works — the reservation wasn't wedged.
+    ok = sysinfo._start_speedtest()
+    assert ok is True, "a later speed test must still be able to start"
+    assert _wait_until(lambda: not sysinfo._st_running), "the healthy run must finish and clear _st_running"
+
+
+def test_updates_sweep_reservation_released_on_thread_start_failure():
+    # Codex finding #2: if the update-sweep worker thread fails to start, docker_updates
+    # must ROLL BACK _updates_sweeping["on"] — otherwise every later update check reports
+    # sweeping:true forever.
+    ds = docker_stats
+    orig_thread = ds._threading.Thread
+
+    class _BoomThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            raise RuntimeError("cant_spawn")
+
+    with ds._updates_sweep_lock:
+        ds._updates_sweeping["on"] = False
+    try:
+        ds._threading.Thread = _BoomThread
+        out = ds.docker_updates(refresh=True)
+        assert out.get("sweeping") is False, "a failed sweep-thread start must roll back sweeping"
+        with ds._updates_sweep_lock:
+            assert ds._updates_sweeping["on"] is False, "sweep reservation must not stick true"
+    finally:
+        ds._threading.Thread = orig_thread
+
+
 if __name__ == "__main__":
     test_op_poll_returns_own_failure_after_next_op_starts()
     test_unknown_op_id_is_honest()
@@ -480,4 +539,6 @@ if __name__ == "__main__":
     test_process_epoch_advances_across_same_second_restart()
     test_op_reservation_released_on_thread_start_failure()
     test_op_retention_exceeds_client_recovery_window()
+    test_speedtest_reservation_released_on_thread_start_failure()
+    test_updates_sweep_reservation_released_on_thread_start_failure()
     print("ok — sysinfo op + bulk ownership + host-control regression passed")

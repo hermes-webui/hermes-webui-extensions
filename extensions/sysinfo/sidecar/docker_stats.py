@@ -500,8 +500,14 @@ def docker_updates(refresh: bool = False) -> dict[str, Any]:
     with _updates_sweep_lock:
         if refresh and not _updates_sweeping["on"]:
             _updates_sweeping["on"] = True
-            _threading.Thread(target=_updates_sweep, name="docker-updates-sweep",
-                              daemon=True).start()
+            try:
+                _threading.Thread(target=_updates_sweep, name="docker-updates-sweep",
+                                  daemon=True).start()
+            except Exception:
+                # Thread start failed — ROLL BACK the reservation so a single failure
+                # doesn't leave every later update check reporting sweeping:true
+                # forever. (Mirrors the op/bulk thread-start guards below.)
+                _updates_sweeping["on"] = False
         out = dict(base)
         out["sweeping"] = _updates_sweeping["on"]
     return out

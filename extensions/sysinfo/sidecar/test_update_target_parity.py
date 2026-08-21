@@ -26,11 +26,37 @@ ASSETS_JS = Path(__file__).resolve().parents[1] / "assets" / "sysinfo.js"
 
 def test_import_did_not_touch_default_state_dir():
     """The epoch file must land in our temp dir, not the real ~/.hermes/webui."""
-    default = Path(os.path.expanduser("~/.hermes/webui")) / ".docker_op_epoch"
-    # Our temp dir got it (module import advances the epoch)...
+    # Our temp dir got the epoch file (module import advances the epoch)...
     assert (Path(_TMP_STATE) / ".docker_op_epoch").exists()
-    # ...and if a real default happens to exist it was NOT written by this run.
-    assert str(default.parent) != _TMP_STATE
+    # ...and _next_process_epoch honors an explicit state dir WITHOUT ever writing the
+    # platform default. Prove it with a real, controlled oracle: point HOME + the
+    # platform-default env vars at a throwaway sandbox, resolve where the default epoch
+    # file WOULD be, confirm it is absent, run the epoch writer with the state-dir env
+    # set, and assert the default path is STILL absent (only the env dir got written).
+    import os as _os
+    sandbox_home = tempfile.mkdtemp(prefix="sysinfo-fakehome-")
+    default_epoch = Path(sandbox_home) / ".hermes" / "webui" / ".docker_op_epoch"
+    saved = {k: _os.environ.get(k) for k in
+             ("HERMES_SYSINFO_STATE_DIR", "HERMES_WEBUI_STATE_DIR", "HERMES_HOME",
+              "HOME", "LOCALAPPDATA")}
+    explicit = tempfile.mkdtemp(prefix="sysinfo-explicit-")
+    try:
+        _os.environ["HOME"] = sandbox_home
+        _os.environ["LOCALAPPDATA"] = sandbox_home  # win32 default branch, harmless elsewhere
+        _os.environ.pop("HERMES_WEBUI_STATE_DIR", None)
+        _os.environ.pop("HERMES_HOME", None)
+        assert not default_epoch.exists(), "sandbox default epoch must start absent"
+        _os.environ["HERMES_SYSINFO_STATE_DIR"] = explicit
+        docker_stats._next_process_epoch()
+        assert (Path(explicit) / ".docker_op_epoch").exists(), "explicit state dir must get the epoch"
+        assert not default_epoch.exists(), \
+            "the platform default epoch file must NEVER be written when a state dir is set"
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                _os.environ.pop(k, None)
+            else:
+                _os.environ[k] = v
 
 
 def _with_fake_inventory(inv, upd, fn):

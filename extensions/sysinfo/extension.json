@@ -48,6 +48,7 @@
         "/api/extensions/sysinfo/sidecar/api/system/speedtest",
         "/api/extensions/sysinfo/sidecar/api/system/speedtest/auto",
         "/api/extensions/sysinfo/sidecar/api/system/docker/groups",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/updates",
         "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk",
         "/api/extensions/sysinfo/sidecar/api/system/docker/action",
         "/api/extensions/sysinfo/sidecar/api/system/docker/group-action",

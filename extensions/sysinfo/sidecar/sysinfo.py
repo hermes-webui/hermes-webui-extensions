@@ -123,9 +123,19 @@ def _start_speedtest() -> bool:
         _st_running = True
         _st_started_at = time.time()
         _st_last_error = ""
-        _st_run_thread = threading.Thread(target=_st_run_bg,
-                                          name="sysinfo-speedtest-run", daemon=True)
-        _st_run_thread.start()
+        try:
+            _st_run_thread = threading.Thread(target=_st_run_bg,
+                                              name="sysinfo-speedtest-run", daemon=True)
+            _st_run_thread.start()
+        except Exception as exc:
+            # Thread creation/start failed — ROLL BACK the reservation so a single
+            # failure doesn't wedge _st_running True forever, blocking every later
+            # manual/scheduled speed test until a restart. Mirrors the docker op /
+            # bulk thread-start guards in docker_stats.py.
+            _st_running = False
+            _st_run_thread = None
+            _st_last_error = f"thread_start_failed: {type(exc).__name__}"
+            return False
         return True
 
 

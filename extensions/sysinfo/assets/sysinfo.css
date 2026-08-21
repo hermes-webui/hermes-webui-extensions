@@ -50,7 +50,7 @@
   align-items: center;
   justify-content: center;
 }
-.mc-docker-startall { color: var(--accent, #2e9e7a); }
+.mc-docker-startall { color: var(--success, #2e9e7a); }
 .mc-docker-startall:hover { background: var(--accent-bg, rgba(46, 158, 122, 0.12)); }
 .mc-docker-restartall { color: var(--text-muted, var(--text)); }
 .mc-docker-restartall:hover { background: var(--surface-subtle, rgba(120, 120, 120, 0.12)); }
@@ -163,7 +163,12 @@
   cursor: pointer;
   color: var(--text-muted, var(--text));
   font-size: 12px;
-  padding: 2px 4px;
+  padding: 4px;
+  min-width: 24px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 4px;
   opacity: 0.6;
 }
@@ -222,7 +227,13 @@
 @keyframes mcDockerPulseOk  { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 @keyframes mcDockerPulseWarn{ 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 @media (prefers-reduced-motion: reduce) {
-  .si-sysinfo-card, .si-sysinfo-card * { animation: none !important; }
+  /* Kill BOTH animations and transitions — the speed-test bar fills via a width
+     transition (not a keyframe animation), so `animation: none` alone leaves it
+     moving. Zero the transition duration too. */
+  .si-sysinfo-card, .si-sysinfo-card * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 /* state dot — green pulse for running, amber for paused/restarting,
    red for exited/dead/created. Kept compact so the row density doesn't
@@ -324,7 +335,7 @@
 .mc-docker-actions { position: relative; }
 .mc-docker-kebab {
   border: none; background: transparent; color: var(--muted); cursor: pointer;
-  font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 7px; min-height: 30px;
+  font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 7px; min-height: 30px; min-width: 24px;
 }
 .mc-docker-kebab:hover, .mc-docker-kebab[aria-expanded="true"] {
   background: var(--accent-bg, rgba(120,120,120,.14)); color: var(--accent-text, var(--text));
@@ -351,13 +362,13 @@
 }
 .mc-docker-mi:hover:not(:disabled) { background: var(--accent-bg, rgba(120,120,120,.14)); }
 .mc-docker-mi:disabled { opacity: 0.4; cursor: not-allowed; }
-.mc-docker-mi--start { color: #2ec27e; }
-.mc-docker-mi--restart { color: #d4a043; }
-.mc-docker-mi--stop { color: #d94343; }
+.mc-docker-mi--start { color: var(--success, #2ec27e); }
+.mc-docker-mi--restart { color: var(--warning, #d4a043); }
+.mc-docker-mi--stop { color: var(--error, #d94343); }
 .mc-docker-mi--update { color: var(--blue, #3b9ddb); }
 /* image-update affordances */
 .mc-docker-update-pill {
-  appearance: none; font: inherit; min-height: 22px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; white-space: nowrap;
+  appearance: none; font: inherit; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; margin-left: 8px; padding: 1px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; white-space: nowrap;
   /* Default (no updates): a quiet, greyed, non-actionable update icon — NOT a
      bordered pill (an empty one used to leak as a weird circle). */
   background: transparent; border: 1px solid transparent; color: var(--muted, #8b93a7); cursor: default; }
@@ -380,7 +391,7 @@
 .mc-docker-update-when { flex: 0 1 auto; min-width: 0; font-size: 11px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-docker-updbadge { flex: 0 0 auto; display: inline-flex; align-items: center; padding: 0 6px; border-radius: 999px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); }
 /* stack-header roll-up: N image updates available inside this collapsed group */
-.mc-docker-group-upd { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 2px; margin-left: 2px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); border: 0; cursor: pointer; font-family: inherit; line-height: 1.7; }
+.mc-docker-group-upd { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 2px; margin-left: 2px; padding: 1px 7px; min-height: 24px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(59,157,219,.16); color: var(--blue, #3b9ddb); border: 0; cursor: pointer; font-family: inherit; line-height: 1.7; }
 .mc-docker-group-upd:hover { background: rgba(59,157,219,.34); }
 /* Standalone (Ungrouped) roll-up: informational only — not updatable in-app, so it
    reads as muted and non-interactive (no pointer, no hover lift). */

@@ -201,19 +201,29 @@ window.mcRunSpeedtest = async function(){
     // poll the fast GET until it reports {running:false}.
     const kick = await api('/api/system/speedtest', { method: 'POST', timeoutMs: 12000 });
     if (kick && kick.error) { if (when) when.textContent = 'failed: ' + kick.error; return; }
-    const deadline = Date.now() + 90000;
-    while (Date.now() < deadline) {
+    // Poll the fast GET while the SERVER reports the run as {running:true}. The
+    // backend allows the speedtest subprocess up to 120s (sysinfo.py), so a fixed
+    // client deadline shorter than that could report a false "timed out" while the
+    // run is still live. Instead bound ONLY *consecutive* transport failures (a
+    // valid status resets the budget), matching the docker op poller.
+    let fails = 0;
+    const MAX_FAILS = 40;                 // ~2 min of consecutive transport failures
+    for (;;) {
       await new Promise(function(r){ setTimeout(r, 3000); });
       let s;
       try { s = await api('/api/system/speedtest', { timeoutMs: 12000 }); }
-      catch(_) { continue; }              // transient proxy hiccup — keep polling
-      if (s && s.running) continue;       // still going
-      if (s && s.error) { if (when) when.textContent = 'failed: ' + s.error; return; }
-      if (s && (s.download_mbps || s.upload_mbps)) { _renderSpeedtest(s); return; }
+      catch(_) { s = null; }              // transient proxy hiccup — counts below
+      if (!s) {
+        if (++fails > MAX_FAILS) { if (when) when.textContent = 'timed out'; return; }
+        continue;
+      }
+      fails = 0;                          // a valid status resets the failure budget
+      if (s.running) continue;            // still going → keep polling (no fixed ceiling)
+      if (s.error) { if (when) when.textContent = 'failed: ' + s.error; return; }
+      if (s.download_mbps || s.upload_mbps) { _renderSpeedtest(s); return; }
       if (when) when.textContent = 'no result';
       return;
     }
-    if (when) when.textContent = 'timed out';
   } catch(e) { if (when) when.textContent = 'failed: ' + ((e && e.message) || 'error'); }
   finally { if (btn) { btn.disabled = false; btn.classList.remove('mc-speedtest-running'); } }
 };
@@ -245,7 +255,7 @@ window.mcSpeedtestAutoConfig = function(){
   const ov = document.createElement('div');
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999';
   ov.innerHTML = `
-    <div role="dialog" aria-label="Automatic speed test" style="background:var(--surface, #151823);border:1px solid var(--border, #2a2f3a);border-radius:12px;padding:18px 20px;min-width:320px;color:var(--text, #e6e8ee);font-size:14px">
+    <div role="dialog" aria-modal="true" aria-label="Automatic speed test" style="background:var(--surface, #151823);border:1px solid var(--border, #2a2f3a);border-radius:12px;padding:18px 20px;min-width:320px;color:var(--text, #e6e8ee);font-size:14px">
       <div style="font-weight:600;margin-bottom:12px">⚡ Automatic speed test</div>
       <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="stauto" value="off" ${mode==='off'?'checked':''}> Off</label>
       <label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="radio" name="stauto" value="interval" ${mode==='interval'?'checked':''}> Every <input id="stAutoHrs" type="number" min="1" max="168" step="1" value="${hrs||6}" style="width:64px;${inputCss}"> hours</label>
