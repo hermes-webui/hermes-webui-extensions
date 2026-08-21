@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/proofshot-dev/proofshot/main/schema/proofshot.config.schema.json",
+  "project": "hermes-webui-extensions",
+  "devServer": {
+    "url": "http://127.0.0.1:8788",
+    "port": 8788,
+    "note": "Dev instance only. Production runs on 8787 — never record against it."
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900,
+    "deviceScaleFactor": 1
+  },
+  "artifacts": {
+    "dir": "proofshot-artifacts",
+    "video": true,
+    "screenshots": true,
+    "errorReports": true
+  },
+  "recording": {
+    "trimDeadTime": true,
+    "maxDurationSeconds": 300
+  }
+}
