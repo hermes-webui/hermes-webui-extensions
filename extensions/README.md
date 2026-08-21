@@ -55,3 +55,6 @@ need it and maintainers agree on the shared contract.
   continuation chord (an Enter combo your send key doesn't use) continues
   `1.` / `-` / `*` / `+` items (and exits on an empty one) and Tab indents by two
   spaces; your configured send chord is never intercepted.
+- `sysinfo`: Insights add-ons under System health — an on-demand/scheduled
+  internet speed test and a full Docker card (live container stats, compose
+  grouping, start/stop/restart, one-click image updates) via a loopback sidecar.
