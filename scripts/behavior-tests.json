@@ -3,6 +3,7 @@
   "tests": [
     {"path": "scripts/test-auto-list-keyboard.mjs", "runner": "node-test"},
     {"path": "scripts/test-behavior-test-runner.mjs", "runner": "node"},
+    {"path": "scripts/test-chat-tiling.mjs", "runner": "node"},
     {"path": "scripts/test-extension-validator.mjs", "runner": "node"},
     {"path": "scripts/test-message-pins-sync.mjs", "runner": "node"},
     {"path": "scripts/test-mobile-haptics.mjs", "runner": "node"},
