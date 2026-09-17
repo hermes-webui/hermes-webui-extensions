@@ -284,9 +284,31 @@ def _test_focused_tile_click_pass_through(
             f"{case_name}: could not get the focused tile body bounding box"
         )
 
-    click_x = bbox["x"] + bbox["width"] / 2
-    click_y = bbox["y"] + bbox["height"] / 2
-    page.mouse.click(click_x, click_y)
+    # Click a point that lies inside BOTH the focused tile body and the live
+    # #msgInner beneath it. Using the tile's own centre assumes a geometry we do
+    # not control (Core's transcript may begin below the overlay's top edge).
+    target = page.evaluate(
+        """() => {
+             const body = document.querySelector('.ext-tile--focused .ext-tile-body');
+             const mi = document.getElementById('msgInner');
+             if (!body || !mi) return null;
+             const a = body.getBoundingClientRect();
+             const b = mi.getBoundingClientRect();
+             const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+             const x2 = Math.min(a.right, b.right), y2 = Math.min(a.bottom, b.bottom);
+             const rect = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) });
+             if (x2 <= x1 || y2 <= y1) return { overlap: false, body: rect(a), inner: rect(b) };
+             return { overlap: true, x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
+           }"""
+    )
+    if not target or not target.get("overlap"):
+        _record_screenshot(page, evidence_dir / f"{case_name}.png")
+        raise CompatibilityFailure(
+            f"{case_name}: the focused tile body does not overlap the live #msgInner "
+            f"region, so click pass-through cannot be observed: {target}"
+        )
+
+    page.mouse.click(target["x"], target["y"])
 
     # Give the event time to propagate (500ms for CI stability).
     page.wait_for_timeout(500)
