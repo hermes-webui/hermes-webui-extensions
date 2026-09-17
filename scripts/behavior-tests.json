@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "tests": [
+    {"path": "scripts/test-auto-list-keyboard.mjs", "runner": "node-test"},
+    {"path": "scripts/test-behavior-test-runner.mjs", "runner": "node"},
+    {"path": "scripts/test-extension-validator.mjs", "runner": "node"},
+    {"path": "scripts/test-message-pins-sync.mjs", "runner": "node"},
+    {"path": "scripts/test-mobile-haptics.mjs", "runner": "node"},
+    {"path": "scripts/test-profile-avatars.py", "runner": "python"},
+    {"path": "scripts/test-sidecar-contract.mjs", "runner": "node"},
+    {"path": "scripts/test-sidecar-scaffold.py", "runner": "python"},
+    {"path": "scripts/test-theme-creator-configure.mjs", "runner": "node"},
+    {"path": "scripts/test-typography-configure.mjs", "runner": "node"},
+    {"path": "scripts/test-typography.mjs", "runner": "node"}
+  ]
+}

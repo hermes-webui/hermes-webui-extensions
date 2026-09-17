@@ -19,6 +19,9 @@ before adding a large implementation.
 - Document the WebUI version or extension API surface the entry was tested
   against.
 - Prefer docs and examples when the WebUI extension contract is still changing.
+- Register every new top-level behavior test in `scripts/behavior-tests.json`
+  with its `path` and `runner` (`node`, `node-test`, or `python`), then run the
+  shared behavior-test runner locally.
 
 ## Pull Request Checklist
 
@@ -31,6 +34,8 @@ Before opening a PR, confirm:
 - [ ] Install, disable, and uninstall behavior is documented.
 - [ ] Any sidecar or native integration is documented clearly.
 - [ ] Compatibility and verification notes are included.
+- [ ] `node scripts/run-behavior-tests.mjs --check` and
+      `node scripts/run-behavior-tests.mjs` pass locally.
 - [ ] No secrets, generated local state, or unreviewed binaries are included.
 
 ## Review Expectations
@@ -38,3 +43,8 @@ Before opening a PR, confirm:
 Maintainers may ask for an extension to start as documentation or an example
 until the WebUI-side API is ready. This is expected while the foundation work
 lands in stages.
+
+The behavior-test inventory is intentionally limited to top-level
+`scripts/test-*.mjs` and `scripts/test-*.py` files. It is an execution gate,
+not a malicious-code sandbox or a substitute for reviewing test assertions;
+inventory, runner, and workflow changes receive maintainer review.

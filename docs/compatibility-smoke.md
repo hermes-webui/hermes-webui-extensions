@@ -160,6 +160,19 @@ extension regression. Evidence includes JSON results, server logs,
 network-block records, and screenshots when the browser reaches the relevant
 page.
 
+## Behavior-test inventory boundary
+
+This inventory covers only the explicitly registered, top-level
+`scripts/test-*.mjs` and `scripts/test-*.py` files in
+`scripts/behavior-tests.json`; the sysinfo sidecar checks and browser
+compatibility steps remain independent workflow steps. The
+`scripts/run-behavior-tests.mjs` runner validates the whole inventory before
+dispatching suites, and uses the same Node/Python runner locally and in CI. It
+catches unknown, missing, duplicate, unsafe, and runner-mismatched entries,
+but it does not assess assertion quality, browse the whole repository, or
+provide a malicious-code sandbox. New suites must be registered; inventory,
+runner, and workflow changes require maintainer review.
+
 ## CI boundary
 
 The `browser-compatibility` job checks out `nesquena/hermes-webui` independently

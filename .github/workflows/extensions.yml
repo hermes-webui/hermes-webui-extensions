@@ -61,39 +61,13 @@ jobs:
       - name: Validate extension entries
         run: node scripts/validate-extensions.mjs
 
-      - name: Test extension validator
-        run: node scripts/test-extension-validator.mjs
-
-      - name: Test Typography
-        run: |
-          node scripts/test-typography-configure.mjs
-          node scripts/test-typography.mjs
-
-      - name: Test Theme Creator Configure contract
-        run: node scripts/test-theme-creator-configure.mjs
-
-      - name: Test Message Pins observer sync
-        run: node scripts/test-message-pins-sync.mjs
-
-      - name: Test Mobile Haptics E0/B1 lifecycle
-        run: node scripts/test-mobile-haptics.mjs
-
-      - name: Test sidecar contract enforcement
-        run: node scripts/test-sidecar-contract.mjs
-
-      - name: Test canonical sidecar scaffold
-        run: python scripts/test-sidecar-scaffold.py
-
-      - name: Test Profile Avatars
-        run: python scripts/test-profile-avatars.py
+      - name: Run registered behavior test suites
+        run: node scripts/run-behavior-tests.mjs
 
       - name: Test sysinfo sidecar regressions (op/bulk ownership + update-target parity)
         run: |
           python extensions/sysinfo/sidecar/test_op_ownership.py
           python extensions/sysinfo/sidecar/test_update_target_parity.py
-
-      - name: Test auto-list keyboard contracts
-        run: node --test scripts/test-auto-list-keyboard.mjs
 
       - name: Scan extension safety gates
         run: node scripts/scan-extension-safety.mjs

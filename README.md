@@ -97,16 +97,23 @@ Run the current repo-wide checks locally with:
 
 ```bash
 node scripts/validate-extensions.mjs
-node scripts/test-extension-validator.mjs
-node scripts/test-message-pins-sync.mjs
-node scripts/test-sidecar-contract.mjs
-python3 scripts/test-sidecar-scaffold.py
+node scripts/run-behavior-tests.mjs --check
+node scripts/run-behavior-tests.mjs
 node scripts/scan-extension-safety.mjs
 node scripts/sync-sidecar-base.mjs --check
 node scripts/check-sidecar-usage.mjs
 node scripts/validate-desktop-companion.mjs
 node scripts/generate-registry.mjs --out dist/registry.json
 ```
+
+Behavior suites are the explicitly registered, top-level
+`scripts/test-*.mjs` and `scripts/test-*.py` files in
+[`scripts/behavior-tests.json`](scripts/behavior-tests.json). The runner
+validates the complete inventory before executing anything, dispatches each
+entry with the same Node or Python runner locally and in CI, and fails on
+unknown, missing, duplicate, unsafe, or mismatched entries. This inventory
+does not judge assertion quality or replace the browser compatibility smoke;
+changes to the inventory, runner, or workflow still require maintainer review.
 
 Pull requests run the same validation, contract, and safety checks in CI. Pushes to `main`
 generate the registry and per-extension zip artifacts for GitHub Pages. The
