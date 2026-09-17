@@ -19,10 +19,20 @@ function assert(cond, msg) {
 function section(name) { console.log('\n' + name); }
 
 function createFreshDom() {
+  // Mirrors live Core's real contracts (nesquena/hermes-webui):
+  //   - <main class="main"> with NO `chat` class. Core marks the active view
+  //     with `showing-<panel>`; chat is the ABSENCE of any such class.
+  //   - #mainChat > .messages-shell (position:relative, NON-scrolling) > #messages (scroll owner)
+  //   - `const S` is a top-level lexical global in ui.js, NOT window.S
+  //   - cancelSessionStream(session) reads snake_case active_stream_id/session_id
   const dom = new JSDOM(`<!DOCTYPE html><html><head></head><body>
     <header class="app-titlebar"></header>
-    <main class="main chat">
-      <div id="messages"><div id="msgInner"></div></div>
+    <main class="main">
+      <div id="mainChat" class="main-view">
+        <div class="messages-shell">
+          <div class="messages" id="messages"><div id="msgInner"></div></div>
+        </div>
+      </div>
       <div class="session-list">
         <div class="session-item" data-sid="existing-1"><span class="session-item-title">Existing 1</span></div>
       </div>
@@ -33,17 +43,46 @@ function createFreshDom() {
 
   const { window } = dom;
   const { document } = window;
-  window.S = { session: null, messages: [], busy: false, activeStreamId: null };
-  window.HermesExtensionSettings = { settingsForExtension: () => ({ get: (k) => k === 'auto_tile' ? true : undefined }) };
-  window.cancelSessionStream = () => Promise.resolve(true);
+
+  // Core's single live state object, held as a lexical global exactly like
+  // Core's `const S`. Deliberately NOT window.S: code that reads window.S must
+  // fail here the same way it fails in the browser.
+  const liveS = { session: null, messages: [], busy: false, activeStreamId: null };
+  window.__settings = { auto_tile: true, show_sidebar_badges: true, preload_timeout_ms: 5000 };
+
+  // Core's cancelSessionStream(session) returns false unless both snake_case
+  // fields are present (boot.js). Reimplemented faithfully so a camelCase
+  // caller cannot silently pass.
+  window.cancelStreamCalls = [];
+  window.__cancelAllowed = true;
+  window.cancelSessionStream = (session) => {
+    window.cancelStreamCalls.push(session);
+    const streamId = session && session.active_stream_id;
+    const sid = session && session.session_id;
+    if (!streamId || !sid) return Promise.resolve(false);
+    return Promise.resolve(window.__cancelAllowed);
+  };
+
   window.registerHermesSessionOpenHandler = (fn) => { window.handlerRegistration = fn; };
   window.renderMessages = () => {};
+  window.__loadSessionCalls = [];
+  // Core owns the composer and rebinds it to the incoming session's draft on
+  // every load (server-restored drafts live in __drafts).
+  window.__drafts = {};
   window.loadSession = (sid) => {
+    window.__loadSessionCalls.push(sid);
     // Simulate Core loading a session: update S.session and S.messages
-    window.S.session = { session_id: sid, title: `Session ${sid}`, messages: window.S.messages };
+    liveS.session = { session_id: sid, title: `Session ${sid}`, messages: liveS.messages };
+    const composer = document.getElementById('msg');
+    if (composer) composer.value = window.__drafts[sid] || '';
     return Promise.resolve();
   };
   window.renderTranscript = (target, msgs) => { if (target && msgs) { target.textContent = ''; msgs.forEach(m => { const d = document.createElement('div'); d.textContent = m; target.appendChild(d); }); } };
+  window.HermesExtensionSettings = {
+    settingsForExtension: () => ({
+      get: (k) => Object.prototype.hasOwnProperty.call(window.__settings, k) ? window.__settings[k] : undefined
+    })
+  };
   window.CSS = { escape: s => s };
   window.autoResize = () => {};
   window.syncTopbar = () => {};
@@ -51,19 +90,35 @@ function createFreshDom() {
   window.showToast = () => {};
   window.clearInflightState = () => {};
   window.INFLIGHT = {};
-  globalThis.window = window; globalThis.document = document; globalThis.S = window.S;
+  globalThis.window = window; globalThis.document = document;
+  globalThis.S = liveS;
   globalThis.cancelSessionStream = window.cancelSessionStream;
   globalThis.MutationObserver = window.MutationObserver;
 
   const code = readFileSync('extensions/chat-tiling/assets/tiling.js', 'utf8');
   eval(code);
   document.dispatchEvent(new window.Event('DOMContentLoaded'));
-  return { window, document };
+  // `S` is a lexical global in Core; expose the same object for assertions.
+  return { window, document, get S() { return liveS; } };
 }
 
 function setSession(h, sid, title, msgs) {
-  h.window.S.session = { session_id: sid, title, messages: msgs };
-  h.window.S.messages = msgs;
+  const S = h.S;
+  S.session = { session_id: sid, title, messages: msgs };
+  S.messages = msgs;
+}
+
+// Bind a tile to a session the way the real feature does: through the
+// preload/loaded session-open hook, not by poking state.
+async function bindTileViaHook(h, sid, msgs) {
+  h.window.handlerRegistration(sid, null, { preload: true });
+  setSession(h, sid, `Session ${sid}`, msgs || [sid]);
+  // Core rebinds the composer to the incoming session's draft before the
+  // `loaded` hook fires.
+  const composer = h.document.getElementById('msg');
+  if (composer) composer.value = h.window.__drafts[sid] || '';
+  h.window.handlerRegistration(sid, h.S.session, { loaded: true });
+  await settle();
 }
 
 async function main() {
@@ -86,15 +141,15 @@ async function main() {
     await settle();
     h.document.getElementById('msg').value = 'draft-a';
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    // Focus tile B (empty) — no loadSession call expected
-    h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
-    await settle();
+    // Bind tile B to a session the way a sidebar click does. Unbound tiles are
+    // not focusable, so B must be bound before it can take the composer.
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
     h.document.getElementById('msg').value = 'draft-b';
     // Focus tile A — should call loadSession('sid-A')
     h.window.focusTileExt(parseInt(tiles[0].dataset.tileId));
     await settle();
     assert(h.document.getElementById('msg').value === 'draft-a', 'A restores its own draft (no bleed from B)');
-    assert(h.window.S.session.session_id === 'sid-A', 'Core session swapped to A');
+    assert(h.S.session.session_id === 'sid-A', 'Core session swapped to A');
     h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
     await settle();
     assert(h.document.getElementById('msg').value === 'draft-b', 'B restores its own draft');
@@ -108,12 +163,13 @@ async function main() {
     h.window.showGridExt(2, 1);
     await settle();
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
     h.window.focusTileExt(parseInt(tiles[0].dataset.tileId));
     await settle();
     h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
     await settle();
     assert(h.window.chatTilingState.activeId === parseInt(tiles[1].dataset.tileId), 'B is active');
-    // B is empty so S.session stays as-is (no loadSession call for empty tile)
+    assert(h.S.session.session_id === 'sid-B', 'Core session is B after rapid A→B');
     const msgInner = h.document.getElementById('msgInner');
     assert(msgInner.parentNode.id === 'messages', '#msgInner stays in #messages');
   }
@@ -125,13 +181,12 @@ async function main() {
     setSession(h, 'sid-original', 'Original Session', ['orig-msg']);
     h.window.showGridExt(2, 1);
     await settle();
-    // Focus tile B (empty) — no session change
+    // Bind tile B, then hide — Core keeps the focused tile's session live
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
-    await settle();
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
     h.window.hideGridExt();
     await settle();
-    // Focused tile is empty, so session should remain (or be cleared to null)
+    assert(h.S.session.session_id === 'sid-B', 'Core keeps the focused tile session after hide');
     assert(h.document.getElementById('msgInner').parentNode.id === 'messages', 'msgInner back in #messages');
   }
 
@@ -148,30 +203,42 @@ async function main() {
     h.window.chatTilingState.tiles[0].activeStreamId = 'stream-A';
     h.window.focusTileExt(parseInt(tileA.dataset.tileId));
     await settle();
-    h.window.cancelSessionStream = () => Promise.resolve(false);
-    globalThis.cancelSessionStream = h.window.cancelSessionStream;
+    // Cancellation is refused — the tile must be preserved.
+    h.window.__cancelAllowed = false;
     await h.window.closeTileExt(parseInt(tileA.dataset.tileId));
     await settle();
     const remaining = Array.from(h.document.querySelectorAll('.ext-tile'));
     assert(remaining.length === 2, 'tile A preserved when cancel refused');
   }
 
-  // S6: Timed-out preload releases its slot
-  section('S6: Timed-out preload releases its slot');
+  // S6: preload reservation is retained until preload_timeout_ms, then released
+  section('S6: preload reservation is retained until preload_timeout_ms, then released');
   {
     const h = createFreshDom();
+    h.window.__settings.preload_timeout_ms = 80;
     setSession(h, 'sid-A', 'Session A', ['a']);
     h.window.showGridExt(2, 1);
     await settle();
+    const st = h.window.chatTilingState;
+
+    // B reserves the only free slot.
     h.window.handlerRegistration('sid-B', null, { preload: true });
-    await settle();
+    const bTile = st.tiles.find(t => t._pendingSid === 'sid-B');
+    assert(bTile !== undefined, 'B reserved the free slot');
+
+    // C arrives immediately. B's reservation is still inside its deadline, so C
+    // must NOT steal it — it takes over the focused tile instead.
     h.window.handlerRegistration('sid-C', null, { preload: true });
-    setSession(h, 'sid-C', 'Session C', ['c']);
-    h.window.handlerRegistration('sid-C', h.window.S.session, { loaded: true });
-    await settle();
-    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    const tileC = tiles.find(t => t.querySelector('.ext-tile-title').textContent === 'Session C');
-    assert(tileC !== undefined, 'C landed on a tile');
+    assert(st.tiles.find(t => t.id === bTile.id)._pendingSid === 'sid-B',
+      'B reservation retained before the deadline');
+
+    // Past the deadline the stale reservation is released and the slot is reusable.
+    await sleep(140);
+    h.window.handlerRegistration('sid-D', null, { preload: true });
+    const dTile = st.tiles.find(t => t._pendingSid === 'sid-D');
+    assert(dTile !== undefined && dTile.id === bTile.id, 'released slot is reusable after the deadline');
+    assert(st.tiles.filter(t => t._pendingSid === 'sid-B').length === 0,
+      'B reservation released after the deadline');
   }
 
   // S7: Hide restores the pre-grid session with its draft
@@ -236,8 +303,7 @@ async function main() {
     const composer = h.document.getElementById('msg');
     composer.value = 'draft-a';
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
-    await settle();
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
     assert(composer.value === '', 'B has empty composer (no leak from A)');
     composer.value = 'draft-b';
     h.window.focusTileExt(parseInt(tiles[0].dataset.tileId));
@@ -256,19 +322,27 @@ async function main() {
     const tileA = tiles[0], tileB = tiles[1];
     h.window.chatTilingState.tiles[0].busy = true;
     h.window.chatTilingState.tiles[0].activeStreamId = 'stream-A';
+    // Bind B so the post-close focus target is observable: with the guard in
+    // place B ends up active; a superseded second close would bump _opGen and
+    // strip that focus commit.
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
     h.window.focusTileExt(parseInt(tileA.dataset.tileId));
     await settle();
     let cancelCallCount = 0;
-    h.window.cancelSessionStream = () => { cancelCallCount++; return new Promise(r => setTimeout(() => r(true), 10)); };
+    h.window.cancelSessionStream = (session) => { cancelCallCount++; h.window.cancelStreamCalls.push(session); return new Promise(r => setTimeout(() => r(true), 40)); };
     globalThis.cancelSessionStream = h.window.cancelSessionStream;
     const p1 = h.window.closeTileExt(parseInt(tileA.dataset.tileId));
     const p2 = h.window.closeTileExt(parseInt(tileA.dataset.tileId));
+    await sleep(10);
+    assert(cancelCallCount === 1, `single-flight guard: expected 1 cancel call, got ${cancelCallCount}`);
+    assert(h.window.cancelStreamCalls[0] && h.window.cancelStreamCalls[0].active_stream_id === 'stream-A' && h.window.cancelStreamCalls[0].session_id === 'sid-A',
+      'cancelSessionStream called with Core snake_case keys');
     await Promise.all([p1, p2]);
     await settle();
     const remaining = Array.from(h.document.querySelectorAll('.ext-tile'));
     assert(remaining.length === 1, 'only 1 tile remains');
     assert(parseInt(remaining[0].dataset.tileId) === parseInt(tileB.dataset.tileId), 'sibling B preserved');
-    assert(cancelCallCount === 1, `single-flight guard: expected 1 cancel call, got ${cancelCallCount}`);
+    assert(h.window.chatTilingState.activeId === parseInt(tileB.dataset.tileId), 'focus settled on surviving bound tile B');
   }
 
   // S12: Toolbar exists and anchors into current Core .app-titlebar
@@ -308,12 +382,12 @@ async function main() {
     h.window.focusTileExt(parseInt(tileB.dataset.tileId));
     await settle();
     assert(loadSessionCalls.includes('sid-B'), 'focus B calls loadSession(sid-B)');
-    assert(h.window.S.session.session_id === 'sid-B', 'Core session is B after focus');
+    assert(h.S.session.session_id === 'sid-B', 'Core session is B after focus');
     // Focus A — should call loadSession('sid-A')
     h.window.focusTileExt(parseInt(tileA.dataset.tileId));
     await settle();
     assert(loadSessionCalls.includes('sid-A'), 'focus A calls loadSession(sid-A)');
-    assert(h.window.S.session.session_id === 'sid-A', 'Core session is A after refocus');
+    assert(h.S.session.session_id === 'sid-A', 'Core session is A after refocus');
     // #msgInner stays in #messages
     const msgInner = h.document.getElementById('msgInner');
     assert(msgInner.parentNode.id === 'messages', '#msgInner stays in #messages throughout');
@@ -332,31 +406,36 @@ async function main() {
     h.window.chatTilingState.tiles[1].session = { session_id: 'sid-B', title: 'Session B' };
     h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
     await settle();
-    assert(h.window.S.session.session_id === 'sid-B', 'Core session is B');
+    assert(h.S.session.session_id === 'sid-B', 'Core session is B');
     h.window.hideGridExt();
     await settle();
-    assert(h.window.S.session.session_id === 'sid-B', 'B session restored on hide');
+    assert(h.S.session.session_id === 'sid-B', 'B session restored on hide');
   }
 
-  // S15: Late loaded(B) after slot reuse by C is ignored
-  section('S15: Late loaded(B) after slot reuse by C is ignored');
+  // S15: preload vetoes navigation when no tile can take the session
+  section('S15: preload vetoes navigation when no tile can take the session');
   {
     const h = createFreshDom();
+    h.window.__settings.auto_tile = false;
     setSession(h, 'sid-A', 'Session A', ['a']);
     h.window.showGridExt(2, 1);
     await settle();
-    h.window.handlerRegistration('sid-B', null, { preload: true });
-    h.window.handlerRegistration('sid-C', null, { preload: true });
-    setSession(h, 'sid-C', 'Session C', ['c']);
-    h.window.handlerRegistration('sid-C', h.window.S.session, { loaded: true });
-    await settle();
-    h.window.handlerRegistration('sid-B', { session_id: 'sid-B', title: 'Session B', messages: ['b'] }, { loaded: true });
-    await settle();
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    const tileC = tiles.find(t => t.querySelector('.ext-tile-title').textContent === 'Session C');
-    assert(tileC !== undefined, 'C owns the slot');
-    const tileB = tiles.find(t => t.querySelector('.ext-tile-title').textContent === 'Session B');
-    assert(tileB === undefined, 'B did not steal C slot');
+    const st = h.window.chatTilingState;
+
+    // Close the only bound tile. No tile owns Core's session and auto-tiling is
+    // off, so there is nothing to rebind — Core must be vetoed instead of
+    // navigating with no tile bound to the session it loaded.
+    h.window.closeTileExt(parseInt(tiles[0].dataset.tileId));
+    await settle();
+    assert(st.activeId === null, 'no active tile after closing the only bound tile');
+    const vetoed = h.window.handlerRegistration('sid-B', null, { preload: true });
+    assert(vetoed && vetoed.cancel === true, 'preload vetoes navigation with no available destination');
+
+    // With auto-tiling on, a destination is always reserved — navigation proceeds.
+    h.window.__settings.auto_tile = true;
+    const allowed = h.window.handlerRegistration('sid-B', null, { preload: true });
+    assert(!(allowed && allowed.cancel === true), 'with auto-tile on a destination is always available');
   }
 
   // S16: Fallback loaded(B) preserves the pending reservation for C
@@ -368,7 +447,7 @@ async function main() {
     await settle();
     h.window.handlerRegistration('sid-B', null, { preload: true });
     setSession(h, 'sid-B', 'Session B', ['b']);
-    h.window.handlerRegistration('sid-B', h.window.S.session, { loaded: true });
+    h.window.handlerRegistration('sid-B', h.S.session, { loaded: true });
     await settle();
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
     const tileB = tiles.find(t => t.querySelector('.ext-tile-title').textContent === 'Session B');
@@ -398,13 +477,19 @@ async function main() {
     const h = createFreshDom();
     const main = h.document.querySelector('main.main');
     const tb = h.document.getElementById('ext-tiling-toolbar');
+    // Real Core contract: chat is the ABSENCE of a `showing-<panel>` class on
+    // <main>. There is no `chat` class to test for.
     assert(!tb.classList.contains('ext-tiling-toolbar--hidden'), 'toolbar visible on chat panel');
-    main.setAttribute('class', 'main chat showing-tasks');
+    main.setAttribute('class', 'main showing-tasks');
     await settle();
     assert(tb.classList.contains('ext-tiling-toolbar--hidden'), 'toolbar hidden on tasks panel');
-    main.setAttribute('class', 'main chat');
+    main.setAttribute('class', 'main showing-settings');
+    await settle();
+    assert(tb.classList.contains('ext-tiling-toolbar--hidden'), 'toolbar hidden on settings panel');
+    main.setAttribute('class', 'main');
     await settle();
     assert(!tb.classList.contains('ext-tiling-toolbar--hidden'), 'toolbar visible again on chat panel');
+    assert(tb.querySelectorAll('.ext-toolbar-btn').length === 4, 'toolbar has 4 controls');
   }
 
   // S19: Focus-switch preserves outgoing draft
@@ -417,8 +502,7 @@ async function main() {
     const composer = h.document.getElementById('msg');
     composer.value = 'draft-a';
     const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    h.window.focusTileExt(parseInt(tiles[1].dataset.tileId));
-    await settle();
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
     const tileA = h.window.chatTilingState.tiles.find(t => t.id === parseInt(tiles[0].dataset.tileId));
     assert(tileA && tileA.cv === 'draft-a', 'A draft saved in tile A');
     assert(composer.value === '', 'B composer is empty');
@@ -489,21 +573,26 @@ async function main() {
     }
   }
 
-  // S24: auto_tile:false disables auto-tiling
-  section('S24: auto_tile:false disables auto-tiling');
+  // S24: auto_tile:false keeps tile authority coherent with Core
+  section('S24: auto_tile:false keeps tile authority coherent with Core');
   {
     const h = createFreshDom();
-    h.window.HermesExtensionSettings = { settingsForExtension: () => ({ get: (k) => k === 'auto_tile' ? false : undefined }) };
+    h.window.__settings.auto_tile = false;
     setSession(h, 'sid-A', 'Session A', ['a']);
     h.window.showGridExt(2, 1);
     await settle();
+    const st = h.window.chatTilingState;
     h.window.handlerRegistration('sid-B', null, { preload: true });
+    assert(st.tiles.filter(t => t._pendingSid === 'sid-B').length === 0,
+      'auto_tile:false creates no pending reservation');
     setSession(h, 'sid-B', 'Session B', ['b']);
-    h.window.handlerRegistration('sid-B', h.window.S.session, { loaded: true });
+    h.window.handlerRegistration('sid-B', h.S.session, { loaded: true });
     await settle();
-    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
-    const tileWithB = tiles.find(t => t.querySelector('.ext-tile-title').textContent === 'Session B');
-    assert(tileWithB === undefined, 'auto_tile:false leaves tiles empty');
+    // Core navigated anyway. The focused tile must follow it rather than
+    // disagreeing about which conversation the composer is pointed at.
+    assert(h.S.session.session_id === 'sid-B', 'Core navigated to B');
+    const active = st.tiles.find(t => t.id === st.activeId);
+    assert(active !== undefined && active.sid === 'sid-B', 'focused tile follows Core to B (no authority split)');
   }
 
   // S25: Extension's badge observer fires updateBadgeCounts on sidebar mutation
@@ -618,8 +707,8 @@ async function main() {
     h.window.focusTileExt(parseInt(tileA.dataset.tileId));
     await settle();
     h.window.chatTilingState.tiles[0].messages = ['original-a'];
-    h.window.S.session = { session_id: 'sid-unrelated', title: 'Unrelated' };
-    h.window.S.messages = ['unrelated-msg'];
+    h.S.session = { session_id: 'sid-unrelated', title: 'Unrelated' };
+    h.S.messages = ['unrelated-msg'];
     await sleep(400);
     assert(h.window.chatTilingState.tiles[0].messages[0] === 'original-a', 'tile A ignores unowned S state (fenced by SID)');
   }
@@ -670,7 +759,7 @@ async function main() {
     } catch (_) {}
     await settle();
     // After rollback, session should be A
-    assert(h.window.S.session.session_id === 'sid-A', 'rolled back to session A after loadSession failure');
+    assert(h.S.session.session_id === 'sid-A', 'rolled back to session A after loadSession failure');
     // loadSession was called for B then for A (rollback)
     assert(loadSessionCalls.includes('sid-B'), 'loadSession attempted for B');
     assert(loadSessionCalls.includes('sid-A'), 'loadSession rollback call for A');
@@ -717,7 +806,7 @@ async function main() {
 
     // C should still be active — B's stale failure must not roll back over C
     assert(h.window.chatTilingState.activeId === parseInt(tiles[2].dataset.tileId), 'C remains active after stale B failure');
-    assert(h.window.S.session.session_id === 'sid-C', 'Core session is C, not rolled back to A');
+    assert(h.S.session.session_id === 'sid-C', 'Core session is C, not rolled back to A');
   }
 
   // S32: B2 — Late focus after hide is a no-op
@@ -777,14 +866,9 @@ async function main() {
     h.window.chatTilingState.tiles[3].busy = true;
     h.window.chatTilingState.tiles[3].activeStreamId = 'stream-D';
 
-    // Make cancelSessionStream refuse for tile 3
-    h.window.cancelSessionStream = (opts) => {
-      if (opts.streamId === 'stream-C') return Promise.resolve(false); // refuse
-      return Promise.resolve(true);
-    };
-    globalThis.cancelSessionStream = h.window.cancelSessionStream;
-
-    // Try to shrink to 2 tiles — should abort because cancel was refused
+    // Tile C refuses cancellation. The shrink must refuse before touching any
+    // tile, so the cancel path is never even reached.
+    h.window.__cancelAllowed = false;
     await h.window.showGridExt(1, 2);
     await settle();
 
@@ -837,7 +921,7 @@ async function main() {
 
     // C must be active — B's rollback(A) must not overwrite C
     assert(h.window.chatTilingState.activeId === parseInt(tiles[2].dataset.tileId), 'C remains active after rollback finishes');
-    assert(h.window.S.session.session_id === 'sid-C', 'Core session is C, not rolled back to A');
+    assert(h.S.session.session_id === 'sid-C', 'Core session is C, not rolled back to A');
   }
 
   // S35: Issue 2 — hideGrid awaits in-flight focus before proceeding
@@ -874,7 +958,7 @@ async function main() {
     await settle();
 
     // After hide, Core session should be B (the in-flight focus that hide awaited)
-    assert(h.window.S.session.session_id === 'sid-B', 'hide awaited in-flight focus: Core session is B');
+    assert(h.S.session.session_id === 'sid-B', 'hide awaited in-flight focus: Core session is B');
     assert(h.window.chatTilingState.visible === false, 'grid stays hidden');
     assert(h.window.chatTilingState.tiles.length === 0, 'tiles cleared after hide');
   }
@@ -895,12 +979,9 @@ async function main() {
     h.window.chatTilingState.tiles[3].busy = true;
     h.window.chatTilingState.tiles[3].activeStreamId = 'stream-D';
 
-    // Make cancelSessionStream refuse for tile 3
-    h.window.cancelSessionStream = (opts) => {
-      if (opts.streamId === 'stream-C') return Promise.resolve(false); // refuse
-      return Promise.resolve(true);
-    };
-    globalThis.cancelSessionStream = h.window.cancelSessionStream;
+    // Cancellation is refused; the refusal must not matter because the shrink
+    // is refused outright while any excess tile is busy.
+    h.window.__cancelAllowed = false;
 
     // Try to shrink to 2 tiles — should abort
     await h.window.showGridExt(1, 2);
@@ -937,18 +1018,20 @@ async function main() {
     h.window.focusTileExt(parseInt(tiles[3].dataset.tileId));
     await settle();
 
-    // Make loadSession fail for A (the successor that will be focused first)
+    // Make loadSession fail for D — the retained active tile whose settle must
+    // succeed before the removal is committed.
     const origLoad = h.window.loadSession;
     h.window.loadSession = (sid) => {
-      if (sid === 'sid-A') {
-        return Promise.reject(new Error('A load failed'));
+      if (sid === 'sid-D') {
+        return Promise.reject(new Error('D load failed'));
       }
       return origLoad(sid);
     };
     globalThis.loadSession = h.window.loadSession;
 
-    // Try to shrink to 2 tiles — D is active and will be removed.
-    // Successor A's loadSession fails, so layout change should abort.
+    // Try to shrink to 2 tiles. D is active and would be removed, so it is
+    // reordered into the survivors and settled first; its loadSession fails, so
+    // the layout change must abort and leave the old geometry intact.
     await h.window.showGridExt(1, 2);
     await settle();
 
@@ -956,6 +1039,161 @@ async function main() {
     const remaining = Array.from(h.document.querySelectorAll('.ext-tile'));
     assert(remaining.length === 4, 'layout change aborted: still 4 tiles after successor focus failure');
     assert(h.window.chatTilingState.activeId === parseInt(tiles[3].dataset.tileId), 'D still active after abort');
+  }
+
+  // ══ Re-gate regression tests (PR#60 review at 2c4e6a11) ══
+
+  // R0: reads Core's lexical `S`, not window.S
+  section('R0: reads Core lexical S, not window.S');
+  {
+    const h = createFreshDom();
+    assert(h.window.S === undefined, 'harness mirrors Core: nothing is exposed on window.S');
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 1);
+    await settle();
+    const t0 = h.window.chatTilingState.tiles[0];
+    assert(t0.sid === 'sid-A', 'tile seeded from Core S with no window.S available');
+  }
+
+  // R3/R4: grid geometry — stretching grid items anchored to the shell
+  section('R3/R4: grid is anchored to the non-scrolling shell with stretching tiles');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 2);
+    await settle();
+    const grid = h.document.getElementById('ext-tile-grid');
+    const shell = h.document.querySelector('.messages-shell');
+    const messages = h.document.getElementById('messages');
+    assert(grid.parentElement === shell, 'grid anchored to .messages-shell (not the scroll container)');
+    assert(grid.parentElement !== messages, 'grid is NOT inside the scrolling #messages');
+    const css = h.document.getElementById('ext-tiling-css').textContent;
+    const tileRule = css.split('}').find(r => r.includes('.ext-tile{'));
+    assert(tileRule !== undefined && !/position:absolute/.test(tileRule),
+      '.ext-tile is not position:absolute (so tiles stretch instead of overlapping)');
+    const gridRule = css.split('}').find(r => r.includes('#ext-tile-grid{'));
+    assert(gridRule !== undefined && /inset:0/.test(gridRule), '#ext-tile-grid uses inset:0');
+    const areas = h.window.chatTilingState.tiles.map(t => t.el.style.gridArea);
+    assert(areas.length === 4 && new Set(areas).size === 4, 'each tile is placed in a distinct grid cell');
+  }
+
+  // R5: toolbar buttons map to the documented layout shapes
+  section('R5: toolbar layout buttons map to 2x1, 2x2 and 3x2');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    const tb = h.document.getElementById('ext-tiling-toolbar');
+    const click = (label) => Array.from(tb.querySelectorAll('.ext-toolbar-btn'))
+      .find(b => b.getAttribute('aria-label') === label).click();
+    const st = h.window.chatTilingState;
+    click('Split in 4');
+    await settle();
+    assert(st._cols === 2 && st._rows === 2, 'Split in 4 => 2x2');
+    assert(st.tiles.length === 4, 'Split in 4 builds 4 tiles');
+    click('Split in 6');
+    await settle();
+    assert(st._cols === 3 && st._rows === 2, 'Split in 6 => 3x2');
+    assert(st.tiles.length === 6, 'Split in 6 builds 6 tiles');
+    click('Split in 2');
+    await settle();
+    assert(st._cols === 2 && st._rows === 1, 'Split in 2 => 2x1');
+    assert(st.tiles.length === 2, 'Split in 2 leaves 2 tiles');
+  }
+
+  // R6: composite transactions do not self-deadlock through the queue
+  section('R6: composite transactions complete without queue self-deadlock');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 2);
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
+    h.window.focusTileExt(parseInt(tiles[0].dataset.tileId));
+    await settle();
+    const st = h.window.chatTilingState;
+
+    const t0 = Date.now();
+    await h.window.closeTileExt(parseInt(tiles[0].dataset.tileId));
+    const closeMs = Date.now() - t0;
+    assert(closeMs < 1000, `active close resolved promptly (took ${closeMs}ms of a 10000ms budget)`);
+    assert(st.tiles.length === 3, 'active tile removed');
+    const active = st.tiles.find(t => t.id === st.activeId);
+    assert(active !== undefined && active.sid === 'sid-B', 'survivor B is focused after active close');
+
+    const t1 = Date.now();
+    await h.window.showGridExt(1, 2);
+    const shrinkMs = Date.now() - t1;
+    assert(shrinkMs < 1000, `shrink resolved promptly (took ${shrinkMs}ms of a 10000ms budget)`);
+    assert(st.tiles.length === 2, 'shrink committed to 2 tiles');
+  }
+
+  // R7: unbound tiles are not focusable and cannot hijack the composer
+  section('R7: unbound tiles are not focusable');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 1);
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    const before = h.window.chatTilingState.activeId;
+    tiles[1].click();
+    await settle();
+    assert(h.window.chatTilingState.activeId === before, 'clicking an unbound tile does not change focus');
+    assert(h.window.chatTilingState.tiles[1].sid === null, 'unbound tile stays unbound');
+    assert(tiles[1].classList.contains('ext-tile--empty'), 'unbound tile is marked ext-tile--empty');
+    assert(h.document.getElementById('ext-tiling-css').textContent.includes('.ext-tile.ext-tile--empty{pointer-events:none}'),
+      'unbound tile passes pointer events through to the live transcript');
+  }
+
+  // R9: the loaded hook must not wipe Core's server-restored draft
+  section('R9: loaded hook preserves the server-restored composer draft');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 1);
+    await settle();
+    h.window.__drafts['sid-B'] = 'server-restored-draft-B';
+    await bindTileViaHook(h, 'sid-B', ['b-msg']);
+    assert(h.document.getElementById('msg').value === 'server-restored-draft-B',
+      'draft Core restored for B survives the loaded-hook focus');
+  }
+
+  // R10: closing a maximized tile must not leave survivors hidden
+  section('R10: closing a maximized tile restores sibling visibility');
+  {
+    const h = createFreshDom();
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    h.window.showGridExt(2, 2);
+    await settle();
+    const tiles = Array.from(h.document.querySelectorAll('.ext-tile'));
+    tiles[0].querySelector('.ext-tile-maximize-btn').click();
+    await settle();
+    assert(tiles[1].classList.contains('ext-tile--hidden'), 'siblings hidden while maximized');
+    await h.window.closeTileExt(parseInt(tiles[0].dataset.tileId));
+    await settle();
+    const remaining = Array.from(h.document.querySelectorAll('.ext-tile'));
+    assert(remaining.length === 3, 'maximized tile removed');
+    assert(remaining.filter(t => t.classList.contains('ext-tile--hidden')).length === 0,
+      'no survivor left hidden after closing the maximized tile');
+  }
+
+  // R11: a cold start (no live session) still yields a focused, usable grid
+  section('R11: cold start focuses the first tile');
+  {
+    const h = createFreshDom(); // no session set at all
+    await h.window.showGridExt(2, 1);
+    await settle();
+    const st = h.window.chatTilingState;
+    assert(st.tiles.length === 2, 'grid built with no live session');
+    assert(st.activeId === st.tiles[0].id, 'first tile is focused on a cold start');
+    assert(st.tiles[0].sid === null, 'cold-start focused tile is still unbound');
+    // Once Core holds a session, an unbound tile is no longer focusable.
+    setSession(h, 'sid-A', 'Session A', ['a']);
+    const before = st.activeId;
+    h.window.focusTileExt(st.tiles[1].id);
+    await settle();
+    assert(st.activeId === before, 'unbound tile is not focusable once Core has a session');
   }
 
   console.log('\n' + '='.repeat(50));

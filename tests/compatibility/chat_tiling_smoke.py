@@ -154,26 +154,32 @@ def _wait_for_extension_resource(page: Any, base_url: str) -> None:
 
 
 def _activate_grid(page: Any, cols: int = 2, rows: int = 1) -> None:
-    """Activate the tile grid via direct JS call, bypassing toolbar.
+    """Activate the tile grid through the REAL user entry point (the toolbar).
 
-    The toolbar may be hidden by panel gating if main.main doesn't have
-    the 'chat' class, but the grid can still be activated programmatically
-    for geometry testing.
+    Panel gating must leave the toolbar visible on the chat view. If it is
+    hidden the feature is unreachable for users, so this FAILS instead of
+    falling back to ``window.showGridExt()`` — a programmatic fallback lets the
+    smoke pass while the toolbar is permanently ``display:none``.
     """
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-    # First, try clicking the toolbar button if it IS visible (tests the
-    # click path when panel gating allows).  If the toolbar is hidden by
-    # panel gating, fall back to a direct JS call to window.showGridExt.
     toolbar = page.locator(TOOLBAR_SELECTOR)
     try:
-        toolbar.wait_for(state="visible", timeout=2_000)
-        # Toolbar is visible — click the split button.
-        btn = toolbar.locator(f'[data-layout="{cols}"]')
-        btn.click(timeout=5_000)
-    except Exception:
-        # Toolbar hidden (panel gating) — activate grid programmatically.
-        page.evaluate(f"window.showGridExt({cols}, {rows})")
+        toolbar.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS)
+    except PlaywrightTimeoutError as exc:
+        raise CompatibilityFailure(
+            "chat-tiling: toolbar is not visible on the chat view — the user-facing "
+            "entry point is hidden, so the feature cannot be reached at all"
+        ) from exc
+
+    button = toolbar.locator(f'[aria-label="Split in {cols * rows}"]')
+    try:
+        button.wait_for(state="visible", timeout=ENTRY_TIMEOUT_MS)
+        button.click(timeout=5_000)
+    except Exception as exc:
+        raise CompatibilityFailure(
+            f"chat-tiling: could not click the {cols * rows}-tile toolbar button: {exc}"
+        ) from exc
 
     # Wait for the grid overlay to appear.
     try:
@@ -184,6 +190,33 @@ def _activate_grid(page: Any, cols: int = 2, rows: int = 1) -> None:
         raise CompatibilityFailure(
             "chat-tiling: tile grid overlay did not appear"
         ) from exc
+
+
+def _assert_tile_geometry(page: Any, case_name: str) -> list[dict[str, float]]:
+    """Tiles must stretch into distinct cells, not stack at one origin.
+
+    The shipped regression had ``position:absolute`` on tiles inside a CSS
+    grid, which made them overlap at a single origin at collapsed sizes.
+    """
+    boxes = page.evaluate(
+        """() => Array.from(document.querySelectorAll('.ext-tile')).map(el => {
+             const r = el.getBoundingClientRect();
+             return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+           })"""
+    )
+    if not boxes:
+        raise CompatibilityFailure(f"{case_name}: no .ext-tile elements found")
+    origins = {(b["x"], b["y"]) for b in boxes}
+    if len(origins) != len(boxes):
+        raise CompatibilityFailure(
+            f"{case_name}: tiles overlap at a shared origin instead of tiling: {boxes}"
+        )
+    collapsed = [b for b in boxes if b["w"] < 50 or b["h"] < 50]
+    if collapsed:
+        raise CompatibilityFailure(
+            f"{case_name}: tiles collapsed to unusable size: {collapsed}"
+        )
+    return boxes
 
 
 # ---------------------------------------------------------------------------
@@ -233,15 +266,23 @@ def _test_focused_tile_click_pass_through(
         }"""
     )
 
-    # Get the grid overlay's bounding box and click its center.  The focused
-    # tile body is empty (.ext-tile-msg-inner is display: none from a prior
-    # fix, and the real #msgInner lives in Core's #messages), so we target
-    # the grid overlay directly which has pointer-events: none.
-    grid = page.locator(TILE_GRID_SELECTOR)
-    grid.wait_for(state="attached", timeout=ENTRY_TIMEOUT_MS)
-    bbox = grid.bounding_box()
+    # Tiles must tile into distinct cells, not stack at a single origin.
+    boxes = _assert_tile_geometry(page, case_name)
+
+    if not page.evaluate("() => !!document.getElementById('msgInner')"):
+        raise CompatibilityFailure(f"{case_name}: #msgInner missing from the live Core DOM")
+
+    # Click the centre of the FOCUSED tile's body. The focused tile is a
+    # transparent window (pointer-events:none, its own snapshot hidden), so the
+    # event must land on the live #msgInner beneath it — not merely on
+    # #messages, which any click anywhere in the transcript would satisfy.
+    focused_body = page.locator(".ext-tile--focused .ext-tile-body")
+    focused_body.wait_for(state="attached", timeout=ENTRY_TIMEOUT_MS)
+    bbox = focused_body.bounding_box()
     if bbox is None:
-        raise CompatibilityFailure(f"{case_name}: could not get grid bounding box")
+        raise CompatibilityFailure(
+            f"{case_name}: could not get the focused tile body bounding box"
+        )
 
     click_x = bbox["x"] + bbox["width"] / 2
     click_y = bbox["y"] + bbox["height"] / 2
@@ -250,14 +291,13 @@ def _test_focused_tile_click_pass_through(
     # Give the event time to propagate (500ms for CI stability).
     page.wait_for_timeout(500)
 
-    # Assert the click reached #msgInner (or #messages as fallback).
+    # The click must have reached #msgInner specifically.
     clicks = page.evaluate("() => window.__chatTilingClickThrough || 0")
-    clicks_messages = page.evaluate("() => window.__chatTilingClickThroughMessages || 0")
-    if clicks < 1 and clicks_messages < 1:
+    if clicks < 1:
         _record_screenshot(page, evidence_dir / f"{case_name}.png")
         raise CompatibilityFailure(
-            f"{case_name}: click on grid overlay did not reach #msgInner "
-            f"or #messages (clicks={clicks}, clicks_messages={clicks_messages})"
+            f"{case_name}: click within the focused tile body did not reach "
+            f"#msgInner (clicks={clicks})"
         )
 
     _record_screenshot(page, evidence_dir / f"{case_name}.png")
@@ -337,10 +377,24 @@ def _test_messages_scrolls_with_overlay(
     wheel_x = messages_box["x"] + messages_box["width"] / 2
     wheel_y = messages_box["y"] + messages_box["height"] / 2
 
+    # The overlay must be anchored to the non-scrolling shell: scrolling the
+    # transcript may move #messages' content but must NOT move the grid.
+    grid_before = page.locator(TILE_GRID_SELECTOR).bounding_box()
+
     # Move mouse to center of #messages and scroll down
     page.mouse.move(wheel_x, wheel_y)
     page.mouse.wheel(0, 500)
     page.wait_for_timeout(500)
+
+    grid_after = page.locator(TILE_GRID_SELECTOR).bounding_box()
+    if grid_before is not None and grid_after is not None:
+        drift = abs(grid_after["y"] - grid_before["y"])
+        if drift > 1:
+            _record_screenshot(page, evidence_dir / f"{case_name}.png")
+            raise CompatibilityFailure(
+                f"{case_name}: tile overlay scrolled with the transcript "
+                f"(grid y {grid_before['y']} -> {grid_after['y']})"
+            )
 
     # Check scrollTop actually changed
     after = page.evaluate(
