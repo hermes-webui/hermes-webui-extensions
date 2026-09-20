@@ -1,0 +1,40 @@
+{
+  "extensions": [
+    {
+      "id": "commandcode-usage",
+      "name": "Command Code Usage",
+      "description": "Command Code account usage (5-hour / weekly windows, monthly credits, period totals) in a composer chip + popover panel.",
+      "scripts": [
+        "assets/commandcode-usage.js"
+      ],
+      "stylesheets": [
+        "assets/commandcode-usage.css"
+      ],
+      "permissions": {
+        "storage": {
+          "owned": true
+        }
+      },
+      "settings_schema": [
+        {
+          "key": "auto_refresh",
+          "type": "boolean",
+          "label": "Refresh automatically while the panel is open",
+          "default": true
+        },
+        {
+          "key": "refresh_seconds",
+          "type": "integer",
+          "label": "Refresh interval (seconds)",
+          "default": 60
+        }
+      ],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17800",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      }
+    }
+  ]
+}

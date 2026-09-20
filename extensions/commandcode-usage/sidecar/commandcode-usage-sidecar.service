@@ -1,0 +1,20 @@
+# commandcode-usage sidecar — token-v1 loopback backend for the commandcode-usage WebUI extension.
+# Serves Command Code usage (five-hour / weekly spend windows, monthly credit
+# balance, current-period totals) from Command Code's alpha billing endpoints.
+# WebUI provisions the proxy token in the state dir; the scaffold resolves it.
+# No token — and no API key — in this unit. The key is read from the sidecar's
+# environment or ~/.hermes/.env at request time.
+# Install: cp to ~/.config/systemd/user/ then `systemctl --user enable --now commandcode-usage-sidecar`
+[Unit]
+Description=commandcode-usage sidecar (Command Code usage backend for the commandcode-usage WebUI extension, token-v1)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.hermes/webui/extensions/commandcode-usage/sidecar
+Environment=HERMES_WEBUI_STATE_DIR=%h/.hermes/webui
+ExecStart=/usr/bin/python3 -S -u sidecar.py
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

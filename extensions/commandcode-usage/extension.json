@@ -1,0 +1,82 @@
+{
+  "id": "commandcode-usage",
+  "name": "Command Code Usage",
+  "description": "Composer chip opening a panel with Command Code account usage: five-hour and weekly spend windows, monthly credit balance, and the current billing period's totals straight from Command Code's alpha billing endpoints, via a loopback sidecar that keeps the API key out of the browser.",
+  "version": "0.1.0",
+  "author": "Brandon168",
+  "assets": {
+    "scripts": [
+      "assets/commandcode-usage.js"
+    ],
+    "stylesheets": [
+      "assets/commandcode-usage.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "requires_local_app": true,
+    "local_app_label": "Command Code Usage sidecar",
+    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17800, then approve the sidecar proxy in Settings \u2192 Extensions \u2192 Diagnostics \u2192 Loopback sidecar card. The sidecar reads COMMANDCODE_API_KEY from its environment or ~/.hermes/.env. WebUI authentication must be enabled for the token-v1 proxy to work at all."
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "/api/extensions/status",
+        "/api/extensions/commandcode-usage/sidecar/api/usage"
+      ],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true,
+      "note": "The browser assets read no files. The sidecar reads one local file, read-only: the API key from ~/.hermes/.env (when it is not already in its environment). No application or state data is written; Python may create bounded bytecode caches inside the extension sidecar runtime directory."
+    },
+    "network_external": true,
+    "network_external_note": "The sidecar makes three outbound GETs to Command Code's alpha billing endpoints (api.commandcode.ai/alpha/billing/credits, .../billing/subscriptions, .../usage/summary) with the API key. The browser extension assets contact no external origin; they only call the same-origin sidecar proxy."
+  },
+  "settings_schema": [
+    {
+      "key": "auto_refresh",
+      "type": "boolean",
+      "label": "Refresh automatically while the panel is open",
+      "default": true
+    },
+    {
+      "key": "refresh_seconds",
+      "type": "integer",
+      "label": "Refresh interval (seconds)",
+      "default": 60
+    }
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17800",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  }
+}

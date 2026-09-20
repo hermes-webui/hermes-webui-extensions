@@ -1,0 +1,192 @@
+/* Command Code Usage extension for Hermes WebUI.
+   Every class is prefixed hwx-ccu- so it cannot collide with core styles, and
+   colors come from core CSS variables so the panel follows the active theme/skin. */
+
+/* The composer chip — same pill as the other .composer-left chips
+   (composer-divider neighbours), not the compact quota chip. It is a real
+   <button> (focusable, aria-haspopup=dialog, live aria-expanded) but keeps the
+   quiet look: UA button chrome stripped, no border or tinted background, so it
+   reads as a composer control, not as an alert. Hover and click are handled in
+   JS. */
+.hwx-ccu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted, #888);
+  font: inherit;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+  user-select: none;
+  cursor: default;
+}
+/* Keyboard users tab to the chip; give the focus ring the accent colour so it
+   is visible in every theme without changing the resting look. */
+.hwx-ccu-btn:focus-visible {
+  outline: 2px solid var(--accent, #3889fd);
+  outline-offset: 2px;
+}
+/* Once the percentages are on the chip, keep them legible: --accent-text
+   passes AA on the surface, --accent alone does not. */
+.hwx-ccu-btn--live { color: var(--accent-text, var(--accent, #3889fd)); }
+
+/* Smartphones (core's phone breakpoint, max-width:640px): hide the chip. It is
+   a hover-only indicator and phones have no hover, so there is nothing to
+   reveal. */
+@media (max-width: 640px) {
+  .hwx-ccu-btn { display: none; }
+}
+
+/* Core collapses .composer-left in two stages when _fitComposerFooter() (ui.js)
+   measures an overflow: cf-icons shrinks core's own chips to icons, then
+   cf-burger hides the model wrap outright.
+
+   These rules do NOT change the cf-icons onset — that first-stage shift is
+   inherent to adding any non-shrinking element to .composer-left, since the
+   fit routine measures with both stage classes stripped. What they fix is the
+   ESCALATION: without them the chip keeps its full pill width after core has
+   already shrunk its own chips, pushing core into cf-burger. This is an
+   informational chip, so it steps aside instead. */
+.composer-footer.cf-icons .hwx-ccu-btn { display: none; }
+.composer-footer.cf-burger .hwx-ccu-btn { display: none; }
+
+.hwx-ccu-panel {
+  position: fixed;
+  z-index: 200;
+  /* left/bottom are computed at open time (placePanel): the panel grows to the
+     RIGHT of the chip, and its bottom edge leaves room for the callout tail. */
+  width: min(360px, calc(100vw - 24px));
+  /* height is set by JS (ensurePanelHeight) to the tallest the content
+     occupies, so the panel keeps the same size while loading and loaded. */
+  display: flex;
+  flex-direction: column;
+  /* Same surface as core's composer dropdowns (.composer-toolsets-dropdown,
+     .ws-dropdown): --surface + --border2 + the upward shadow. */
+  background: var(--surface, var(--bg, #fff));
+  border: 1px solid var(--border2, rgba(127, 127, 127, .3));
+  border-radius: 10px;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, .4);
+  color: var(--text, #111);
+  font-size: 13px;
+  /* Entry animation matching the context-window tooltip (fade + nudge). */
+  animation: hwx-ccu-pop .14s ease;
+}
+/* Callout tail pointing down at the chip, like the context-window tooltip.
+   Horizontal position is set by placePanel via --hwx-ccu-tail-x (the chip's
+   centre). The panel must NOT clip children so the tail can poke out. */
+.hwx-ccu-panel::after {
+  content: '';
+  position: absolute;
+  left: var(--hwx-ccu-tail-x, 24px);
+  top: 100%;
+  transform: translateX(-50%);
+  border-width: 7px 7px 0 7px;
+  border-style: solid;
+  border-color: var(--surface, var(--bg, #fff)) transparent transparent transparent;
+}
+@keyframes hwx-ccu-pop {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hwx-ccu-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, .25));
+}
+.hwx-ccu-head-title { font-weight: 600; }
+.hwx-ccu-stamp { margin-left: auto; color: var(--muted, #888); font-size: 11px; }
+.hwx-ccu-icon-btn {
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+  padding: 4px 6px;
+  line-height: 1;
+}
+.hwx-ccu-icon-btn:hover { color: var(--text, #111); background: var(--hover-bg, rgba(127, 127, 127, .14)); }
+.hwx-ccu-icon-btn:disabled { color: var(--muted, #888); cursor: default; opacity: .55; }
+.hwx-ccu-refresh-icon { display: inline-block; line-height: 1; }
+/* While load() is fetching, the refresh GLYPH spins and turns accent-coloured
+   (the button box itself stays still) so there is visible feedback. */
+.hwx-ccu-refresh--active .hwx-ccu-refresh-icon {
+  color: var(--accent, #3889fd);
+  animation: hwx-ccu-spin .9s linear infinite;
+}
+@keyframes hwx-ccu-spin { to { transform: rotate(360deg); } }
+
+.hwx-ccu-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 10px 12px 14px; }
+.hwx-ccu-body p { margin: 0 0 8px; }
+
+.hwx-ccu-error-title { font-weight: 600; margin-bottom: 6px; }
+
+.hwx-ccu-badge {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--hover-bg, rgba(127, 127, 127, .16));
+  color: var(--muted, #888);
+  font-size: 11px;
+  white-space: nowrap;
+}
+/* In the panel header the badge sits right after the title (no auto margin). */
+.hwx-ccu-head-badge { margin-left: 0; }
+.hwx-ccu-badge--warn { color: var(--warning, #b8860b); }
+.hwx-ccu-badge--err { color: var(--error, #c0392b); }
+.hwx-ccu-badge--ok { color: var(--accent, #2e7d32); }
+
+.hwx-ccu-window { margin-bottom: 10px; }
+.hwx-ccu-window-top { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.hwx-ccu-window-label { min-width: 42px; color: var(--muted, #888); font-weight: 600; font-size: 13px; }
+.hwx-ccu-window-bar-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.hwx-ccu-window-pct { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14px; min-width: 48px; text-align: right; }
+.hwx-ccu-window-reset { margin-left: auto; color: var(--muted, #888); font-size: 11px; }
+.hwx-ccu-window-amount { margin-top: 4px; color: var(--muted, #888); font-size: 11px; font-variant-numeric: tabular-nums; }
+.hwx-ccu-window-amount--err { color: var(--error, #c0392b); }
+.hwx-ccu-bar {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--hover-bg, rgba(127, 127, 127, .18));
+  overflow: hidden;
+}
+.hwx-ccu-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--accent, #3889fd);
+}
+.hwx-ccu-bar-fill--warn { background: var(--warning, #d08700); }
+.hwx-ccu-bar-fill--err { background: var(--error, #c0392b); }
+
+/* Account meta rows (plan / renews / monthly credits / period totals): label
+   left, value right, tabular numerals so refreshes do not jitter. */
+.hwx-ccu-meta {
+  margin-top: 12px;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, .25));
+  padding-top: 8px;
+}
+.hwx-ccu-meta-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; font-size: 12px; }
+.hwx-ccu-meta-label { color: var(--muted, #888); }
+.hwx-ccu-meta-value { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.hwx-ccu-meta-value--warn { color: var(--warning, #d08700); }
+
+.hwx-ccu-note {
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: var(--hover-bg, rgba(127, 127, 127, .1));
+  color: var(--muted, #888);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.hwx-ccu-empty { color: var(--muted, #888); font-size: 12px; padding: 6px 0; }

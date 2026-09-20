@@ -1,0 +1,5 @@
+{
+  "id": "commandcode-usage",
+  "port": 17800,
+  "proxy_auth": "token-v1"
+}
