@@ -68,6 +68,14 @@ def register(app) -> None:
     def docker_list(req):
         return app.gzip_json({"docker": docker_stats.docker_stats()})
 
+    @app.route("GET", "/api/system/docker/inspect")
+    def docker_inspect(req):
+        # Per-container detail for the info (i) panel — SAFE fields only
+        # (image / state / health / uptime / restart policy / networks / ports).
+        # docker_stats re-checks the opt-in allowlist, so an un-opted-in id can't
+        # be probed through this endpoint.
+        return app.json(docker_stats.docker_inspect(req.query_one("id")))
+
     @app.route("GET", "/api/system/docker/groups")
     def docker_groups_get(req):
         payload, status = sysinfo.handle_docker_groups("GET")

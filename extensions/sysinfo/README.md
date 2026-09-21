@@ -20,13 +20,24 @@ is decoupled, not update-proof.
 **Docker** (collapsible; appears only when the docker CLI is reachable)
 - Opted-in inventory (running + stopped) with live CPU / RAM per container and a
   status dot (green pulse = running, amber = paused/restarting, grey = exited).
-  Deny-by-default: only containers matching your configured allowlist are shown
-  (see `MC_DOCKER_NAME_ALLOW` / `MC_DOCKER_WORKDIR_PREFIX` / `MC_DOCKER_SHOW_ALL`).
+  Deny-by-default: containers must be authorized by `MC_DOCKER_NAME_ALLOW` or
+  `MC_DOCKER_SHOW_ALL=1`. `MC_DOCKER_WORKDIR_PREFIX` is an optional
+  additional path constraint; it never grants access by itself.
 - Compose-project grouping into collapsible stacks, with per-stack
   Start / Restart / Stop-all actions.
 - Custom display names for stacks and containers (rename via the ✎ button;
   persisted server-side so they stick across devices).
 - Per-container actions (start / stop / restart) via a kebab menu.
+- Per-container **info** (the ⓘ button): a read-only panel with the image,
+  state/health, network IPs (IPv4 + IPv6 when present), published/exposed ports
+  (e.g. `127.0.0.1:6333->6333/tcp`, `[::1]:8080->80/tcp`), restart policy, compose
+  identity, and uptime. Network/status fields only — **never** env vars, mounts, or
+  command lines (same privacy stance as the inventory sweep). The id is shape-validated
+  and the **opt-in allowlist is enforced before any `docker inspect` runs**, so an
+  un-opted-in container is never inspected; invalid, missing, and denied ids return one
+  indistinguishable result (no existence oracle). Network/port rows and string lengths
+  are bounded so one container can't exceed the proxy response budget; the panel says
+  when additional network or port entries were omitted.
 - **Image updates**: "Check updates" flags containers whose remote image
   digest changed; update one compose stack or all stacks — in a heuristic
   category order (data stores → infra → apps, matched by name/image, **not** a
@@ -83,9 +94,9 @@ can't read the user's state dir (other-UID users, host containers, sandboxed
 processes) — the same level as WebUI's own auth. It does **not** defend against
 arbitrary same-UID code, which can read the token file (or run `docker`) directly.
 
-Beyond auth, Docker mutations are additionally gated by an inventory **allowlist**
-(a rename/action must name a container/project present in the filtered
-inventory), and long operations (speed test, image update-check, bulk update) use
+Beyond auth, both Docker mutations and the read-only info panel (`GET /api/system/docker/inspect?id=…`) are gated by the inventory **allowlist** **before** the sensitive call
+(a rename/action — or an inspect — must resolve to a container present in the filtered
+inventory; for inspect the allowlist is checked on a cheap `docker ps` projection, so a denied id never reaches `docker inspect`), and long operations (speed test, image update-check, bulk update) use
 **start-job + poll** — the WebUI proxy buffers responses (~10s cap), so nothing
 streams.
 
@@ -95,11 +106,14 @@ streams.
 | State dir (token + json state) | `HERMES_WEBUI_STATE_DIR` | `~/.hermes/webui` |
 | Show all containers | `MC_DOCKER_SHOW_ALL=1` | off |
 | Container allow-list | `MC_DOCKER_NAME_ALLOW` | empty / off (deny all) |
-| Compose workdir filter | `MC_DOCKER_WORKDIR_PREFIX` | off |
+| Compose workdir constraint | `MC_DOCKER_WORKDIR_PREFIX` | off |
 
-The Docker card is **deny-by-default**: with none of the three knobs set, no container
-is shown or controllable. Opt stacks in with `MC_DOCKER_NAME_ALLOW` (comma-separated
-name prefixes) and/or `MC_DOCKER_WORKDIR_PREFIX`, or `MC_DOCKER_SHOW_ALL=1` to show all.
+The Docker card is **deny-by-default**: a container is authorized only by
+`MC_DOCKER_NAME_ALLOW` (comma-separated name prefixes) or
+`MC_DOCKER_SHOW_ALL=1`. If `MC_DOCKER_WORKDIR_PREFIX` is set, an otherwise
+authorized container must also have a structurally read Compose
+`project.working_dir` inside that root. The workdir label is container-controlled
+metadata, so it is never accepted as authorization on its own.
 
 Install `speedtest-cli` (optional), then the systemd user unit — it runs
 `/usr/bin/python3 -S -u sidecar.py` with no token in the unit (core provisions it
@@ -143,9 +157,11 @@ where core and the sidecar share a network namespace and the state dir.
   reads and every host-mutating route go through that proxy; `docker/updates`
   (the update sweep) and the action/update/bulk routes are **writes** — they
   start work and persist results.
-- Deny-by-default inventory: no container is shown until the operator opts in via
-  `MC_DOCKER_NAME_ALLOW` (name prefixes), `MC_DOCKER_WORKDIR_PREFIX` (a compose
-  workdir root), or `MC_DOCKER_SHOW_ALL=1`. Docker updates run
+- Deny-by-default inventory: no container is shown until the operator authorizes it
+  via `MC_DOCKER_NAME_ALLOW` (name prefixes) or `MC_DOCKER_SHOW_ALL=1`.
+  `MC_DOCKER_WORKDIR_PREFIX` is only an additional compose-workdir constraint
+  on containers already authorized by one of those operator-owned controls; a
+  container label can never grant access by itself. Docker updates run
   `docker compose pull/up` **from each stack's host-derived compose working_dir**,
   so the sidecar reads that stack's compose files/`.env` and uses whatever
   registry/Docker credentials the daemon has — hence `filesystem.arbitrary:true`

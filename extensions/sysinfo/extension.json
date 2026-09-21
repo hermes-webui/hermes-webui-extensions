@@ -2,7 +2,7 @@
   "id": "sysinfo",
   "name": "System Info",
   "description": "Insights add-ons under System health: internet speed test (on-demand + auto-schedule) and a full Docker card \u2014 live container stats, compose-stack grouping, start/stop/restart, and one-click image updates \u2014 via a loopback sidecar.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "asorourx",
   "assets": {
     "scripts": [
@@ -25,12 +25,14 @@
   "post_install": {
     "requires_local_app": true,
     "local_app_label": "System Info sidecar",
-    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17796, then approve the sidecar proxy in Settings \u2192 Extensions. Speed test needs `speedtest-cli`; the Docker card needs the docker CLI. By default no containers are shown until you set an allowlist (MC_DOCKER_NAME_ALLOW / MC_DOCKER_WORKDIR_PREFIX) or MC_DOCKER_SHOW_ALL=1."
+    "summary": "Run the bundled sidecar (sidecar/sidecar.py) on 127.0.0.1:17796, then approve the sidecar proxy in Settings \u2192 Extensions. Speed test needs `speedtest-cli`; the Docker card needs the docker CLI. By default no containers are shown until you authorize names with MC_DOCKER_NAME_ALLOW or set MC_DOCKER_SHOW_ALL=1. MC_DOCKER_WORKDIR_PREFIX is an optional additional path constraint, not an authorization source."
   },
   "screenshots": [
     "screenshots/insights-light.png",
     "screenshots/insights-dark.png",
-    "screenshots/docker-update.png"
+    "screenshots/docker-update.png",
+    "screenshots/container-info-desktop.jpg",
+    "screenshots/container-info-mobile.jpg"
   ],
   "permissions": {
     "webui_api": {
@@ -42,7 +44,8 @@
         "/api/extensions/sysinfo/sidecar/api/system/docker/groups",
         "/api/extensions/sysinfo/sidecar/api/system/docker/updates",
         "/api/extensions/sysinfo/sidecar/api/system/docker/update-bulk",
-        "/api/extensions/sysinfo/sidecar/api/system/docker/op-status"
+        "/api/extensions/sysinfo/sidecar/api/system/docker/op-status",
+        "/api/extensions/sysinfo/sidecar/api/system/docker/inspect"
       ],
       "write": [
         "/api/extensions/sysinfo/sidecar/api/system/speedtest",

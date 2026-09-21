@@ -11,6 +11,7 @@
     {"path": "scripts/test-profile-avatars.py", "runner": "python"},
     {"path": "scripts/test-sidecar-contract.mjs", "runner": "node"},
     {"path": "scripts/test-sidecar-scaffold.py", "runner": "python"},
+    {"path": "scripts/test-sysinfo-info-race.mjs", "runner": "node-test"},
     {"path": "scripts/test-theme-creator-configure.mjs", "runner": "node"},
     {"path": "scripts/test-typography-configure.mjs", "runner": "node"},
     {"path": "scripts/test-typography.mjs", "runner": "node"}

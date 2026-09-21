@@ -205,9 +205,9 @@ def test_inventory_scan_is_bounded():
             return _FakeR(0, "")
         if sub == "ps":
             import json as _j
-            rows = [_j.dumps({"ID": f"id{i}", "Names": f"c{i}", "Image": "img",
-                              "State": "running", "Status": "Up", "Labels": ""})
-                    for i in range(50)]
+            rows = ["\t".join(_j.dumps(v) for v in (
+                f"id{i}", f"c{i}", "img", "running", "Up", "", "", ""
+            )) for i in range(50)]
             return _FakeR(0, "\n".join(rows))
         return _FakeR(0, "")
 
