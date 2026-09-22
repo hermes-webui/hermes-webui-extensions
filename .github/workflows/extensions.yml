@@ -50,6 +50,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install test dependencies
+        run: npm ci
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -69,6 +72,9 @@ jobs:
 
       - name: Scan extension safety gates
         run: node scripts/scan-extension-safety.mjs
+
+      - name: Test Chat Tiling
+        run: node scripts/test-chat-tiling.mjs
 
       - name: Check sidecar scaffold is in sync
         run: node scripts/sync-sidecar-base.mjs --check
@@ -182,6 +188,12 @@ jobs:
           HERMES_CORE_DIR: .ci/hermes-webui-core
           COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
         run: python tests/compatibility/theme_creator_smoke.py
+
+      - name: Run Chat Tiling browser geometry smoke
+        env:
+          HERMES_CORE_DIR: .ci/hermes-webui-core
+          COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
+        run: python tests/compatibility/chat_tiling_smoke.py
 
       - name: Upload browser compatibility evidence
         if: always()
