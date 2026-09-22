@@ -1,0 +1,114 @@
+{
+  "id": "user-avatar",
+  "name": "Custom User Avatar",
+  "description": "Optional avatar beside your own (user) messages. Off by default. Enable it, upload an image (downscaled and stored only in this browser), and pick a size and narrow-screen behavior. Decoration only — it never changes message content and never touches the assistant avatar or profile-avatars storage.",
+  "version": "0.2.0",
+  "author": "asorourx",
+  "assets": {
+    "scripts": [
+      "assets/user-avatar.js"
+    ],
+    "stylesheets": [
+      "assets/user-avatar.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [
+    "screenshots/desktop-medium.png",
+    "screenshots/desktop-small.png",
+    "screenshots/desktop-large.png",
+    "screenshots/desktop-placeholder.png",
+    "screenshots/desktop-disabled.png",
+    "screenshots/desktop-light.png",
+    "screenshots/desktop-large-font.png",
+    "screenshots/desktop-hover.png",
+    "screenshots/desktop-layout-attachments.png",
+    "screenshots/desktop-layout-edit.png",
+    "screenshots/desktop-configure.png",
+    "screenshots/desktop-configure-keyboard.png",
+    "screenshots/desktop-configure-error.png",
+    "screenshots/mobile-hide.png",
+    "screenshots/mobile-compact.png",
+    "screenshots/mobile-compact-light.png",
+    "screenshots/mobile-disabled.png",
+    "screenshots/mobile-layout-attachments.png",
+    "screenshots/mobile-layout-edit.png",
+    "screenshots/mobile-configure.png",
+    "screenshots/mobile-configure-keyboard.png",
+    "screenshots/mobile-configure-error.png"
+  ],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  },
+  "settings_schema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Show avatars on my messages",
+      "default": false
+    },
+    {
+      "key": "size",
+      "type": "enum",
+      "label": "Avatar size",
+      "options": [
+        {
+          "value": "small",
+          "label": "Small"
+        },
+        {
+          "value": "medium",
+          "label": "Medium"
+        },
+        {
+          "value": "large",
+          "label": "Large"
+        }
+      ],
+      "default": "medium"
+    },
+    {
+      "key": "mobile",
+      "type": "enum",
+      "label": "On narrow screens",
+      "options": [
+        {
+          "value": "hide",
+          "label": "Hide"
+        },
+        {
+          "value": "compact",
+          "label": "Compact"
+        }
+      ],
+      "default": "hide"
+    }
+  ]
+}

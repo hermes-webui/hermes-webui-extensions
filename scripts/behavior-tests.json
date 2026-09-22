@@ -14,6 +14,7 @@
     {"path": "scripts/test-sysinfo-info-race.mjs", "runner": "node-test"},
     {"path": "scripts/test-theme-creator-configure.mjs", "runner": "node"},
     {"path": "scripts/test-typography-configure.mjs", "runner": "node"},
-    {"path": "scripts/test-typography.mjs", "runner": "node"}
+    {"path": "scripts/test-typography.mjs", "runner": "node"},
+    {"path": "scripts/test-user-avatar.mjs", "runner": "node"}
   ]
 }

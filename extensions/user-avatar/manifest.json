@@ -1,0 +1,64 @@
+{
+  "extensions": [
+    {
+      "id": "user-avatar",
+      "name": "Custom User Avatar",
+      "description": "Optional avatar beside your own (user) messages. Off by default.",
+      "scripts": [
+        "assets/user-avatar.js"
+      ],
+      "stylesheets": [
+        "assets/user-avatar.css"
+      ],
+      "permissions": {
+        "storage": {
+          "owned": true
+        }
+      },
+      "settings_schema": [
+        {
+          "key": "enabled",
+          "type": "boolean",
+          "label": "Show avatars on my messages",
+          "default": false
+        },
+        {
+          "key": "size",
+          "type": "enum",
+          "label": "Avatar size",
+          "options": [
+            {
+              "value": "small",
+              "label": "Small"
+            },
+            {
+              "value": "medium",
+              "label": "Medium"
+            },
+            {
+              "value": "large",
+              "label": "Large"
+            }
+          ],
+          "default": "medium"
+        },
+        {
+          "key": "mobile",
+          "type": "enum",
+          "label": "On narrow screens",
+          "options": [
+            {
+              "value": "hide",
+              "label": "Hide"
+            },
+            {
+              "value": "compact",
+              "label": "Compact"
+            }
+          ],
+          "default": "hide"
+        }
+      ]
+    }
+  ]
+}

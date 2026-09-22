@@ -183,6 +183,12 @@ jobs:
           COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
         run: python tests/compatibility/theme_creator_smoke.py
 
+      - name: Run Custom User Avatar visual browser compatibility smoke
+        env:
+          HERMES_CORE_DIR: .ci/hermes-webui-core
+          COMPATIBILITY_EVIDENCE_DIR: compatibility-evidence
+        run: python tests/compatibility/user_avatar_smoke.py
+
       - name: Upload browser compatibility evidence
         if: always()
         # v5 @ 330a01c490aca151604b8cf639adc76d48f6c5d4
