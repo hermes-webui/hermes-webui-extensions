@@ -1,0 +1,71 @@
+{
+  "id": "xtts-tts",
+  "name": "XTTS v2 (local studio voice)",
+  "description": "Adds a text-to-speech engine that synthesizes through a local XTTS v2 HTTP daemon on loopback, so replies are spoken in the daemon's studio voice instead of a browser/system voice. The engine appears in Settings -> TTS Engine and drives both the per-message Listen button and voice mode.",
+  "version": "0.1.0",
+  "author": "gaidar0yegor",
+  "assets": {
+    "scripts": [
+      "assets/xtts-tts.js"
+    ],
+    "stylesheets": []
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": []
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": false,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  },
+  "settings_schema": [
+    {
+      "key": "enabled",
+      "type": "boolean",
+      "label": "Enable the XTTS v2 engine",
+      "default": true
+    },
+    {
+      "key": "daemon_url",
+      "type": "string",
+      "label": "XTTS daemon URL (loopback only)",
+      "default": "http://127.0.0.1:3032/"
+    },
+    {
+      "key": "speaker",
+      "type": "string",
+      "label": "Studio speaker name",
+      "default": "Viktor Menelaos"
+    }
+  ],
+  "post_install": {
+    "summary": "Install adds the engine to Settings -> TTS Engine. Select 'XTTS v2 (local studio voice)' and start your local XTTS v2 daemon on the configured loopback URL.",
+    "docs_url": "https://github.com/hermes-webui/hermes-webui-extensions/tree/main/extensions/xtts-tts#setup",
+    "requires_local_app": true,
+    "local_app_label": "XTTS v2 voice daemon"
+  }
+}
