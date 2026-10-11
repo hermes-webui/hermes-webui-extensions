@@ -1,0 +1,28 @@
+{
+  "extensions": [
+    {
+      "id": "sigakhwa-bookmarks",
+      "name": "Sigakhwa Bookmarks & TOC",
+      "description": "Name and bookmark any message, jump back to it later (across conversations), and browse a table of contents of the current conversation built from headings, tables and Mermaid diagrams. Stored in the browser by default; an optional token-protected loopback sidecar shares bookmarks between devices (PC and phone).",
+      "scripts": [
+        "assets/shared/hermes-viz-store.js",
+        "assets/shared/hermes-viz-nav.js",
+        "assets/sigakhwa-bookmarks.js"
+      ],
+      "stylesheets": [
+        "assets/sigakhwa-bookmarks.css"
+      ],
+      "permissions": {
+        "storage": {
+          "owned": true
+        }
+      },
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17831",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      }
+    }
+  ]
+}
