@@ -1,0 +1,51 @@
+{
+  "id": "sigakhwa-vault",
+  "name": "Sigakhwa Result Vault",
+  "description": "Save the whole answer, a table, a Mermaid diagram or a section of an assistant reply as an immutable card with a hash of the source message. Reopen cards later, check whether the source changed, and jump back to it. Uses the same store as Sigakhwa Bookmarks, so cards also sync between devices when that extension's sidecar is enabled.",
+  "version": "0.1.0",
+  "author": "johnDEFI",
+  "assets": {
+    "scripts": [
+      "assets/shared/hermes-viz-store.js",
+      "assets/shared/hermes-viz-nav.js",
+      "assets/sigakhwa-vault.js"
+    ],
+    "stylesheets": [
+      "assets/sigakhwa-vault.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "session"
+      ],
+      "write": []
+    },
+    "webui_navigation": true,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}

@@ -1,0 +1,318 @@
+/*
+ * sigakhwa-vault — 결과 보관함
+ * All selectors are prefixed `.sgkv-` / `#sgkv…` so nothing here can style core
+ * views. Colors reuse core tokens with hard fallbacks so the panel stays
+ * readable if the extension is loaded outside the WebUI (e.g. the fixture).
+ *
+ * Stacking (core static/style.css scale): composer 10, mobile sidebar 199/200,
+ * onboarding 1050, .app-dialog-overlay 1100. The fab/panel sit at 160/161 so
+ * the mobile sidebar and every core dialog cover them; our modal layer sits at
+ * 1040, below core's dialogs and onboarding.
+ */
+
+.sgkv-fab {
+  position: fixed;
+  right: 16px;
+  /* Sits above the composer. Owner B's bookmarks button takes the lower slot
+     (~bottom: 76px); keep these two apart if both are installed. */
+  bottom: 132px;
+  z-index: 160;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text, #1a1610);
+  background: var(--surface, #f3eee3);
+  border: 1px solid var(--border, #e0d8c8);
+  border-radius: var(--radius-pill, 999px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+  cursor: pointer;
+}
+.sgkv-fab:hover { background: var(--hover-bg, rgba(0, 0, 0, .05)); }
+.sgkv-fab:focus-visible { outline: 2px solid var(--accent, #b8860b); outline-offset: 2px; }
+
+.sgkv-fab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  color: var(--bg, #fff);
+  background: var(--accent, #b8860b);
+  border-radius: var(--radius-pill, 999px);
+}
+
+.sgkv-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 176px;
+  z-index: 161;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  /* never taller than the space above its bottom offset (176px) + 16px gap */
+  max-height: min(70vh, 560px, calc(100vh - 192px));
+  color: var(--text, #1a1610);
+  background: var(--bg, #fefcf7);
+  border: 1px solid var(--border, #e0d8c8);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+  overflow: hidden;
+}
+.sgkv-panel[hidden] { display: none; }
+
+.sgkv-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #e0d8c8);
+  background: var(--sidebar, #faf7f0);
+}
+.sgkv-panel-title { flex: 1; font-size: 13px; font-weight: 600; }
+.sgkv-panel-actions { display: flex; align-items: center; gap: 4px; }
+
+.sgkv-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  color: var(--text, #1a1610);
+  background: var(--input-bg, rgba(0, 0, 0, .03));
+  border: 1px solid var(--border, #e0d8c8);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+}
+.sgkv-btn:hover { background: var(--hover-bg, rgba(0, 0, 0, .05)); }
+.sgkv-btn:disabled { opacity: .55; cursor: default; }
+.sgkv-btn--ghost { background: transparent; }
+.sgkv-btn--icon { padding: 3px 8px; font-size: 15px; line-height: 1; }
+.sgkv-btn--primary {
+  color: #fff;
+  background: var(--accent, #b8860b);
+  border-color: var(--accent, #b8860b);
+}
+.sgkv-btn--primary:hover { background: var(--accent-hover, #996f08); }
+.sgkv-btn--danger { color: var(--error, #c62828); border-color: var(--error, #c62828); }
+
+.sgkv-notice {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--warning, #e68a00);
+  background: var(--surface-subtle, rgba(0, 0, 0, .025));
+  border-bottom: 1px solid var(--border, #e0d8c8);
+}
+.sgkv-notice[hidden] { display: none; }
+
+.sgkv-list { flex: 1; overflow: auto; padding: 8px; }
+.sgkv-empty { padding: 18px 10px; font-size: 12px; color: var(--muted, #5c5344); text-align: center; }
+
+.sgkv-card + .sgkv-card { margin-top: 6px; }
+.sgkv-card-open {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--surface-subtle, rgba(0, 0, 0, .025));
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, .08));
+  border-radius: var(--radius-card, 8px);
+  cursor: pointer;
+}
+.sgkv-card-open:hover { background: var(--hover-bg, rgba(0, 0, 0, .05)); }
+.sgkv-card-name { display: block; font-size: 13px; font-weight: 600; word-break: break-word; }
+.sgkv-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; }
+.sgkv-card-time, .sgkv-card-src { font-size: 11px; color: var(--muted, #5c5344); }
+
+.sgkv-badge {
+  padding: 1px 7px;
+  font-size: 10px;
+  color: var(--accent-text, #8b6508);
+  background: var(--accent-bg, rgba(184, 134, 11, .08));
+  border: 1px solid var(--accent-bg-strong, rgba(184, 134, 11, .15));
+  border-radius: var(--radius-pill, 999px);
+  white-space: nowrap;
+}
+.sgkv-badge--local { color: var(--warning, #e68a00); border-color: var(--warning, #e68a00); background: transparent; }
+
+/* ── modal layer ── */
+.sgkv-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1040;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, .45);
+}
+.sgkv-layer[hidden] { display: none; }
+
+.sgkv-modal {
+  display: flex;
+  flex-direction: column;
+  width: 640px;
+  max-width: 100%;
+  max-height: 88vh;
+  color: var(--text, #1a1610);
+  background: var(--bg, #fefcf7);
+  border: 1px solid var(--border, #e0d8c8);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .3);
+  overflow: hidden;
+}
+.sgkv-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, #e0d8c8);
+  background: var(--sidebar, #faf7f0);
+}
+.sgkv-modal-title { flex: 1; font-size: 13px; font-weight: 600; word-break: break-word; }
+.sgkv-modal-body { flex: 1; overflow: auto; padding: 14px; }
+.sgkv-modal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border, #e0d8c8);
+  background: var(--sidebar, #faf7f0);
+}
+
+.sgkv-text { font-size: 12px; color: var(--muted, #5c5344); }
+.sgkv-text--ok { color: var(--success, #3d8b40); }
+.sgkv-text--warn { color: var(--warning, #e68a00); }
+.sgkv-error { font-size: 12px; color: var(--error, #c62828); }
+.sgkv-error[hidden] { display: none; }
+.sgkv-status-actions { margin: 6px 0 4px; }
+.sgkv-status-actions[hidden] { display: none; }
+
+.sgkv-field { display: block; margin-bottom: 10px; }
+.sgkv-field-label { display: block; margin-bottom: 4px; font-size: 11px; color: var(--muted, #5c5344); }
+.sgkv-input {
+  width: 100%;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text, #1a1610);
+  background: var(--input-bg, rgba(0, 0, 0, .03));
+  border: 1px solid var(--border, #e0d8c8);
+  border-radius: var(--radius-md, 8px);
+}
+
+.sgkv-chooser { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 10px; }
+.sgkv-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, .08));
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+}
+.sgkv-choice:hover { background: var(--hover-bg, rgba(0, 0, 0, .05)); }
+.sgkv-choice--on { border-color: var(--accent, #b8860b); background: var(--accent-bg, rgba(184, 134, 11, .08)); }
+.sgkv-choice-label { flex: 1; word-break: break-word; }
+
+.sgkv-preview {
+  max-height: 160px;
+  margin: 0;
+  padding: 9px;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--code-bg, #f5f0e5);
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, .08));
+  border-radius: var(--radius-md, 8px);
+}
+
+/* ── rendered snapshot ── */
+.sgkv-snapshot { margin-top: 10px; overflow-x: auto; }
+.sgkv-snapshot svg { max-width: 100%; height: auto; }
+.sgkv-md { font-size: 13px; line-height: 1.7; }
+.sgkv-md > * + * { margin-top: 8px; }
+.sgkv-md h3, .sgkv-md h4, .sgkv-md h5, .sgkv-md h6 { font-size: 13px; font-weight: 600; }
+.sgkv-md p { word-break: break-word; }
+.sgkv-md pre {
+  margin: 0;
+  padding: 9px;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12px;
+  background: var(--code-bg, #f5f0e5);
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, .08));
+  border-radius: var(--radius-md, 8px);
+}
+.sgkv-md .sgkv-pre-head { font-size: 10px; color: var(--muted, #5c5344); }
+.sgkv-md table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sgkv-md th, .sgkv-md td {
+  padding: 5px 8px;
+  text-align: left;
+  border: 1px solid var(--border, #e0d8c8);
+  word-break: break-word;
+}
+.sgkv-md th { background: var(--surface-subtle, rgba(0, 0, 0, .025)); font-weight: 600; }
+.sgkv-trunc { font-size: 11px; color: var(--muted, #5c5344); }
+
+/* ── own toast (only used when core's showToast is unavailable) ── */
+.sgkv-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 1045;
+  max-width: 90vw;
+  padding: 9px 14px;
+  font-size: 12px;
+  color: var(--text, #1a1610);
+  background: var(--surface, #f3eee3);
+  border: 1px solid var(--border, #e0d8c8);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .2);
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity .18s ease, transform .18s ease;
+  pointer-events: none;
+}
+.sgkv-toast--show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ── short landscape windows (e.g. 844x390): drop the panel to the bottom
+   edge, use the full height, and get the fab out of its way ── */
+@media (min-width: 481px) and (max-height: 600px) {
+  .sgkv-panel { bottom: 12px; max-height: calc(100vh - 24px); }
+  .sgkv-fab--panel-open { display: none; }
+}
+
+/* ── phone ── */
+@media (max-width: 480px) {
+  .sgkv-fab { right: 12px; bottom: 120px; padding: 7px 11px; }
+  /* the bottom sheet covers the button slot, so get out of its way */
+  .sgkv-fab--panel-open { display: none; }
+  .sgkv-panel {
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    max-height: 80vh;
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0;
+  }
+  .sgkv-layer { padding: 0; align-items: flex-end; }
+  .sgkv-modal { max-height: 92vh; border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0; }
+  .sgkv-modal-foot { justify-content: stretch; }
+  .sgkv-modal-foot .sgkv-btn { flex: 1 1 44%; }
+}
