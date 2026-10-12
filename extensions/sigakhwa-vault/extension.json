@@ -27,20 +27,31 @@
   "permissions": {
     "webui_api": {
       "read": [
-        "session"
+        "session",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/health",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/items",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/items/{id}",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/export"
       ],
-      "write": []
+      "write": [
+        "/api/profile/switch",
+        "/api/session/draft",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/items/{id}",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/import"
+      ]
     },
     "webui_navigation": true,
     "dom": {
       "owned": true,
-      "mutates_core_views": false
+      "mutates_core_views": true
     },
     "storage": {
-      "owned": true,
+      "owned": [
+        "hermes-viz-store:sigakhwa-vault"
+      ],
       "shared_webui_keys": []
     },
-    "loopback_sidecar": false,
+    "loopback_sidecar": true,
     "native_host": false,
     "filesystem": {
       "arbitrary": false,

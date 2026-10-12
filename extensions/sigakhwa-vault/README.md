@@ -10,7 +10,7 @@ can reopen later, without them ever being silently changed.
   save.
 - **Reopen.** The *보관함* button opens the vault (bottom sheet on phones). Cards show title, type and save
   time; opening one renders the saved snapshot (tables and markdown with a minimal escaping renderer,
-  Mermaid with WebUI's own Mermaid).
+  Mermaid with WebUI's own Mermaid; sources containing `<img>` or `<image>` use escaped code instead).
 - **Snapshots are immutable.** A card stores the content as it was at save time plus a SHA-256 of the full
   source message. *원문 변경 확인* (check source) re-reads the source and reports *동일* (same) or *변경됨*
   (changed); the card itself is never overwritten. *새 저장본 만들기* saves the current content as a new
@@ -27,7 +27,7 @@ Cards use the same store as *Sigakhwa Bookmarks & TOC* (namespace `sigakhwa-vaul
 - When Sigakhwa Bookmarks is installed with its sidecar running and proxy consent granted, cards are stored
   on the WebUI host through that sidecar and shared between devices. This extension has no sidecar of its own.
 
-Cards larger than 256 KiB are refused with a clear message.
+Cards larger than 256 KiB of ASCII-escaped JSON are refused with a clear message. The shared store enforces a total limit of 1,000 cards / 2 MiB; quota errors have a separate notice.
 
 ## Install
 
@@ -46,14 +46,14 @@ goes on the next reload. Saved cards stay in `localStorage` (and in the sidecar'
 - `hermesExt.register()` with one message action (icon `star`, assistant replies only); core allows **two**
   message actions per page.
 - `GET /api/session?...&msg_limit=all` to read the raw markdown of the reply being saved and to verify the
-  source later. Before saving, it checks that the message at that index still has the expected role and text.
+  source later. At invoke time it captures the complete message content and role from Core state (including the loaded-message offset). Before saving, it compares the normalized full content and role with the server message; if the capture is unavailable or differs, saving is refused.
 - `HermesVizNav` (bundled) to open the source conversation; WebUI's global `mermaid` to render saved diagrams.
 
 ## Trust and permissions
 
 Trusted same-origin code with your WebUI session. Reads the transcript of the reply you save. Writes only its
 own store namespace. No external network. Saved content is rendered only through an escaping renderer (no raw
-HTML from replies is ever inserted).
+HTML from replies is ever inserted). Every listed, opened or imported card is schema-checked. Invalid cards appear as corrupted, cannot be opened, and can be deleted; invalid import entries are skipped.
 
 ## Known limitations
 
@@ -64,7 +64,4 @@ HTML from replies is ever inserted).
 
 ## Compatibility and verification
 
-Tested against Hermes WebUI `7a74ae1b` (October 2026). Verified with unit tests (part extractor including
-pathological input, escaping renderer against XSS payloads, hashing, immutability), a real-browser fixture,
-and an isolated WebUI instance (save → reload → reopen → source check → jump; cards shared between two
-browser contexts through the bookmarks sidecar).
+Targets Hermes WebUI `7a74ae1b` (October 2026). Core PR nesquena/hermes-webui#8159 is merged and included in `exp-v0.52.460` on the experimental channel. Registered CI tests exercise the shipped extractor, escaping renderer, card validation, full-message identity, FAB positioning and Mermaid image fallback with local stubs/jsdom. These tests do not establish real-browser or cross-device integration.

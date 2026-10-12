@@ -8,7 +8,7 @@
  *   3. row lookup       → [data-session-msg-idx="<messageIndex>"] then msg-user-<rawIdx>
  *                         (rawIdx = _messageRawIdxForSessionIndex, ui.js:1034)
  *   4. row missing      → full transcript reload (outline.js:94-131 pattern: core _ensureAllMessagesLoaded()
- *                         or GET /api/session?...&msg_limit=all), expand the render window, renderMessages()
+ *                         or fail safely if unavailable), expand the render window, renderMessages()
  *   5. scrollIntoView + flash class (core 'outline-jump-flash' + 'hermes-viz-jump-flash')
  *
  * Plain classic script, idempotent, never throws at load time. Core globals are read lazily so the module
@@ -17,9 +17,14 @@
 (function () {
   'use strict';
   if (typeof window === 'undefined') return;
-  if (window.HermesVizNav && window.HermesVizNav.version >= 1) return;
+  var BUILD = 2026101301;
+  var previous = window.HermesVizNav;
+  if (previous && previous.build >= BUILD) {
+    if (previous.build > BUILD) console.warn('[HermesVizNav] older helper ignored');
+    return;
+  }
+  if (previous) console.warn('[HermesVizNav] replacing older helper');
 
-  var ROLES = { user: true, assistant: true };
   var FLASH_MS = 1200;
   var SETTLE_MS = 120;
   var MESSAGES_WAIT_MS = 4000;
@@ -35,6 +40,7 @@
     var fn = null;
     try {
       switch (name) {
+        case '_cancelBottomSettle': fn = typeof _cancelBottomSettle === 'function' ? _cancelBottomSettle : null; break;
         case 'loadSession': fn = typeof loadSession === 'function' ? loadSession : null; break;
         case 'renderMessages': fn = typeof renderMessages === 'function' ? renderMessages : null; break;
         case 'api': fn = typeof api === 'function' ? api : null; break;
@@ -53,13 +59,6 @@
   function coreTruncated() {
     try { if (typeof _messagesTruncated !== 'undefined') return !!_messagesTruncated; } catch (_) { /* ignore */ }
     return !!window._messagesTruncated;
-  }
-  function coreSetFullyLoaded() {
-    // Mirror sessions.js _ensureAllMessagesLoaded() bookkeeping after a manual full fetch.
-    try { if (typeof _messagesTruncated !== 'undefined') _messagesTruncated = false; } catch (_) { /* ignore */ }
-    try { if (typeof _oldestIdx !== 'undefined') _oldestIdx = 0; } catch (_) { /* ignore */ }
-    if ('_messagesTruncated' in window) window._messagesTruncated = false;
-    if ('_oldestIdx' in window) window._oldestIdx = 0;
   }
   function expandRenderWindow() {
     // outline.js _expandOutlineRenderWindow(): make the virtualized window cover every renderable row.
@@ -135,7 +134,17 @@
   }
 
   function scrollTo(row) {
-    try { row.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {
+    // Same sticky-unpin state as manual upward scrolling (pinned Core ui.js:7123-7126; cancellation at 6647).
+    var cancel = coreFn('_cancelBottomSettle');
+    if (cancel) { try { cancel(); } catch (_) { /* ignore */ } }
+    // Clear it immediately before scrolling so queued render/follow work cannot reclaim the tail.
+    try { if (typeof _scrollPinned !== 'undefined') _scrollPinned = false; } catch (_) { /* ignore */ }
+    try { if (typeof _messageUserUnpinned !== 'undefined') _messageUserUnpinned = true; } catch (_) { /* ignore */ }
+    try { if (typeof _nearBottomCount !== 'undefined') _nearBottomCount = 0; } catch (_) { /* ignore */ }
+    if ('_scrollPinned' in window) window._scrollPinned = false;
+    if ('_messageUserUnpinned' in window) window._messageUserUnpinned = true;
+    if ('_nearBottomCount' in window) window._nearBottomCount = 0;
+    try { row.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (_) {
       try { row.scrollIntoView(); } catch (_e) { /* ignore */ }
     }
     flash(row);
@@ -161,13 +170,7 @@
     if (coreTruncated() && ensure) {
       p = Promise.resolve().then(function () { return ensure(); }).then(function () { return true; }, function () { return false; });
     } else if (coreTruncated()) {
-      p = fetchAll(sid).then(function (data) {
-        if (!data || !data.session) return false;
-        if (!s.session || s.session.session_id !== sid) return false;
-        s.messages = (data.session.messages || []).filter(function (m) { return m && m.role; });
-        coreSetFullyLoaded();
-        return true;
-      }, function () { return false; });
+      p = Promise.resolve(false);
     } else {
       p = Promise.resolve(true);
     }
@@ -181,16 +184,6 @@
     });
   }
 
-  function fetchAll(sid) {
-    var apiFn = coreFn('api');
-    var path = '/api/session?session_id=' + encodeURIComponent(sid) + '&messages=1&resolve_model=0&msg_limit=all';
-    if (apiFn) return Promise.resolve().then(function () { return apiFn(path, { timeoutMs: 120000 }); });
-    if (typeof window.fetch !== 'function') return Promise.reject(new Error('no fetch'));
-    return window.fetch(path, { credentials: 'same-origin', cache: 'no-store' }).then(function (res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    });
-  }
 
   function goTo(target) {
     return Promise.resolve().then(function () {
@@ -204,7 +197,7 @@
       var profile = (typeof target.profile === 'string' && target.profile.trim()) ? target.profile.trim() : 'default';
       if (!sessionId) return result(false, 'session_not_found');
       if (!Number.isSafeInteger(messageIndex) || messageIndex < 0) return result(false, 'row_not_found');
-      if (!ROLES[role]) role = null;
+      if (role !== 'user' && role !== 'assistant') return result(false, 'row_not_found');
 
       var active = String(s.activeProfile || 'default');
       var needProfile = !profileMatches(profile, active);
@@ -226,7 +219,7 @@
       if (needSession || needProfile) {
         chain = chain.then(function () {
           return Promise.resolve().then(function () {
-            return loadSessionFn(sessionId, { skipLineageResolve: true, skipExtHooks: false });
+            return loadSessionFn(sessionId, { skipLineageResolve: true, skipContinuationResolve: true, skipExtHooks: false });
           }).then(function () {
             if (!s.session || String(s.session.session_id) !== sessionId) throw { reason: 'session_not_found' };
             return waitForMessages(sessionId);
@@ -255,6 +248,7 @@
 
   window.HermesVizNav = Object.freeze({
     version: 1,
+    build: BUILD,
     currentTarget: currentTarget,
     goTo: goTo,
     // Non-contract helpers (exposed for tests / UI reuse).

@@ -12,7 +12,7 @@
  * removed from the local copy once the server confirmed them, so a later server-side delete can never
  * be resurrected from a stale local copy. The server is preferred from then on (backend='sidecar').
  *
- * Honesty rules (docs/CONSTRAINTS.md): `synced` is true ONLY when the sidecar answered AND nothing is
+ * Honesty rules (README Storage and sync): `synced` is true ONLY when the sidecar answered AND nothing is
  * left behind in this browser. Items the server refused (413 store_full, 400 invalid, network error
  * mid-import) stay in localStorage, remain visible through list()/get() flagged `localOnly:true`, are
  * counted in `pendingLocal`, and are retried on the next open(). When /health answers but the data
@@ -28,18 +28,25 @@
 (function () {
   'use strict';
   if (typeof window === 'undefined') return;
-  if (window.HermesVizStore && window.HermesVizStore.version >= 1) return;
+  var BUILD = 2026101301;
+  var previous = window.HermesVizStore;
+  if (previous && previous.build >= BUILD) {
+    if (previous.build > BUILD) console.warn('[HermesVizStore] older helper ignored');
+    return;
+  }
+  if (previous) console.warn('[HermesVizStore] replacing older helper; existing stores remain usable');
 
   var NS_RE = /^[a-z0-9-]{1,32}$/;
   var ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;   // same as routes_impl.py ID_RE (PUT → 400 'invalid id' otherwise)
   var LOCAL_PREFIX = 'hermes-viz-store:';
   var DEFAULT_BASE = '/api/extensions/sigakhwa-bookmarks/sidecar';
-  var ROLES = { user: true, assistant: true };
   var MAX_NAME = 500;
   var MAX_TAGS = 32;
   var MAX_TAG = 64;
   var MAX_STR = 256;
   var MAX_ITEM_BYTES = 256 * 1024;
+  var MAX_ITEMS = 1000;
+  var MAX_NAMESPACE_BYTES = 2 * 1024 * 1024;
   var PROBE_TIMEOUT_MS = 4000;
   var REQUEST_TIMEOUT_MS = 12000;
 
@@ -97,6 +104,22 @@
     return n;
   }
 
+  // Python json.dumps defaults include a space after every structural comma/colon.
+  function measureItemBytes(item) {
+    var text = JSON.stringify(item);
+    var size = wireSize(text), quoted = false, escaped = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text.charAt(i);
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (c === '\\') escaped = true;
+        else if (c === '"') quoted = false;
+      } else if (c === '"') quoted = true;
+      else if (c === ',' || c === ':') size++;
+    }
+    return size;
+  }
+
   function sortNewest(a, b) {
     if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt;
     return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
@@ -118,7 +141,7 @@
     var messageIndex = raw.messageIndex;
     var name = str(raw.name === undefined ? '' : raw.name, MAX_NAME);
     if (!kind || !kind.trim() || !profile || !profile.trim() || !sessionId || !sessionId.trim()) return null;
-    if (!ROLES[role]) return null;
+    if (role !== 'user' && role !== 'assistant') return null;
     if (typeof messageIndex !== 'number' || !Number.isSafeInteger(messageIndex) || messageIndex < 0) return null;
     if (name === null) return null;
     var data = raw.data === undefined ? {} : raw.data;
@@ -155,14 +178,15 @@
     if (immutable) out.immutable = true;
     if (contentHash !== undefined) out.contentHash = contentHash;
     var size;
-    try { size = wireSize(JSON.stringify(out)); } catch (_) { return null; }
-    if (size > MAX_ITEM_BYTES) return null;
+    try { size = measureItemBytes(out); } catch (_) { return null; }
+    if (size > MAX_ITEM_BYTES) throw err('too_large', 'item exceeds 256 KiB');
     return out;
   }
 
   // Accept an already-persisted row (export/import/localStorage) without re-stamping timestamps.
   function acceptStoredItem(raw, namespace) {
-    var n = normalizeItem(raw, namespace, null);
+    var n;
+    try { n = normalizeItem(raw, namespace, null); } catch (_) { return null; }
     if (!n) return null;
     if (Number.isFinite(raw.createdAt)) n.createdAt = raw.createdAt;
     if (Number.isFinite(raw.updatedAt)) n.updatedAt = raw.updatedAt;
@@ -227,11 +251,14 @@
       if (!ls) throw err('storage', 'localStorage unavailable');
       var rows = Array.from(map.values());
       var text = JSON.stringify({ v: 1, namespace: namespace, items: rows });
+      if (rows.length > MAX_ITEMS || measureItemBytes({ v: 1, namespace: namespace, items: rows }) > MAX_NAMESPACE_BYTES) {
+        throw err('quota', 'namespace exceeds 1,000 items or 2 MiB');
+      }
       try {
         if (!rows.length) ls.removeItem(key);
         else ls.setItem(key, text);
       } catch (e) {
-        throw err('storage', 'localStorage write failed (quota?)', { cause: e && e.message });
+        throw err(e && e.name === 'QuotaExceededError' ? 'quota' : 'storage', 'localStorage write failed', { cause: e && e.message });
       }
     }
 
@@ -280,6 +307,8 @@
             next.tags = tags;
           }
           next.updatedAt = Date.now();
+          next = normalizeItem(next, namespace, existing);
+          if (!next) return Promise.reject(err('invalid', 'invalid patched item'));
           map.set(id, next);
           writeAll(map);
           return Promise.resolve(clone(next));
@@ -321,9 +350,11 @@
 
   // ── sidecar backend ──────────────────────────────────────────────────────
   function sidecarBackend(namespace, base) {
+    var requestCount = 0;
     var root = base + '/v1/' + encodeURIComponent(namespace);
 
     function request(method, path, body, timeoutMs) {
+      requestCount++;
       var fetchFn = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
       if (!fetchFn) return Promise.reject(err('network', 'fetch unavailable'));
       var opts = { method: method, credentials: 'same-origin', cache: 'no-store', headers: {} };
@@ -347,7 +378,7 @@
           if (text) { try { json = JSON.parse(text); } catch (_) { json = null; } }
           return { status: res.status, ok: res.status >= 200 && res.status < 300, json: json, text: text };
         });
-      }, function (e) {
+      }).catch(function (e) {
         if (timer) clearTimeout(timer);
         throw err('network', 'sidecar request failed', { cause: e && e.message });
       });
@@ -358,7 +389,7 @@
       if (res.status === 409 && res.json && res.json.error === 'immutable') code = 'immutable';
       else if (res.status === 404) code = 'not_found';
       else if (res.status === 400) code = 'invalid';
-      else if (res.status === 413) code = 'storage';
+      else if (res.status === 413) code = res.json && res.json.error === 'too_large' ? 'too_large' : 'quota';
       else if (res.status === 401 || res.status === 403) code = 'unauthorized';
       var e = err(code, (res.json && res.json.error) || ('sidecar responded ' + res.status), { status: res.status });
       return Promise.reject(e);
@@ -396,6 +427,7 @@
 
     return {
       name: 'sidecar',
+      _requestCount: function () { return requestCount; },
       probe: function () {
         return request('GET', base + '/health', undefined, PROBE_TIMEOUT_MS).then(function (res) { return res.ok; }, function () { return false; });
       },
@@ -408,7 +440,8 @@
         });
       },
       put: function (item) {
-        var probe = normalizeItem(item, namespace, null);
+        var probe;
+        try { probe = normalizeItem(item, namespace, null); } catch (e) { return Promise.reject(e); }
         if (!probe) return Promise.reject(err('invalid', 'invalid item'));
         var payload = clone(item);
         payload.id = probe.id;
@@ -489,7 +522,7 @@
     function syncFlags() {
       var n = active === hybrid ? leftovers().size : 0;
       store.pendingLocal = n;
-      store.synced = active === hybrid && n === 0;
+      store.synced = active === hybrid && n === 0 && !store.syncError;
     }
 
     // Sidecar backend + leftovers kept visible and editable: reads merge the two (leftovers flagged
@@ -574,8 +607,11 @@
           // Items already on the server (same id) are also redundant locally.
           localMap.forEach(function (it) { if (onServer.has(it.id)) migrated.push(it.id); });
           if (migrated.length) {
-            migrated.forEach(function (id) { localMap.delete(id); });
-            try { local._writeAll(localMap); } catch (_) { /* non-fatal */ }
+            var current = local._readAll();
+            migrated.forEach(function (id) {
+              if (JSON.stringify(current.get(id)) === JSON.stringify(localMap.get(id))) current.delete(id);
+            });
+            try { local._writeAll(current); } catch (_) { /* non-fatal */ }
           }
           return { migrated: migrated.length, leftover: failed };
         });
@@ -598,7 +634,19 @@
     }).catch(function () { /* stay local */ });
 
     function run(fn) {
-      return ready.then(function () { return fn(active); });
+      var before;
+      return ready.then(function () { before = remote._requestCount(); return fn(active); }).then(function (value) {
+        if (active === hybrid && store.syncError && remote._requestCount() > before) { store.syncError = null; syncFlags(); emit({ type: 'status' }); }
+        return value;
+      }, function (e) {
+        if (active === hybrid && (!e || ['network', 'server', 'unauthorized'].indexOf(e.code) >= 0)) {
+          var changed = !store.syncError || store.syncError.code !== ((e && e.code) || 'server') || store.syncError.status !== ((e && e.status) || null);
+          store.syncError = { code: (e && e.code) || 'server', status: (e && e.status) || null };
+          syncFlags();
+          if (changed) emit({ type: 'status' });
+        }
+        throw e;
+      });
     }
 
     store.namespace = namespace;
@@ -655,6 +703,8 @@
 
   var api = {
     version: 1,
+    build: BUILD,
+    measureItemBytes: measureItemBytes,
     configure: function (opts) {
       if (opts && typeof opts.sidecarProxyBase === 'string' && opts.sidecarProxyBase.charAt(0) === '/') {
         config.sidecarProxyBase = opts.sidecarProxyBase.replace(/\/+$/, '');

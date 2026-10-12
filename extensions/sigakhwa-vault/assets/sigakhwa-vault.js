@@ -6,11 +6,11 @@
  * table, a mermaid fenced block, or a `##` section) into an immutable card, and
  * a self-owned 보관함 panel that lists / renders / re-checks those cards.
  *
- * Contracts consumed (docs/INTERFACES.md v1, frozen):
+ * Contracts consumed (see README.md, WebUI surfaces used):
  *   window.HermesVizStore  (owner B) — persistence, §2
  *   window.HermesVizNav    (owner B) — jump back to the source message, §3
  * Both are optional at runtime: when the store is missing the panel shows a
- * one-line Korean notice and saving is disabled. Nothing here may throw at
+ * one-line notice and saving is disabled. Nothing here may throw at
  * load time, and nothing here ever sends a message to the model.
  *
  * Core APIs used: window.hermesExt.register / handle.messages.registerAction,
@@ -23,6 +23,201 @@
   var EXT_ID = 'sigakhwa-vault';
   var VERSION = '0.1.0';
   var NAMESPACE = 'sigakhwa-vault';
+
+  var I18N = {
+    "ko": {
+      "전체 답변": "전체 답변",
+      "다이어그램: ": "다이어그램: ",
+      "섹션: ": "섹션: ",
+      "표: ": "표: ",
+      "다이어그램(닫히지 않은 블록): ": "다이어그램(닫히지 않은 블록): ",
+      "표": "표",
+      "다이어그램": "다이어그램",
+      "섹션": "섹션",
+      "내용": "내용",
+      "<p class=\"sgkv-trunc\">… (긴 내용의 일부만 표시됨)</p>": "<p class=\"sgkv-trunc\">… (긴 내용의 일부만 표시됨)</p>",
+      "서버의 같은 위치에 다른 메시지가 있습니다. 대화가 수정·재생성되었을 수 있으니 새로고침한 뒤 다시 시도해 주세요.": "서버의 같은 위치에 다른 메시지가 있습니다. 대화가 수정·재생성되었을 수 있으니 새로고침한 뒤 다시 시도해 주세요.",
+      "화면의 답변과 서버의 원문이 다릅니다. 대화가 수정·재생성되었을 수 있으니 새로고침한 뒤 다시 시도해 주세요.": "화면의 답변과 서버의 원문이 다릅니다. 대화가 수정·재생성되었을 수 있으니 새로고침한 뒤 다시 시도해 주세요.",
+      "저장된 결과": "저장된 결과",
+      "보관함": "보관함",
+      "결과 보관함 열기": "결과 보관함 열기",
+      "결과 보관함": "결과 보관함",
+      "내보내기": "내보내기",
+      "가져오기": "가져오기",
+      "닫기": "닫기",
+      "저장 모듈(HermesVizStore)을 불러올 수 없어 보관함 저장 기능을 쓸 수 없습니다.": "저장 모듈(HermesVizStore)을 불러올 수 없어 보관함 저장 기능을 쓸 수 없습니다.",
+      "저장된 카드를 읽을 수 없습니다.": "저장된 카드를 읽을 수 없습니다.",
+      "보관함을 읽는 중 오류가 발생했습니다.": "보관함을 읽는 중 오류가 발생했습니다.",
+      "저장된 카드가 없습니다. 답변의 ★ 버튼으로 결과를 보관하세요.": "저장된 카드가 없습니다. 답변의 ★ 버튼으로 결과를 보관하세요.",
+      "(제목 없음)": "(제목 없음)",
+      "이 기기에만 저장됨": "이 기기에만 저장됨",
+      "취소": "취소",
+      "확인": "확인",
+      "보관함 저장 한도(1,000개 / 2 MiB)에 도달했습니다. 카드를 삭제하거나 내보낸 뒤 다시 시도해 주세요.": "보관함 저장 한도(1,000개 / 2 MiB)에 도달했습니다. 카드를 삭제하거나 내보낸 뒤 다시 시도해 주세요.",
+      "카드가 너무 큽니다 (": "카드가 너무 큽니다 (",
+      "약 ": "약 ",
+      "최대 ": "최대 ",
+      " KiB). 표·다이어그램·섹션처럼 더 작은 조각을 골라 주세요.": " KiB). 표·다이어그램·섹션처럼 더 작은 조각을 골라 주세요.",
+      "이미 저장된 카드는 바꿀 수 없습니다. 새 저장본으로 만들어 주세요.": "이미 저장된 카드는 바꿀 수 없습니다. 새 저장본으로 만들어 주세요.",
+      "저장 모듈이 없어 저장할 수 없습니다.": "저장 모듈이 없어 저장할 수 없습니다.",
+      "저장에 실패했습니다.": "저장에 실패했습니다.",
+      "결과 보관함에 저장": "결과 보관함에 저장",
+      "원문을 불러오는 중…": "원문을 불러오는 중…",
+      "원문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.": "원문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+      "저장할 내용을 찾지 못했습니다.": "저장할 내용을 찾지 못했습니다.",
+      " 이 브라우저에만 보관되며 다른 기기와 동기화되지 않습니다.": " 이 브라우저에만 보관되며 다른 기기와 동기화되지 않습니다.",
+      "제목": "제목",
+      "저장할 내용": "저장할 내용",
+      "저장": "저장",
+      "보관함에 저장했습니다.": "보관함에 저장했습니다.",
+      "저장 모듈(HermesVizStore)이 없어 저장할 수 없습니다.": "저장 모듈(HermesVizStore)이 없어 저장할 수 없습니다.",
+      "저장 모듈이 없습니다.": "저장 모듈이 없습니다.",
+      "카드를 찾을 수 없습니다.": "카드를 찾을 수 없습니다.",
+      "카드를 열지 못했습니다.": "카드를 열지 못했습니다.",
+      "출처: ": "출처: ",
+      "그래도 이동": "그래도 이동",
+      "이동하는 중…": "이동하는 중…",
+      "원문이 저장 이후 바뀌었거나 그 위치에 다른 메시지가 있습니다. 이동하면 다른 메시지가 나올 수 있습니다.": "원문이 저장 이후 바뀌었거나 그 위치에 다른 메시지가 있습니다. 이동하면 다른 메시지가 나올 수 있습니다.",
+      "원문이 그대로인지 확인할 수 없습니다(다른 프로필의 대화이거나 원문을 불러오지 못함).": "원문이 그대로인지 확인할 수 없습니다(다른 프로필의 대화이거나 원문을 불러오지 못함).",
+      "이동 모듈(HermesVizNav)이 없어 원문으로 이동할 수 없습니다.": "이동 모듈(HermesVizNav)이 없어 원문으로 이동할 수 없습니다.",
+      "원문으로 이동하지 못했습니다": "원문으로 이동하지 못했습니다",
+      "원문으로 이동": "원문으로 이동",
+      "원문을 확인하는 중…": "원문을 확인하는 중…",
+      "원문 변경 확인": "원문 변경 확인",
+      "원문을 다시 불러오는 중…": "원문을 다시 불러오는 중…",
+      "동일 — 원문이 저장 시점과 같습니다.": "동일 — 원문이 저장 시점과 같습니다.",
+      "변경됨 — 저장 위치에 다른 메시지가 있습니다. 보관된 스냅샷은 그대로입니다.": "변경됨 — 저장 위치에 다른 메시지가 있습니다. 보관된 스냅샷은 그대로입니다.",
+      "변경됨 — 원문이 저장 이후 바뀌었습니다. 보관된 스냅샷은 그대로입니다.": "변경됨 — 원문이 저장 이후 바뀌었습니다. 보관된 스냅샷은 그대로입니다.",
+      "변경 여부를 확인할 수 없습니다 (해시 방식이 다름).": "변경 여부를 확인할 수 없습니다 (해시 방식이 다름).",
+      "원문을 불러오지 못해 확인하지 못했습니다.": "원문을 불러오지 못해 확인하지 못했습니다.",
+      "새 저장본 만들기": "새 저장본 만들기",
+      " (새 저장본)": " (새 저장본)",
+      "이름 변경": "이름 변경",
+      "새 이름": "새 이름",
+      "이름을 바꿨습니다.": "이름을 바꿨습니다.",
+      "이름을 바꾸지 못했습니다.": "이름을 바꾸지 못했습니다.",
+      "삭제": "삭제",
+      "카드 삭제": "카드 삭제",
+      "” 카드를 삭제할까요? 되돌릴 수 없습니다.": "” 카드를 삭제할까요? 되돌릴 수 없습니다.",
+      "카드를 삭제했습니다.": "카드를 삭제했습니다.",
+      "삭제하지 못했습니다.": "삭제하지 못했습니다.",
+      "보관함을 JSON으로 내보냈습니다.": "보관함을 JSON으로 내보냈습니다.",
+      "내보내기에 실패했습니다.": "내보내기에 실패했습니다.",
+      "가져오기 완료: ": "가져오기 완료: ",
+      "건 추가, ": "건 추가, ",
+      "건 건너뜀": "건 건너뜀",
+      "가져오기에 실패했습니다. JSON 형식을 확인해 주세요.": "가져오기에 실패했습니다. JSON 형식을 확인해 주세요.",
+      "파일을 읽지 못했습니다.": "파일을 읽지 못했습니다.",
+      "보관함에 저장": "보관함에 저장",
+      "손상된 카드": "손상된 카드",
+      "손상된 카드를 삭제할까요? 되돌릴 수 없습니다.": "손상된 카드를 삭제할까요? 되돌릴 수 없습니다.",
+      "클릭한 메시지의 전체 원문을 확인할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.": "클릭한 메시지의 전체 원문을 확인할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "profile_switch_required": "원문 프로필로 전환하지 못했습니다.",
+      "session_not_found": "원문 대화를 찾을 수 없습니다.",
+      "row_not_found": "원문 메시지를 찾을 수 없습니다.",
+      "invalid_target": "원문 위치가 올바르지 않습니다.",
+      "invalid_card": "손상된 카드"
+    },
+    "en": {
+      "전체 답변": "Whole answer",
+      "다이어그램: ": "Diagram: ",
+      "섹션: ": "Section: ",
+      "표: ": "Table: ",
+      "다이어그램(닫히지 않은 블록): ": "Diagram (unclosed block): ",
+      "표": "Table",
+      "다이어그램": "Diagram",
+      "섹션": "Section",
+      "내용": "Content",
+      "<p class=\"sgkv-trunc\">… (긴 내용의 일부만 표시됨)</p>": "<p class=\"sgkv-trunc\">… (Only part of this long content is shown)</p>",
+      "서버의 같은 위치에 다른 메시지가 있습니다. 대화가 수정·재생성되었을 수 있으니 새로고침한 뒤 다시 시도해 주세요.": "The server has a different message at this position. The conversation may have been edited or regenerated. Reload and try again.",
+      "화면의 답변과 서버의 원문이 다릅니다. 대화가 수정·재생성되었을 수 있으니 새로고침한 뒤 다시 시도해 주세요.": "The reply on screen differs from the server source. The conversation may have been edited or regenerated. Reload and try again.",
+      "저장된 결과": "Saved result",
+      "보관함": "Vault",
+      "결과 보관함 열기": "Open result vault",
+      "결과 보관함": "Result vault",
+      "내보내기": "Export",
+      "가져오기": "Import",
+      "닫기": "Close",
+      "저장 모듈(HermesVizStore)을 불러올 수 없어 보관함 저장 기능을 쓸 수 없습니다.": "HermesVizStore could not be loaded. Saving to the vault is unavailable.",
+      "저장된 카드를 읽을 수 없습니다.": "Saved cards could not be read.",
+      "보관함을 읽는 중 오류가 발생했습니다.": "Could not read the vault.",
+      "저장된 카드가 없습니다. 답변의 ★ 버튼으로 결과를 보관하세요.": "No saved cards. Use the ★ button on a reply to save a result.",
+      "(제목 없음)": "(Untitled)",
+      "이 기기에만 저장됨": "Saved on this device only",
+      "취소": "Cancel",
+      "확인": "Confirm",
+      "보관함 저장 한도(1,000개 / 2 MiB)에 도달했습니다. 카드를 삭제하거나 내보낸 뒤 다시 시도해 주세요.": "The vault limit (1,000 cards / 2 MiB) has been reached. Delete or export cards, then try again.",
+      "카드가 너무 큽니다 (": "Card is too large (",
+      "약 ": "about ",
+      "최대 ": "maximum ",
+      " KiB). 표·다이어그램·섹션처럼 더 작은 조각을 골라 주세요.": " KiB). Choose a smaller part, such as a table, diagram or section.",
+      "이미 저장된 카드는 바꿀 수 없습니다. 새 저장본으로 만들어 주세요.": "Saved cards cannot be overwritten. Create a new snapshot.",
+      "저장 모듈이 없어 저장할 수 없습니다.": "The storage module is unavailable. Cannot save.",
+      "저장에 실패했습니다.": "Could not save.",
+      "결과 보관함에 저장": "Save to result vault",
+      "원문을 불러오는 중…": "Loading source…",
+      "원문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.": "Could not load the source. Try again shortly.",
+      "저장할 내용을 찾지 못했습니다.": "No content to save.",
+      " 이 브라우저에만 보관되며 다른 기기와 동기화되지 않습니다.": " Stored in this browser only; it is not synced to other devices.",
+      "제목": "Title",
+      "저장할 내용": "Content to save",
+      "저장": "Save",
+      "보관함에 저장했습니다.": "Saved to the vault.",
+      "저장 모듈(HermesVizStore)이 없어 저장할 수 없습니다.": "HermesVizStore is unavailable. Cannot save.",
+      "저장 모듈이 없습니다.": "The storage module is unavailable.",
+      "카드를 찾을 수 없습니다.": "Card not found.",
+      "카드를 열지 못했습니다.": "Could not open the card.",
+      "출처: ": "Source: ",
+      "그래도 이동": "Go anyway",
+      "이동하는 중…": "Navigating…",
+      "원문이 저장 이후 바뀌었거나 그 위치에 다른 메시지가 있습니다. 이동하면 다른 메시지가 나올 수 있습니다.": "The source changed after saving, or another message occupies its position. Navigating may show a different message.",
+      "원문이 그대로인지 확인할 수 없습니다(다른 프로필의 대화이거나 원문을 불러오지 못함).": "Cannot verify the source (it belongs to another profile or could not be loaded).",
+      "이동 모듈(HermesVizNav)이 없어 원문으로 이동할 수 없습니다.": "HermesVizNav is unavailable. Cannot navigate to the source.",
+      "원문으로 이동하지 못했습니다": "Could not navigate to the source",
+      "원문으로 이동": "Go to source",
+      "원문을 확인하는 중…": "Checking source…",
+      "원문 변경 확인": "Check source changes",
+      "원문을 다시 불러오는 중…": "Reloading source…",
+      "동일 — 원문이 저장 시점과 같습니다.": "Unchanged — the source matches the saved version.",
+      "변경됨 — 저장 위치에 다른 메시지가 있습니다. 보관된 스냅샷은 그대로입니다.": "Changed — another message occupies the saved position. The snapshot is unchanged.",
+      "변경됨 — 원문이 저장 이후 바뀌었습니다. 보관된 스냅샷은 그대로입니다.": "Changed — the source was edited after saving. The snapshot is unchanged.",
+      "변경 여부를 확인할 수 없습니다 (해시 방식이 다름).": "Cannot check for changes (different hash schemes).",
+      "원문을 불러오지 못해 확인하지 못했습니다.": "Could not load the source to check for changes.",
+      "새 저장본 만들기": "Create new snapshot",
+      " (새 저장본)": " (new snapshot)",
+      "이름 변경": "Rename",
+      "새 이름": "New name",
+      "이름을 바꿨습니다.": "Renamed.",
+      "이름을 바꾸지 못했습니다.": "Could not rename.",
+      "삭제": "Delete",
+      "카드 삭제": "Delete card",
+      "” 카드를 삭제할까요? 되돌릴 수 없습니다.": "”? This cannot be undone.",
+      "카드를 삭제했습니다.": "Card deleted.",
+      "삭제하지 못했습니다.": "Could not delete.",
+      "보관함을 JSON으로 내보냈습니다.": "Vault exported as JSON.",
+      "내보내기에 실패했습니다.": "Could not export.",
+      "가져오기 완료: ": "Import complete: ",
+      "건 추가, ": " added, ",
+      "건 건너뜀": " skipped",
+      "가져오기에 실패했습니다. JSON 형식을 확인해 주세요.": "Import failed. Check the JSON format.",
+      "파일을 읽지 못했습니다.": "Could not read the file.",
+      "보관함에 저장": "Save to vault",
+      "손상된 카드": "Corrupted card",
+      "손상된 카드를 삭제할까요? 되돌릴 수 없습니다.": "Delete the corrupted card? This cannot be undone.",
+      "클릭한 메시지의 전체 원문을 확인할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.": "Cannot verify the full source of the clicked message. Reload and try again.",
+      "profile_switch_required": "Could not switch to the source profile.",
+      "session_not_found": "Source conversation not found.",
+      "row_not_found": "Source message not found.",
+      "invalid_target": "Invalid source location.",
+      "invalid_card": "Corrupted card"
+    }
+  };
+
+  function t(key) {
+    var lang = typeof document !== 'undefined' && document && document.documentElement ? document.documentElement.lang : '';
+    var messages = I18N[/^ko/i.test(lang || '') ? 'ko' : 'en'];
+    return Object.prototype.hasOwnProperty.call(messages, key) ? messages[key] : key;
+  }
 
   // ── Init guard ───────────────────────────────────────────────────────────
   // A re-injected classic script must not create a second panel, a second
@@ -194,7 +389,7 @@
     }
 
     if (!content.trim()) return parts;
-    push('full', '전체 답변', content);
+    push('full', t('전체 답변'), content);
 
     var lines = splitLines(content);
     var limit = Math.min(lines.length, MAX_SCAN_LINES);
@@ -217,7 +412,7 @@
         if (isFenceClose(line, fence.ticks)) {
           if (fence.lang === 'mermaid') {
             var block = lines.slice(fenceStart, i + 1).join('\n');
-            push('mermaid', '다이어그램: ' + clamp(lines[fenceStart + 1] || '', 40), block);
+            push('mermaid', t('다이어그램: ') + clamp(lines[fenceStart + 1] || '', 40), block);
           }
           fence = null;
           fenceStart = -1;
@@ -237,7 +432,7 @@
         var level = heading[1].length;
         if (level <= 2) {
           closeSection(i);
-          if (level === 2) pendingSection = { label: '섹션: ' + clamp(heading[2], 48), start: i };
+          if (level === 2) pendingSection = { label: t('섹션: ') + clamp(heading[2], 48), start: i };
         }
         continue;
       }
@@ -247,7 +442,7 @@
         var end = i + 2;
         while (end < limit && isTableRow(lines[end])) end++;
         var tableText = lines.slice(tableStart, end).join('\n');
-        push('table', '표: ' + clamp(tableCells(lines[tableStart]).join(' | '), 60), tableText);
+        push('table', t('표: ') + clamp(tableCells(lines[tableStart]).join(' | '), 60), tableText);
         i = end - 1;
         continue;
       }
@@ -257,7 +452,7 @@
     // (everything to the end of the message); an unterminated fence of any
     // other language is ignored. An open section runs to the end.
     if (fence && fence.lang === 'mermaid' && fenceStart >= 0) {
-      push('mermaid', '다이어그램(닫히지 않은 블록): ' + clamp(lines[fenceStart + 1] || '', 32),
+      push('mermaid', t('다이어그램(닫히지 않은 블록): ') + clamp(lines[fenceStart + 1] || '', 32),
         lines.slice(fenceStart, limit).join('\n'));
     }
     closeSection(limit);
@@ -270,14 +465,44 @@
     return 'markdown';
   }
 
+  function validateCard(card) {
+    if (!card || typeof card !== 'object' || Array.isArray(card) || card.kind !== 'card') return false;
+    var data = card.data;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return false;
+    var fields = ['name', 'profile', 'sessionId', 'contentHash'];
+    for (var i = 0; i < fields.length; i++) if (typeof card[fields[i]] !== 'string') return false;
+    fields = ['content', 'partType', 'contentType', 'partLabel', 'sessionTitle'];
+    for (var j = 0; j < fields.length; j++) if (typeof data[fields[j]] !== 'string') return false;
+    if (card.id !== undefined && (typeof card.id !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(card.id))) return false;
+    if (card.createdAt !== undefined && (typeof card.createdAt !== 'number' || !isFinite(card.createdAt))) return false;
+    if (card.updatedAt !== undefined && (typeof card.updatedAt !== 'number' || !isFinite(card.updatedAt))) return false;
+    if (!card.sessionId || (card.role !== 'user' && card.role !== 'assistant')) return false;
+    if (!Number.isSafeInteger(card.messageIndex) || card.messageIndex < 0) return false;
+    if (data.partType !== 'full' && data.partType !== 'section' && data.partType !== 'table' && data.partType !== 'mermaid') return false;
+    if (data.contentType !== contentTypeForPart(data.partType)) return false;
+    if (!/^(?:[a-fA-F0-9]{64}|fnv1a128-[a-fA-F0-9]{32})$/.test(card.contentHash)) return false;
+    var ref = data.savedFrom;
+    return !!ref && typeof ref === 'object' && !Array.isArray(ref)
+      && typeof ref.profile === 'string' && ref.profile === card.profile
+      && ref.sessionId === card.sessionId && ref.messageIndex === card.messageIndex && ref.role === card.role;
+  }
+
+  function validatedImport(text) {
+    var parsed = JSON.parse(text);
+    var rows = Array.isArray(parsed) ? parsed : parsed && parsed.items;
+    if (!Array.isArray(rows)) throw new Error('invalid import');
+    var valid = rows.filter(validateCard);
+    return { text: JSON.stringify({ v: 1, namespace: NAMESPACE, items: valid }), skipped: rows.length - valid.length };
+  }
+
   var PART_BADGES = { full: '전체 답변', table: '표', mermaid: '다이어그램', section: '섹션' };
 
   function badgeForCard(card) {
     var data = (card && card.data) || {};
-    if (PART_BADGES[data.partType]) return PART_BADGES[data.partType];
-    if (data.contentType === 'table') return '표';
-    if (data.contentType === 'mermaid') return '다이어그램';
-    return '내용';
+    if (PART_BADGES[data.partType]) return t(PART_BADGES[data.partType]);
+    if (data.contentType === 'table') return t('표');
+    if (data.contentType === 'mermaid') return t('다이어그램');
+    return t('내용');
   }
 
   // ── minimal safe renderer ────────────────────────────────────────────────
@@ -333,16 +558,16 @@
         var rows = [];
         var k = i + 2;
         while (k < limit && isTableRow(lines[k])) { rows.push(tableCells(lines[k])); k++; }
-        var t = ['<table><thead><tr>'];
-        for (var h = 0; h < head.length; h++) t.push('<th>' + escapeHtml(head[h]) + '</th>');
-        t.push('</tr></thead><tbody>');
+        var table = ['<table><thead><tr>'];
+        for (var h = 0; h < head.length; h++) table.push('<th>' + escapeHtml(head[h]) + '</th>');
+        table.push('</tr></thead><tbody>');
         for (var r = 0; r < rows.length; r++) {
-          t.push('<tr>');
-          for (var c = 0; c < head.length; c++) t.push('<td>' + escapeHtml(rows[r][c] || '') + '</td>');
-          t.push('</tr>');
+          table.push('<tr>');
+          for (var c = 0; c < head.length; c++) table.push('<td>' + escapeHtml(rows[r][c] || '') + '</td>');
+          table.push('</tr>');
         }
-        t.push('</tbody></table>');
-        html.push(t.join(''));
+        table.push('</tbody></table>');
+        html.push(table.join(''));
         i = k;
         continue;
       }
@@ -352,7 +577,7 @@
       i++;
     }
     flushParagraph();
-    if (truncated) html.push('<p class="sgkv-trunc">… (긴 내용의 일부만 표시됨)</p>');
+    if (truncated) html.push(t('<p class="sgkv-trunc">… (긴 내용의 일부만 표시됨)</p>'));
     return '<div class="sgkv-md">' + html.join('') + '</div>';
   }
 
@@ -442,17 +667,16 @@
   // quota); refuse before writing instead of surfacing a generic failure.
   var MAX_CARD_BYTES = 256 * 1024;
 
-  // UTF-8 byte length of the JSON-serialised item; linear, no TextEncoder.
+  // ASCII-escaped JSON bytes, matching the shared store and sidecar.
   function cardByteSize(card) {
+    var mod = storeModule();
+    if (mod && typeof mod.measureItemBytes === 'function') return mod.measureItemBytes(card);
     var json;
     try { json = JSON.stringify(card); } catch (_err) { return Infinity; }
     var bytes = 0;
     for (var i = 0; i < json.length; i++) {
       var code = json.charCodeAt(i);
-      if (code < 0x80) bytes += 1;
-      else if (code < 0x800) bytes += 2;
-      else if (code >= 0xd800 && code <= 0xdbff) { bytes += 4; i++; }
-      else bytes += 3;
+      bytes += code >= 0x20 && code <= 0x7e ? 1 : 6;
     }
     return bytes;
   }
@@ -460,34 +684,23 @@
   function isTooLargeError(err) {
     if (!err) return false;
     var code = String(err.code || '').toLowerCase();
-    return code === 'too_large' || code === 'payload_too_large' || code === 'quota'
-      || code === 'quota_exceeded' || err.status === 413 || err.name === 'QuotaExceededError';
+    return code === 'too_large' || code === 'payload_too_large' || err.status === 413;
   }
 
   function normalizeForCompare(text) {
     return String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
   }
 
-  // Core's messageIndex is not a durable id across edit / regenerate /
-  // truncate (upstream docs/EXTENSIONS.md:397-399), so the refetched row must
-  // be shown to be the row the user clicked:
-  //  - its role must equal the clicked role;
-  //  - when core supplied the row's visible text, a bounded head or tail probe
-  //    of it must occur in the refetched content. Core's text is display-
-  //    normalised (not the raw markdown), so this is a containment check, not
-  //    equality; it only fails when the two clearly differ.
-  var TEXT_PROBE_CHARS = 80;
+  // Compare the complete normalized source captured from Core at invoke time.
   function messageMatchesContext(msg, expected) {
     var want = expected || {};
     var role = msg && typeof msg.role === 'string' ? msg.role : '';
-    if (want.role && role !== want.role) return { ok: false, reason: 'role_mismatch' };
+    if (want.role !== 'user' && want.role !== 'assistant') return { ok: false, reason: 'source_unavailable' };
+    if (role !== want.role) return { ok: false, reason: 'role_mismatch' };
+    if (typeof want.text !== 'string') return { ok: false, reason: 'source_unavailable' };
     var visible = normalizeForCompare(want.text);
-    if (!visible) return { ok: true };
-    var content = normalizeForCompare(msg && msg.content);
-    if (!content) return { ok: false, reason: 'text_mismatch' };
-    var head = visible.slice(0, TEXT_PROBE_CHARS);
-    var tail = visible.slice(-TEXT_PROBE_CHARS);
-    if (content.indexOf(head) !== -1 || content.indexOf(tail) !== -1) return { ok: true };
+    var content = normalizeForCompare(normalizeMessageContent(msg && msg.content));
+    if (visible === content) return { ok: true };
     return { ok: false, reason: 'text_mismatch' };
   }
 
@@ -498,13 +711,13 @@
 
   // The suggested card title follows the selected part.
   function defaultTitleForPart(part, sessionTitle) {
-    if (!part) return '저장된 결과';
-    if (part.type === 'full') return clamp(sessionTitle, MAX_LABEL) || '전체 답변';
-    return part.label || '저장된 결과';
+    if (!part) return t('저장된 결과');
+    if (part.type === 'full') return clamp(sessionTitle, MAX_LABEL) || t('전체 답변');
+    return part.label || t('저장된 결과');
   }
 
   // ── card builder ─────────────────────────────────────────────────────────
-  // Builds the HermesVizStore item for a chosen part (docs/INTERFACES.md §2).
+  // Builds the HermesVizStore item for a chosen part (README.md, Storage and sync).
   // `fullContent` is the WHOLE message content: contentHash always covers the
   // full message so 원문 변경 확인 detects any edit, not only edits inside the
   // saved part.
@@ -521,7 +734,7 @@
       };
       var card = {
         kind: 'card',
-        name: String(o.name || part.label || '저장된 결과'),
+        name: String(o.name || part.label || t('저장된 결과')),
         immutable: true,
         contentHash: hash,
         profile: savedFrom.profile,
@@ -692,6 +905,7 @@
   }
 
   function formatTime(ms) {
+    if (typeof ms !== 'number') return '';
     var n = Number(ms);
     if (!isFinite(n) || n <= 0) return '';
     try {
@@ -706,9 +920,9 @@
     if (!document.body) return;
     withOwnWrites(function () {
       if (!document.getElementById('sgkvFab')) {
-        var fab = button('보관함', 'sgkv-fab', togglePanel);
+        var fab = button(t('보관함'), 'sgkv-fab', togglePanel);
         fab.id = 'sgkvFab';
-        fab.title = '결과 보관함 열기';
+        fab.title = t('결과 보관함 열기');
         fab.setAttribute('aria-expanded', 'false');
         var count = el('span', 'sgkv-fab-count', '0');
         count.id = 'sgkvFabCount';
@@ -726,21 +940,67 @@
         document.body.appendChild(layer);
       }
     });
+    startFabObserver();
+    positionFab();
+  }
+
+  var fabObserver = null;
+  var fabResizeObserver = null;
+  var observedScrollButton = null;
+  function positionFab() {
+    var fab = document.getElementById('sgkvFab');
+    if (!fab) return;
+    var control = document.getElementById('scrollToBottomBtn');
+    if (fabResizeObserver && control !== observedScrollButton) {
+      if (observedScrollButton) fabResizeObserver.unobserve(observedScrollButton);
+      if (control) fabResizeObserver.observe(control);
+      observedScrollButton = control;
+    }
+    var bottom = window.innerWidth <= 480 ? 120 : 132;
+    if (control) {
+      var rect = control.getBoundingClientRect();
+      var visible = rect.width > 0 && rect.height > 0;
+      for (var node = control; node && visible && node.nodeType === 1; node = node.parentElement) {
+        var style = window.getComputedStyle(node);
+        if (node.hidden || style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') visible = false;
+      }
+      if (visible) bottom = Math.max(bottom, window.innerHeight - rect.top + 8);
+    }
+    var value = bottom + 'px';
+    if (fab.style.bottom !== value) fab.style.bottom = value;
+  }
+
+  function startFabObserver() {
+    if (fabObserver || typeof MutationObserver === 'undefined') return;
+    fabObserver = new MutationObserver(function (records) {
+      for (var i = 0; i < records.length; i++) {
+        var target = records[i].target;
+        if (target.nodeType === 1 && target.closest('[id^="sgkv"], [class^="sgkv-"]')) continue;
+        positionFab();
+        break;
+      }
+    });
+    fabObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    if (typeof ResizeObserver !== 'undefined') {
+      fabResizeObserver = new ResizeObserver(positionFab);
+      fabResizeObserver.observe(document.documentElement);
+    }
+    window.addEventListener('resize', positionFab);
   }
 
   function buildPanel() {
     var panel = el('aside', 'sgkv-panel');
     panel.id = 'sgkvPanel';
     panel.hidden = true;
-    panel.setAttribute('aria-label', '결과 보관함');
+    panel.setAttribute('aria-label', t('결과 보관함'));
 
     var head = el('div', 'sgkv-panel-head');
-    head.appendChild(el('span', 'sgkv-panel-title', '결과 보관함'));
+    head.appendChild(el('span', 'sgkv-panel-title', t('결과 보관함')));
     var actions = el('div', 'sgkv-panel-actions');
-    actions.appendChild(button('내보내기', 'sgkv-btn sgkv-btn--ghost', exportCards));
-    actions.appendChild(button('가져오기', 'sgkv-btn sgkv-btn--ghost', importCards));
+    actions.appendChild(button(t('내보내기'), 'sgkv-btn sgkv-btn--ghost', exportCards));
+    actions.appendChild(button(t('가져오기'), 'sgkv-btn sgkv-btn--ghost', importCards));
     var close = button('×', 'sgkv-btn sgkv-btn--icon', closePanel);
-    close.setAttribute('aria-label', '닫기');
+    close.setAttribute('aria-label', t('닫기'));
     actions.appendChild(close);
     head.appendChild(actions);
     panel.appendChild(head);
@@ -802,14 +1062,15 @@
 
   // ── UI: card list ────────────────────────────────────────────────────────
   function refreshList() {
+    localizeChrome();
     var list = document.getElementById('sgkvList');
     if (!list) return Promise.resolve();
     var store = getStore();
     if (!store) {
-      setNotice('저장 모듈(HermesVizStore)을 불러올 수 없어 보관함 저장 기능을 쓸 수 없습니다.');
+      setNotice(t('저장 모듈(HermesVizStore)을 불러올 수 없어 보관함 저장 기능을 쓸 수 없습니다.'));
       withOwnWrites(function () {
         list.textContent = '';
-        list.appendChild(el('div', 'sgkv-empty', '저장된 카드를 읽을 수 없습니다.'));
+        list.appendChild(el('div', 'sgkv-empty', t('저장된 카드를 읽을 수 없습니다.')));
       });
       updateCount(0);
       return Promise.resolve();
@@ -821,9 +1082,26 @@
     }).then(function (items) {
       renderList(items || []);
     }).catch(function (err) {
-      setNotice('보관함을 읽는 중 오류가 발생했습니다.');
+      setNotice(t('보관함을 읽는 중 오류가 발생했습니다.'));
       try { console.warn('[' + EXT_ID + '] list failed', err); } catch (_e) {}
     });
+  }
+
+  function localizeChrome() {
+    registerExtension();
+    var fab = document.getElementById('sgkvFab');
+    if (fab) {
+      if (fab.firstChild && fab.firstChild.nodeType === 3) fab.firstChild.nodeValue = t('보관함');
+      fab.title = t('결과 보관함 열기');
+    }
+    var panel = document.getElementById('sgkvPanel');
+    if (!panel) return;
+    panel.setAttribute('aria-label', t('결과 보관함'));
+    panel.querySelector('.sgkv-panel-title').textContent = t('결과 보관함');
+    var actions = panel.querySelectorAll('.sgkv-panel-actions button');
+    actions[0].textContent = t('내보내기');
+    actions[1].textContent = t('가져오기');
+    actions[2].setAttribute('aria-label', t('닫기'));
   }
 
   function updateCount(n) {
@@ -845,7 +1123,7 @@
       list.textContent = '';
       if (!items.length) {
         list.appendChild(el('div', 'sgkv-empty',
-          '저장된 카드가 없습니다. 답변의 ★ 버튼으로 결과를 보관하세요.'));
+          t('저장된 카드가 없습니다. 답변의 ★ 버튼으로 결과를 보관하세요.')));
         return;
       }
       for (var i = 0; i < items.length; i++) {
@@ -857,12 +1135,23 @@
 
   function buildCardRow(card, localOnly) {
     var row = el('div', 'sgkv-card');
+    if (!validateCard(card)) {
+      row.appendChild(el('span', 'sgkv-card-name', t('손상된 카드')));
+      if (card && typeof card.id === 'string') row.appendChild(button(t('삭제'), 'sgkv-btn sgkv-btn--danger', function () {
+        confirmModal(t('카드 삭제'), t('손상된 카드를 삭제할까요? 되돌릴 수 없습니다.'), t('삭제')).then(function (ok) {
+          if (!ok) return;
+          var store = getStore();
+          return attempt(function () { return store.remove(card.id); }).then(refreshList);
+        }).catch(function () { toast(t('삭제하지 못했습니다.'), 'error'); });
+      }));
+      return row;
+    }
     var open = button('', 'sgkv-card-open');
-    open.appendChild(el('span', 'sgkv-card-name', card.name || '(제목 없음)'));
+    open.appendChild(el('span', 'sgkv-card-name', card.name || t('(제목 없음)')));
     var meta = el('div', 'sgkv-card-meta');
     meta.appendChild(el('span', 'sgkv-badge', badgeForCard(card)));
     meta.appendChild(el('span', 'sgkv-card-time', formatTime(card.createdAt)));
-    if (localOnly) meta.appendChild(el('span', 'sgkv-badge sgkv-badge--local', '이 기기에만 저장됨'));
+    if (localOnly) meta.appendChild(el('span', 'sgkv-badge sgkv-badge--local', t('이 기기에만 저장됨')));
     open.appendChild(meta);
     open.addEventListener('click', function () { openCardModal(card.id); });
     row.appendChild(open);
@@ -914,7 +1203,7 @@
     var head = el('div', 'sgkv-modal-head');
     head.appendChild(el('span', 'sgkv-modal-title', title));
     var x = button('×', 'sgkv-btn sgkv-btn--icon', closeModal);
-    x.setAttribute('aria-label', '닫기');
+    x.setAttribute('aria-label', t('닫기'));
     head.appendChild(x);
     box.appendChild(head);
     var body = el('div', 'sgkv-modal-body');
@@ -939,8 +1228,8 @@
       var m = openModal(title, function () { if (!answered) { answered = true; resolve(false); } });
       if (!m) { resolve(false); return; }
       m.body.appendChild(el('p', 'sgkv-text', message));
-      m.foot.appendChild(button('취소', 'sgkv-btn', closeModal));
-      m.foot.appendChild(button(confirmLabel || '확인', 'sgkv-btn sgkv-btn--danger', function () {
+      m.foot.appendChild(button(t('취소'), 'sgkv-btn', closeModal));
+      m.foot.appendChild(button(confirmLabel || t('확인'), 'sgkv-btn sgkv-btn--danger', function () {
         answered = true;
         closeModal();
         resolve(true);
@@ -970,8 +1259,8 @@
         resolve(value);
       }
       input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') submit(); });
-      m.foot.appendChild(button('취소', 'sgkv-btn', closeModal));
-      m.foot.appendChild(button('확인', 'sgkv-btn sgkv-btn--primary', submit));
+      m.foot.appendChild(button(t('취소'), 'sgkv-btn', closeModal));
+      m.foot.appendChild(button(t('확인'), 'sgkv-btn sgkv-btn--primary', submit));
       try { input.focus(); input.select(); } catch (_err) {}
     });
   }
@@ -979,8 +1268,8 @@
   // ── save flow (message action) ───────────────────────────────────────────
   // DOM-free steps first so they are unit-testable.
 
-  // Refetches the clicked row and proves it is still that row (role + visible
-  // text probe). Resolves {ok:true, msg, parts} or {ok:false, reason}.
+  // Refetches the clicked row and proves it is still that row (role + full
+  // normalized content). Resolves {ok:true, msg, parts} or {ok:false, reason}.
   function prepareSave(opts) {
     var o = opts || {};
     return attempt(function () { return fetchSessionMessage(o.sessionId, o.messageIndex); })
@@ -1006,6 +1295,7 @@
         return { ok: true, item: item };
       }, function (err) {
         if (err && err.code === 'immutable') return { ok: false, reason: 'immutable' };
+        if (err && (err.code === 'quota' || err.code === 'quota_exceeded' || err.name === 'QuotaExceededError')) return { ok: false, reason: 'quota' };
         if (isTooLargeError(err)) return { ok: false, reason: 'too_large', bytes: bytes };
         try { console.warn('[' + EXT_ID + '] save failed', err); } catch (_e) {}
         return { ok: false, reason: 'failed' };
@@ -1014,14 +1304,15 @@
   }
 
   function saveFailureMessage(res) {
+    if (res.reason === 'quota') return t('보관함 저장 한도(1,000개 / 2 MiB)에 도달했습니다. 카드를 삭제하거나 내보낸 뒤 다시 시도해 주세요.');
     if (res.reason === 'too_large') {
       var kib = isFinite(res.bytes) ? Math.ceil(res.bytes / 1024) : null;
-      return '카드가 너무 큽니다 (' + (kib ? '약 ' + kib + ' KiB, ' : '') + '최대 '
-        + Math.floor(MAX_CARD_BYTES / 1024) + ' KiB). 표·다이어그램·섹션처럼 더 작은 조각을 골라 주세요.';
+      return t('카드가 너무 큽니다 (') + (kib ? t('약 ') + kib + ' KiB, ' : '') + t('최대 ')
+        + Math.floor(MAX_CARD_BYTES / 1024) + t(' KiB). 표·다이어그램·섹션처럼 더 작은 조각을 골라 주세요.');
     }
-    if (res.reason === 'immutable') return '이미 저장된 카드는 바꿀 수 없습니다. 새 저장본으로 만들어 주세요.';
-    if (res.reason === 'no_store') return '저장 모듈이 없어 저장할 수 없습니다.';
-    return '저장에 실패했습니다.';
+    if (res.reason === 'immutable') return t('이미 저장된 카드는 바꿀 수 없습니다. 새 저장본으로 만들어 주세요.');
+    if (res.reason === 'no_store') return t('저장 모듈이 없어 저장할 수 없습니다.');
+    return t('저장에 실패했습니다.');
   }
 
   // Returns a promise that ALWAYS settles when the dialog closes: core keeps
@@ -1032,10 +1323,10 @@
     return new Promise(function (resolve) {
       var settled = false;
       function done() { if (!settled) { settled = true; resolve(); } }
-      var m = openModal(o.title || '결과 보관함에 저장', done);
+      var m = openModal(o.title || t('결과 보관함에 저장'), done);
       if (!m) { done(); return; }
 
-      var status = el('p', 'sgkv-text', '원문을 불러오는 중…');
+      var status = el('p', 'sgkv-text', t('원문을 불러오는 중…'));
       m.body.appendChild(status);
 
       function showError(message) {
@@ -1043,7 +1334,7 @@
           m.body.textContent = '';
           m.body.appendChild(el('p', 'sgkv-error', message));
           m.foot.textContent = '';
-          m.foot.appendChild(button('닫기', 'sgkv-btn', function () { closeModalIf(m.box); }));
+          m.foot.appendChild(button(t('닫기'), 'sgkv-btn', function () { closeModalIf(m.box); }));
         });
       }
 
@@ -1051,8 +1342,8 @@
         if (settled || !isActiveModal(m.box)) return;
         if (!prep.ok) {
           showError(prep.reason === 'fetch_failed'
-            ? '원문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
-            : (prep.reason === 'empty' ? '저장할 내용을 찾지 못했습니다.' : MISMATCH_MESSAGES[prep.reason]));
+            ? t('원문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
+            : (prep.reason === 'empty' ? t('저장할 내용을 찾지 못했습니다.') : t(MISMATCH_MESSAGES[prep.reason] || '클릭한 메시지의 전체 원문을 확인할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.')));
           return;
         }
         var msg = prep.msg;
@@ -1062,13 +1353,13 @@
 
           if (isLocalOnly(getStore())) {
             var local = el('p', 'sgkv-text');
-            local.appendChild(el('span', 'sgkv-badge sgkv-badge--local', '이 기기에만 저장됨'));
-            local.appendChild(document.createTextNode(' 이 브라우저에만 보관되며 다른 기기와 동기화되지 않습니다.'));
+            local.appendChild(el('span', 'sgkv-badge sgkv-badge--local', t('이 기기에만 저장됨')));
+            local.appendChild(document.createTextNode(t(' 이 브라우저에만 보관되며 다른 기기와 동기화되지 않습니다.')));
             m.body.appendChild(local);
           }
 
           var nameField = el('label', 'sgkv-field');
-          nameField.appendChild(el('span', 'sgkv-field-label', '제목'));
+          nameField.appendChild(el('span', 'sgkv-field-label', t('제목')));
           var nameInput = document.createElement('input');
           nameInput.type = 'text';
           nameInput.className = 'sgkv-input';
@@ -1081,7 +1372,7 @@
           nameField.appendChild(nameInput);
           m.body.appendChild(nameField);
 
-          m.body.appendChild(el('div', 'sgkv-field-label', '저장할 내용'));
+          m.body.appendChild(el('div', 'sgkv-field-label', t('저장할 내용')));
           var chooser = el('div', 'sgkv-chooser');
           var selected = parts[0];
           var buttons = [];
@@ -1089,7 +1380,7 @@
           for (var i = 0; i < parts.length; i++) {
             (function (part) {
               var b = button('', 'sgkv-choice');
-              b.appendChild(el('span', 'sgkv-badge', PART_BADGES[part.type] || '내용'));
+              b.appendChild(el('span', 'sgkv-badge', t(PART_BADGES[part.type] || '내용')));
               b.appendChild(el('span', 'sgkv-choice-label', part.label));
               b.setAttribute('aria-pressed', part === selected ? 'true' : 'false');
               if (part === selected) b.classList.add('sgkv-choice--on');
@@ -1117,8 +1408,8 @@
           error.hidden = true;
           m.body.appendChild(error);
 
-          m.foot.appendChild(button('취소', 'sgkv-btn', function () { closeModalIf(m.box); }));
-          var saveBtn = button('저장', 'sgkv-btn sgkv-btn--primary', function () {
+          m.foot.appendChild(button(t('취소'), 'sgkv-btn', function () { closeModalIf(m.box); }));
+          var saveBtn = button(t('저장'), 'sgkv-btn sgkv-btn--primary', function () {
             saveBtn.disabled = true;
             saveCard(getStore(), {
               part: selected,
@@ -1131,7 +1422,7 @@
               sessionTitle: msg.sessionTitle
             }).then(function (res) {
               if (res.ok) {
-                toast('보관함에 저장했습니다.', 'success');
+                toast(t('보관함에 저장했습니다.'), 'success');
                 closeModalIf(m.box);
                 refreshList();
                 return;
@@ -1142,7 +1433,7 @@
             }).catch(function (err) {
               if (isActiveModal(m.box)) {
                 saveBtn.disabled = false;
-                withOwnWrites(function () { error.textContent = '저장에 실패했습니다.'; error.hidden = false; });
+                withOwnWrites(function () { error.textContent = t('저장에 실패했습니다.'); error.hidden = false; });
               }
               try { console.warn('[' + EXT_ID + '] save failed', err); } catch (_e) {}
             });
@@ -1151,48 +1442,59 @@
           try { nameInput.focus(); nameInput.select(); } catch (_err) {}
         });
       }).catch(function (err) {
-        if (!settled && isActiveModal(m.box)) showError('원문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        if (!settled && isActiveModal(m.box)) showError(t('원문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'));
         try { console.warn('[' + EXT_ID + '] save dialog failed', err); } catch (_e) {}
       });
     });
   }
 
   function onInvokeSaveCard(context) {
-    // context is frozen {sessionId, messageIndex, role, text}. context.text is
-    // NOT the snapshot source (it is core's display-normalised plain text); the
-    // raw markdown is refetched, and context.role / context.text are only used
-    // to prove the refetched row is the one the user clicked.
+    // Capture Core state synchronously, before any fetch or modal work.
+    var captured = captureMessage(context);
     if (!getStore()) {
-      toast('저장 모듈(HermesVizStore)이 없어 저장할 수 없습니다.', 'error');
+      toast(t('저장 모듈(HermesVizStore)이 없어 저장할 수 없습니다.'), 'error');
       openPanel();
+      return Promise.resolve();
+    }
+    if (!captured) {
+      toast(t('클릭한 메시지의 전체 원문을 확인할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'), 'error');
       return Promise.resolve();
     }
     return openSaveDialog({
       sessionId: context.sessionId,
       messageIndex: context.messageIndex,
-      role: context.role,
-      expectedText: typeof context.text === 'string' ? context.text : '',
+      role: captured.role,
+      expectedText: captured.content,
       profile: currentProfile()
     });
   }
 
+  function captureMessage(context) {
+    var state = coreState();
+    if (!context || !state || !state.session || state.session.session_id !== context.sessionId || !Array.isArray(state.messages)) return null;
+    var offset;
+    try { offset = typeof _oldestIdx !== 'undefined' ? _oldestIdx : state.session._messages_offset; } catch (_err) { return null; }
+    if (offset === undefined && !state.session._messages_truncated) offset = 0;
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(context.messageIndex)) return null;
+    var index = context.messageIndex - offset;
+    if (index < 0) return null;
+    var msg = state.messages[index];
+    if (!msg || msg.role !== context.role || (msg.role !== 'assistant' && msg.role !== 'user')) return null;
+    if (typeof msg.content !== 'string' && !Array.isArray(msg.content)) return null;
+    var content = normalizeMessageContent(msg.content);
+    if (!content) return null;
+    return { role: msg.role, content: content };
+  }
+
   // ── card actions (DOM-free, unit-testable) ───────────────────────────────
-  // The source coordinates always come from data.savedFrom first; the
-  // top-level item fields are the fallback for cards written by an older
-  // version or imported JSON.
+  // Validated top-level coordinates are authoritative.
   function sourceRefFor(card) {
-    var data = (card && card.data) || {};
-    var savedFrom = data.savedFrom || {};
-    // A missing index must stay NaN (never fall through to 0, which would
-    // point 원문으로 이동 / 원문 변경 확인 at the first message of the session).
-    var index = typeof savedFrom.messageIndex === 'number' ? savedFrom.messageIndex
-      : (card && card.messageIndex !== undefined && card.messageIndex !== null
-        ? Number(card.messageIndex) : NaN);
+    if (!validateCard(card)) return { profile: '', sessionId: '', messageIndex: NaN, role: '' };
     return {
-      profile: String(savedFrom.profile || (card && card.profile) || 'default'),
-      sessionId: String(savedFrom.sessionId || (card && card.sessionId) || ''),
-      messageIndex: index,
-      role: (savedFrom.role || (card && card.role)) === 'user' ? 'user' : 'assistant'
+      profile: card.profile,
+      sessionId: card.sessionId,
+      messageIndex: card.messageIndex,
+      role: card.role
     };
   }
 
@@ -1227,7 +1529,7 @@
     }, function () { return { ok: false, reason: 'row_not_found' }; });
   }
 
-  // 원문으로 이동 — HermesVizNav.goTo (docs/INTERFACES.md §3). The stored
+  // 원문으로 이동 — HermesVizNav.goTo (README.md, WebUI surfaces used). The stored
   // index alone is not trusted (it is not durable across edit / regenerate /
   // truncate): the source is re-verified first, and the jump only happens when
   // it is unchanged, unless the caller passes {force:true} after the user
@@ -1235,6 +1537,7 @@
   // Resolves {ok:true} | {ok:false, reason:'no_core'|'source_changed'|
   // 'source_unverified'|<nav reason>, check?}.
   function goToSource(card, opts) {
+    if (!validateCard(card)) return Promise.resolve({ ok: false, reason: 'invalid_card' });
     var ref = sourceRefFor(card);
     var nav = navModule();
     if (!nav) return Promise.resolve({ ok: false, reason: 'no_core' });
@@ -1249,18 +1552,20 @@
   // ── card modal ───────────────────────────────────────────────────────────
   function openCardModal(cardId) {
     var store = getStore();
-    if (!store) { toast('저장 모듈이 없습니다.', 'error'); return; }
+    if (!store) { toast(t('저장 모듈이 없습니다.'), 'error'); return; }
     attempt(function () { return store.get(cardId); }).then(function (card) {
-      if (!card) { toast('카드를 찾을 수 없습니다.', 'error'); refreshList(); return; }
+      if (!card) { toast(t('카드를 찾을 수 없습니다.'), 'error'); refreshList(); return; }
+      if (!validateCard(card)) { toast(t('손상된 카드'), 'error'); refreshList(); return; }
       renderCardModal(card);
     }).catch(function (err) {
-      toast('카드를 열지 못했습니다.', 'error');
+      toast(t('카드를 열지 못했습니다.'), 'error');
       try { console.warn('[' + EXT_ID + '] open card failed', err); } catch (_e) {}
     });
   }
 
   function renderCardModal(card) {
-    var m = openModal(card.name || '(제목 없음)', null);
+    if (!validateCard(card)) return;
+    var m = openModal(card.name || t('(제목 없음)'), null);
     if (!m) return;
     var data = card.data || {};
 
@@ -1268,9 +1573,9 @@
     meta.appendChild(el('span', 'sgkv-badge', badgeForCard(card)));
     meta.appendChild(el('span', 'sgkv-card-time', formatTime(card.createdAt)));
     if (isLocalOnly(getStore())) {
-      meta.appendChild(el('span', 'sgkv-badge sgkv-badge--local', '이 기기에만 저장됨'));
+      meta.appendChild(el('span', 'sgkv-badge sgkv-badge--local', t('이 기기에만 저장됨')));
     }
-    if (data.sessionTitle) meta.appendChild(el('span', 'sgkv-card-src', '출처: ' + data.sessionTitle));
+    if (data.sessionTitle) meta.appendChild(el('span', 'sgkv-card-src', t('출처: ') + data.sessionTitle));
     m.body.appendChild(meta);
 
     var status = el('p', 'sgkv-text');
@@ -1299,8 +1604,8 @@
       if (!isActiveModal(m.box)) return;
       withOwnWrites(function () {
         statusActions.textContent = '';
-        statusActions.appendChild(button('그래도 이동', 'sgkv-btn', function () {
-          setStatus('이동하는 중…');
+        statusActions.appendChild(button(t('그래도 이동'), 'sgkv-btn', function () {
+          setStatus(t('이동하는 중…'));
           goToSource(card, { force: true }).then(handleJumpResult);
         }));
         statusActions.hidden = false;
@@ -1315,89 +1620,92 @@
       }
       var reason = res && res.reason;
       if (reason === 'source_changed') {
-        setStatus('원문이 저장 이후 바뀌었거나 그 위치에 다른 메시지가 있습니다. 이동하면 다른 메시지가 나올 수 있습니다.', 'warn');
+        setStatus(t('원문이 저장 이후 바뀌었거나 그 위치에 다른 메시지가 있습니다. 이동하면 다른 메시지가 나올 수 있습니다.'), 'warn');
         offerForcedJump();
         return;
       }
       if (reason === 'source_unverified') {
-        setStatus('원문이 그대로인지 확인할 수 없습니다(다른 프로필의 대화이거나 원문을 불러오지 못함).', 'warn');
+        setStatus(t('원문이 그대로인지 확인할 수 없습니다(다른 프로필의 대화이거나 원문을 불러오지 못함).'), 'warn');
         offerForcedJump();
         return;
       }
       if (reason === 'no_core') {
-        setStatus('이동 모듈(HermesVizNav)이 없어 원문으로 이동할 수 없습니다.', 'warn');
+        setStatus(t('이동 모듈(HermesVizNav)이 없어 원문으로 이동할 수 없습니다.'), 'warn');
         return;
       }
-      setStatus('원문으로 이동하지 못했습니다' + (reason ? ' (' + reason + ')' : '') + '.', 'warn');
+      setStatus(Object.prototype.hasOwnProperty.call(I18N.en, reason) ? t(reason) : t('원문으로 이동하지 못했습니다') + '.', 'warn');
     }
 
-    m.foot.appendChild(button('원문으로 이동', 'sgkv-btn', function () {
+    m.foot.appendChild(button(t('원문으로 이동'), 'sgkv-btn', function () {
       if (!navModule()) { handleJumpResult({ ok: false, reason: 'no_core' }); return; }
-      setStatus('원문을 확인하는 중…');
+      setStatus(t('원문을 확인하는 중…'));
       goToSource(card).then(handleJumpResult).catch(function () { handleJumpResult({ ok: false }); });
     }));
 
-    m.foot.appendChild(button('원문 변경 확인', 'sgkv-btn', function () {
-      setStatus('원문을 다시 불러오는 중…');
+    m.foot.appendChild(button(t('원문 변경 확인'), 'sgkv-btn', function () {
+      setStatus(t('원문을 다시 불러오는 중…'));
       checkSourceChanged(card).then(function (res) {
-        if (res.status === 'same') { setStatus('동일 — 원문이 저장 시점과 같습니다.', 'ok'); return; }
+        if (res.status === 'same') { setStatus(t('동일 — 원문이 저장 시점과 같습니다.'), 'ok'); return; }
         if (res.status === 'changed') {
           setStatus(res.reason === 'role_mismatch'
-            ? '변경됨 — 저장 위치에 다른 메시지가 있습니다. 보관된 스냅샷은 그대로입니다.'
-            : '변경됨 — 원문이 저장 이후 바뀌었습니다. 보관된 스냅샷은 그대로입니다.', 'warn');
+            ? t('변경됨 — 저장 위치에 다른 메시지가 있습니다. 보관된 스냅샷은 그대로입니다.')
+            : t('변경됨 — 원문이 저장 이후 바뀌었습니다. 보관된 스냅샷은 그대로입니다.'), 'warn');
           return;
         }
         setStatus(res.reason === 'hash_scheme'
-          ? '변경 여부를 확인할 수 없습니다 (해시 방식이 다름).'
-          : '원문을 불러오지 못해 확인하지 못했습니다.', 'warn');
+          ? t('변경 여부를 확인할 수 없습니다 (해시 방식이 다름).')
+          : t('원문을 불러오지 못해 확인하지 못했습니다.'), 'warn');
       });
     }));
 
-    m.foot.appendChild(button('새 저장본 만들기', 'sgkv-btn', function () {
+    m.foot.appendChild(button(t('새 저장본 만들기'), 'sgkv-btn', function () {
       var ref = sourceRefFor(card);
+      var captured = captureMessage(ref);
+      if (!captured) { toast(t('클릭한 메시지의 전체 원문을 확인할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'), 'error'); return; }
       closeModalIf(m.box);
       openSaveDialog({
-        title: '새 저장본 만들기',
+        title: t('새 저장본 만들기'),
         sessionId: ref.sessionId,
         messageIndex: ref.messageIndex,
         role: ref.role,
+        expectedText: captured.content,
         profile: ref.profile,
-        defaultName: (card.name || '저장된 결과') + ' (새 저장본)'
+        defaultName: (card.name || t('저장된 결과')) + t(' (새 저장본)')
       });
     }));
 
-    m.foot.appendChild(button('이름 변경', 'sgkv-btn', function () {
+    m.foot.appendChild(button(t('이름 변경'), 'sgkv-btn', function () {
       var current = card.name || '';
       closeModalIf(m.box);
-      promptModal('이름 변경', '새 이름', current).then(function (name) {
+      promptModal(t('이름 변경'), t('새 이름'), current).then(function (name) {
         if (!name) return null;
         var s = getStore();
-        if (!s) { toast('저장 모듈이 없습니다.', 'error'); return null; }
+        if (!s) { toast(t('저장 모듈이 없습니다.'), 'error'); return null; }
         return attempt(function () { return s.patch(card.id, { name: name }); }).then(function () {
-          toast('이름을 바꿨습니다.', 'success');
+          toast(t('이름을 바꿨습니다.'), 'success');
           refreshList();
         });
       }).catch(function (err) {
-        toast('이름을 바꾸지 못했습니다.', 'error');
+        toast(err && (err.code === 'too_large' || err.code === 'quota') ? saveFailureMessage({ reason: err.code }) : t('이름을 바꾸지 못했습니다.'), 'error');
         try { console.warn('[' + EXT_ID + '] rename failed', err); } catch (_e) {}
       });
     }));
 
-    m.foot.appendChild(button('삭제', 'sgkv-btn sgkv-btn--danger', function () {
-      var name = card.name || '(제목 없음)';
+    m.foot.appendChild(button(t('삭제'), 'sgkv-btn sgkv-btn--danger', function () {
+      var name = card.name || t('(제목 없음)');
       var id = card.id;
       closeModalIf(m.box);
-      confirmModal('카드 삭제', '“' + name + '” 카드를 삭제할까요? 되돌릴 수 없습니다.', '삭제')
+      confirmModal(t('카드 삭제'), (/^ko/i.test(document.documentElement.lang) ? '“' + name + t('” 카드를 삭제할까요? 되돌릴 수 없습니다.') : 'Delete “' + name + t('” 카드를 삭제할까요? 되돌릴 수 없습니다.')), t('삭제'))
         .then(function (ok) {
           if (!ok) return null;
           var s = getStore();
-          if (!s) { toast('저장 모듈이 없습니다.', 'error'); return null; }
+          if (!s) { toast(t('저장 모듈이 없습니다.'), 'error'); return null; }
           return attempt(function () { return s.remove(id); }).then(function () {
-            toast('카드를 삭제했습니다.', 'success');
+            toast(t('카드를 삭제했습니다.'), 'success');
             refreshList();
           });
         }).catch(function (err) {
-          toast('삭제하지 못했습니다.', 'error');
+          toast(t('삭제하지 못했습니다.'), 'error');
           try { console.warn('[' + EXT_ID + '] delete failed', err); } catch (_e) {}
         });
     }));
@@ -1444,7 +1752,7 @@
   // unique id when present; otherwise the code block is shown as-is. Markdown
   // and tables go through our own escaping renderer.
   function renderSnapshotInto(host, data) {
-    var content = String((data && data.content) || '');
+    var content = data && typeof data.content === 'string' ? data.content : '';
     if (data && data.contentType === 'mermaid') {
       var code = mermaidCode(content);
       var fallback = function () {
@@ -1455,6 +1763,7 @@
         });
       };
       var mermaidRef = window.mermaid;
+      if (/<\s*(?:img|image)\b/i.test(code) || /&lt;\s*(?:img|image)\b/i.test(code)) { fallback(); return; }
       if (!mermaidRef || typeof mermaidRef.render !== 'function') { fallback(); return; }
       var renderId = MERMAID_ID_PREFIX + Date.now().toString(36) + '-'
         + Math.floor(Math.random() * 1e6).toString(36);
@@ -1483,7 +1792,7 @@
   // ── export / import ──────────────────────────────────────────────────────
   function exportCards() {
     var store = getStore();
-    if (!store || typeof store.exportJson !== 'function') { toast('저장 모듈이 없습니다.', 'error'); return; }
+    if (!store || typeof store.exportJson !== 'function') { toast(t('저장 모듈이 없습니다.'), 'error'); return; }
     attempt(function () { return store.exportJson(); }).then(function (text) {
       var blob = new Blob([String(text)], { type: 'application/json' });
       var url = URL.createObjectURL(blob);
@@ -1496,13 +1805,13 @@
       window.setTimeout(function () {
         try { a.remove(); URL.revokeObjectURL(url); } catch (_err) {}
       }, 0);
-      toast('보관함을 JSON으로 내보냈습니다.', 'success');
-    }).catch(function () { toast('내보내기에 실패했습니다.', 'error'); });
+      toast(t('보관함을 JSON으로 내보냈습니다.'), 'success');
+    }).catch(function () { toast(t('내보내기에 실패했습니다.'), 'error'); });
   }
 
   function importCards() {
     var store = getStore();
-    if (!store || typeof store.importJson !== 'function') { toast('저장 모듈이 없습니다.', 'error'); return; }
+    if (!store || typeof store.importJson !== 'function') { toast(t('저장 모듈이 없습니다.'), 'error'); return; }
     var input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -1513,13 +1822,17 @@
       if (!file) return;
       var reader = new FileReader();
       reader.onload = function () {
-        attempt(function () { return store.importJson(String(reader.result || ''), { merge: true }); }).then(function (res) {
-          toast('가져오기 완료: ' + ((res && res.added) || 0) + '건 추가, '
-            + ((res && res.skipped) || 0) + '건 건너뜀', 'success');
+        var checked;
+        attempt(function () {
+          checked = validatedImport(String(reader.result || ''));
+          return store.importJson(checked.text, { merge: true });
+        }).then(function (res) {
+          toast(t('가져오기 완료: ') + ((res && res.added) || 0) + t('건 추가, ')
+            + (((res && res.skipped) || 0) + checked.skipped) + t('건 건너뜀'), 'success');
           refreshList();
-        }).catch(function () { toast('가져오기에 실패했습니다. JSON 형식을 확인해 주세요.', 'error'); });
+        }).catch(function (err) { toast(err && (err.code === 'too_large' || err.code === 'quota') ? saveFailureMessage({ reason: err.code }) : t('가져오기에 실패했습니다. JSON 형식을 확인해 주세요.'), 'error'); });
       };
-      reader.onerror = function () { toast('파일을 읽지 못했습니다.', 'error'); };
+      reader.onerror = function () { toast(t('파일을 읽지 못했습니다.'), 'error'); };
       reader.readAsText(file);
     });
     document.body.appendChild(input);
@@ -1529,24 +1842,32 @@
   // ── registration + boot ──────────────────────────────────────────────────
   var registeredHandle = null;
   var unregisterAction = null;
+  var registeredActionLabel = '';
 
   function registerExtension() {
-    if (registeredHandle) return registeredHandle;
     var ext = window.hermesExt;
     if (!ext || typeof ext.register !== 'function') return null;
-    var handle = null;
-    try { handle = ext.register(EXT_ID); } catch (_err) { handle = null; }
+    var handle = registeredHandle;
+    if (!handle) {
+      try { handle = ext.register(EXT_ID); } catch (_err) { handle = null; }
+    }
     if (!handle) return null;
     registeredHandle = handle;
+    var label = t('보관함에 저장');
+    if (unregisterAction && registeredActionLabel !== label) {
+      try { unregisterAction(); } catch (_err3) {}
+      unregisterAction = null;
+    }
     if (handle.messages && typeof handle.messages.registerAction === 'function' && !unregisterAction) {
       try {
         unregisterAction = handle.messages.registerAction({
           id: 'save-card',
-          label: '보관함에 저장',
+          label: label,
           icon: 'star',
           roles: ['assistant'],
           onInvoke: onInvokeSaveCard
         });
+        registeredActionLabel = label;
       } catch (_err2) { unregisterAction = null; }
       if (!unregisterAction) {
         try {
@@ -1573,7 +1894,7 @@
       return true;
     }
     if (!storeModule()) {
-      setNotice('저장 모듈(HermesVizStore)을 불러올 수 없어 보관함 저장 기능을 쓸 수 없습니다.');
+      setNotice(t('저장 모듈(HermesVizStore)을 불러올 수 없어 보관함 저장 기능을 쓸 수 없습니다.'));
     } else {
       refreshList();
     }
@@ -1587,7 +1908,13 @@
     version: VERSION,
     namespace: NAMESPACE,
     fallbackHashPrefix: FALLBACK_HASH_PREFIX,
+    t: t,
     escapeHtml: escapeHtml,
+    validateCard: validateCard,
+    validatedImport: validatedImport,
+    captureMessage: captureMessage,
+    positionFab: positionFab,
+    buildCardRow: buildCardRow,
     normalizeMessageContent: normalizeMessageContent,
     extractParts: extractParts,
     renderMarkdownToSafeHtml: renderMarkdownToSafeHtml,
