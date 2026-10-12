@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-NS_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+ALLOWED_NAMESPACES = ("bookmarks", "sigakhwa-vault")
 ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 ROLES = ("user", "assistant")
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -42,7 +42,7 @@ MAX_NAME = 500
 MAX_STR = 256
 MAX_TAGS = 32
 MAX_TAG = 64
-MAX_ITEMS_PER_NS = 20000
+MAX_ITEMS_PER_NS = 1000
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS: Dict[str, threading.Lock] = {}
@@ -53,7 +53,14 @@ def store_dir() -> Path:
     override = os.getenv("HERMES_VIZ_STORE_DIR")
     base: Path
     base = Path(override).expanduser() if override else _default_store_dir()
+    base.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(base, 0o700)
     return base
+
+
+def start_background(app) -> None:
+    """Scaffold startup hook; no background threads are needed."""
+    store_dir()
 
 
 def _default_store_dir() -> Path:
@@ -93,11 +100,12 @@ def _read_ns(ns: str) -> Dict[str, Dict[str, Any]]:
     path = _ns_path(ns)
     try:
         raw = path.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return {}
     try:
         parsed = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
+        _quarantine(path)
         return {}
     rows: Any = None
     if isinstance(parsed, dict):
@@ -105,6 +113,7 @@ def _read_ns(ns: str) -> Dict[str, Dict[str, Any]]:
     if isinstance(rows, dict):
         rows = list(rows.values())
     if not isinstance(rows, list):
+        _quarantine(path)
         return {}
     out: Dict[str, Dict[str, Any]] = {}
     for row in rows:
@@ -114,17 +123,23 @@ def _read_ns(ns: str) -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def _quarantine(path: Path) -> None:
+    os.replace(path, path.with_name(f"{path.name}.corrupt-{time.time_ns()}"))
+
+
 def _write_ns(ns: str, items: Dict[str, Dict[str, Any]]) -> None:
     """Atomic write (tmp + replace). Raises StoreFull when the file would exceed the cap."""
     payload = {"v": 1, "namespace": ns, "updatedAt": _now_ms(), "items": sorted(items.values(), key=_sort_key)}
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    if len(data) > MAX_FILE_BYTES:
+    if len(data) > MAX_FILE_BYTES or len(items) > MAX_ITEMS_PER_NS:
         raise StoreFull(len(data))
     path = _ns_path(ns)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
     tmp = path.with_name(f"{path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}")
     try:
-        with open(tmp, "wb") as fh:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as fh:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
@@ -135,6 +150,10 @@ def _write_ns(ns: str, items: Dict[str, Dict[str, Any]]) -> None:
                 tmp.unlink()
         except OSError:
             pass
+
+
+class ItemTooLarge(Exception):
+    pass
 
 
 class StoreFull(Exception):
@@ -219,12 +238,15 @@ def normalize_item(raw: Any, ns: str, existing: Optional[Dict[str, Any]] = None,
     except (TypeError, ValueError):
         return None
     if size > MAX_ITEM_BYTES:
-        return None
+        raise ItemTooLarge()
     return item
 
 
 def _accept_stored(raw: Any, ns: str) -> Optional[Dict[str, Any]]:
-    item = normalize_item(raw, ns)
+    try:
+        item = normalize_item(raw, ns)
+    except ItemTooLarge:
+        return None
     if item is None:
         return None
     for key in ("createdAt", "updatedAt"):
@@ -284,7 +306,7 @@ def register(app) -> None:
     @app.route("GET", "/v1/{ns}/items")
     def list_items(req):
         ns = req.params["ns"]
-        if not NS_RE.match(ns):
+        if ns not in ALLOWED_NAMESPACES:
             return app.json({"error": "invalid namespace"}, status=400)
         with _lock_for(ns):
             rows = sorted(_read_ns(ns).values(), key=_sort_key)
@@ -302,7 +324,7 @@ def register(app) -> None:
     @app.route("GET", "/v1/{ns}/items/{item_id}")
     def get_item(req):
         ns = req.params["ns"]
-        if not NS_RE.match(ns):
+        if ns not in ALLOWED_NAMESPACES:
             return app.json({"error": "invalid namespace"}, status=400)
         with _lock_for(ns):
             item = _read_ns(ns).get(req.params["item_id"])
@@ -314,7 +336,7 @@ def register(app) -> None:
     def put_item(req):
         ns = req.params["ns"]
         item_id = req.params["item_id"]
-        if not NS_RE.match(ns):
+        if ns not in ALLOWED_NAMESPACES:
             return app.json({"error": "invalid namespace"}, status=400)
         if not ID_RE.match(item_id):
             return app.json({"error": "invalid id"}, status=400)
@@ -326,7 +348,10 @@ def register(app) -> None:
         with _lock_for(ns):
             items = _read_ns(ns)
             existing = items.get(item_id)
-            incoming = normalize_item(body, ns, existing, item_id=item_id)
+            try:
+                incoming = normalize_item(body, ns, existing, item_id=item_id)
+            except ItemTooLarge:
+                return app.json({"error": "too_large"}, status=413)
             if incoming is None:
                 return app.json({"error": "invalid item"}, status=400)
             if immutable_conflict(existing, incoming):
@@ -346,7 +371,7 @@ def register(app) -> None:
     def patch_item(req):
         ns = req.params["ns"]
         item_id = req.params["item_id"]
-        if not NS_RE.match(ns):
+        if ns not in ALLOWED_NAMESPACES:
             return app.json({"error": "invalid namespace"}, status=400)
         body = _parse_body(req)
         if not isinstance(body, dict):
@@ -374,6 +399,12 @@ def register(app) -> None:
                     tags.append(clean)
                 updated["tags"] = tags
             updated["updatedAt"] = _now_ms()
+            try:
+                updated = normalize_item(updated, ns, existing, item_id=item_id)
+            except ItemTooLarge:
+                return app.json({"error": "too_large"}, status=413)
+            if updated is None:
+                return app.json({"error": "invalid item"}, status=400)
             items[item_id] = updated
             try:
                 _write_ns(ns, items)
@@ -387,7 +418,7 @@ def register(app) -> None:
     def delete_item(req):
         ns = req.params["ns"]
         item_id = req.params["item_id"]
-        if not NS_RE.match(ns):
+        if ns not in ALLOWED_NAMESPACES:
             return app.json({"error": "invalid namespace"}, status=400)
         with _lock_for(ns):
             items = _read_ns(ns)
@@ -403,7 +434,7 @@ def register(app) -> None:
     @app.route("GET", "/v1/{ns}/export")
     def export_items(req):
         ns = req.params["ns"]
-        if not NS_RE.match(ns):
+        if ns not in ALLOWED_NAMESPACES:
             return app.json({"error": "invalid namespace"}, status=400)
         with _lock_for(ns):
             rows = sorted(_read_ns(ns).values(), key=_sort_key)
@@ -417,7 +448,7 @@ def register(app) -> None:
     @app.route("POST", "/v1/{ns}/import")
     def import_items(req):
         ns = req.params["ns"]
-        if not NS_RE.match(ns):
+        if ns not in ALLOWED_NAMESPACES:
             return app.json({"error": "invalid namespace"}, status=400)
         body = _parse_body(req)
         rows = body if isinstance(body, list) else (body.get("items") if isinstance(body, dict) else None)
@@ -427,7 +458,8 @@ def register(app) -> None:
         added = 0
         skipped = 0
         with _lock_for(ns):
-            items = _read_ns(ns) if merge else {}
+            stored = _read_ns(ns)
+            items = stored if merge else {}
             for row in rows:
                 item = _accept_stored(row, ns)
                 if item is None or item["id"] in items or len(items) >= MAX_ITEMS_PER_NS:

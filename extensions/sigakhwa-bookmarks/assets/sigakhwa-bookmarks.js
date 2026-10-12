@@ -17,6 +17,203 @@
   'use strict';
   if (typeof window === 'undefined') return;
 
+  var I18N = {
+    "ko": {
+      "s0": "나",
+      "s1": "북마크",
+      "s2": "표",
+      "s3": "도식",
+      "s4": "프레임",
+      "s5": "코어 UI를 찾을 수 없어 이동할 수 없습니다.",
+      "s6": "대화를 열 수 없습니다 (삭제되었거나 이 프로필에서 접근할 수 없음).",
+      "s7": "다른 프로필(",
+      "s8": ")의 대화입니다. 먼저 해당 프로필로 전환해 주세요.",
+      "s9": "메시지를 찾을 수 없습니다 (삭제·압축되었을 수 있음).",
+      "s10": "응답 생성 중에는 이동할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+      "s11": "이동에 실패했습니다.",
+      "s12": "저장",
+      "s13": "취소",
+      "s14": "확인",
+      "s15": "동기화됨",
+      "s16": "일부 동기화됨 · ",
+      "s17": "개는 이 기기에만",
+      "s18": "이 기기에만 저장됨",
+      "s19": "오류",
+      "s20": "대화가 바뀌어 북마크를 저장하지 않았습니다. 다시 시도해 주세요.",
+      "s21": "북마크 편집",
+      "s22": "북마크 저장",
+      "s23": " · 메시지 #",
+      "s24": " · 이름을 정해 저장합니다",
+      "s25": "북마크 이름",
+      "s26": "이름 변경",
+      "s27": "삭제",
+      "s28": "저장 공간이 부족하거나 저장소를 사용할 수 없습니다.",
+      "s29": "변경할 수 없는 항목입니다.",
+      "s30": "사이드카 권한이 없습니다. 설정에서 프록시 허용을 확인하세요.",
+      "s31": "저장에 실패했습니다",
+      "s32": "이름을 입력해 주세요.",
+      "s33": "북마크 이름을 변경했습니다",
+      "s34": "북마크를 저장했습니다",
+      "s35": " (이 기기에만 저장됨)",
+      "s36": "북마크를 삭제했습니다",
+      "s37": "북마크 · 목차 열기",
+      "s38": "북마크와 목차",
+      "s39": "북마크 · 목차",
+      "s40": "브라우저 localStorage에만 저장됩니다. PC·폰 동기화는 사이드카가 필요합니다.",
+      "s41": "닫기",
+      "s42": "목차",
+      "s43": "사이드카에 저장되어 같은 WebUI에 로그인한 다른 기기에서도 보입니다.",
+      "s44": "서버가 받지 않은 항목은 이 브라우저에만 남아 있습니다 (목록에서 \"이 기기\" 표시).",
+      "s45": "대화 ",
+      "s46": "저장소를 초기화하는 중…",
+      "s47": "북마크 목록을 불러오지 못했습니다 (",
+      "s48": "). 사이드카 상태를 확인한 뒤 새로고침하세요. 아래는 마지막으로 읽은 목록입니다.",
+      "s49": "저장된 북마크가 없습니다. 메시지 하단의 북마크 버튼으로 저장하세요.",
+      "s50": "프로필: ",
+      "s51": " (현재)",
+      "s52": "현재 대화",
+      "s53": "내보내기(JSON)",
+      "s54": "가져오기(JSON)",
+      "s55": "이 기기에만 저장됨. ",
+      "s56": "사이드카는 응답했지만 데이터 요청이 실패했습니다 (",
+      "s57": "). 사이드카 로그와 설정 → Extensions의 프록시 허용 상태를 확인한 뒤 새로고침하세요.",
+      "s58": "PC와 폰에서 함께 보려면: ① 사이드카 실행 (sidecar/README: python -S sidecar.py) ② WebUI 비밀번호 설정 ③ 설정 → Extensions → sigakhwa-bookmarks → 사이드카 프록시 허용 ④ 새로고침. 그러면 이 기기의 북마크가 서버로 옮겨집니다.",
+      "s59": "개 항목은 서버가 받지 않아 이 기기에만 남아 있습니다 (용량 초과 또는 형식 오류). 목록에서 \"이 기기\" 표시가 붙고, 새로고침할 때마다 다시 보내 봅니다. 삭제하면 이 기기에서만 지워집니다.",
+      "s60": "사이드카와 동기화 중입니다. 다른 기기에서 같은 WebUI에 로그인하면 같은 목록이 보입니다.",
+      "s61": "(이름 없음)",
+      "s62": "이 기기",
+      "s63": "서버가 받지 않아 이 브라우저에만 저장된 항목입니다.",
+      "s64": "북마크 이름 변경",
+      "s65": "새 이름을 입력하세요.",
+      "s66": "이름을 변경했습니다",
+      "s67": "변경 실패: ",
+      "s68": "북마크 삭제",
+      "s69": "북마크 \"",
+      "s70": "\"을(를) 삭제할까요?",
+      "s71": "삭제했습니다",
+      "s72": "삭제 실패: ",
+      "s73": "내보내기 실패",
+      "s74": "파일이 너무 큽니다 (4 MiB 초과)",
+      "s75": "가져오기: ",
+      "s76": "개 추가, ",
+      "s77": "개 건너뜀",
+      "s78": "가져오기 실패: ",
+      "s79": "형식이 올바르지 않습니다",
+      "s80": "파일을 읽을 수 없습니다",
+      "s81": "열린 대화가 없습니다.",
+      "s82": "목차를 만드는 중…",
+      "s83": "목차 항목이 없습니다. 제목(#, ##, ###)·표·mermaid 도식·한 줄 프레임이 있는 답변이 나타나면 여기에 모입니다.",
+      "s84": "답변 · 메시지 #",
+      "s85": "개 항목 · 답변 ",
+      "s86": "개. 핵심 대화 개요(사용자 질문 목록)는 코어의 Conversation Outline을 그대로 사용하세요.",
+      "s87": "대화 내용을 불러오지 못했습니다",
+      "s88": "저장소가 아직 준비되지 않았습니다",
+      "unavailable": "동기화 안 됨(재시도 중)",
+      "actionUnavailable": "메시지 북마크 버튼을 등록하지 못했습니다. 다른 확장의 메시지 액션을 비활성화한 뒤 새로고침하세요.",
+      "quota": "저장 한도에 도달했습니다 (1,000개 / 2 MiB).",
+      "tooLarge": "항목이 너무 큽니다 (256 KiB 초과)."
+    },
+    "en": {
+      "s0": "Me",
+      "s1": "Bookmark",
+      "s2": "Table",
+      "s3": "Diagram",
+      "s4": "Frame",
+      "s5": "Cannot navigate because the Core UI is unavailable.",
+      "s6": "Cannot open this conversation (deleted or unavailable in this profile).",
+      "s7": "This conversation belongs to profile (",
+      "s8": "). Please switch to that profile first.",
+      "s9": "Message not found (it may have been deleted or compacted).",
+      "s10": "Cannot navigate while a response is being generated. Try again shortly.",
+      "s11": "Navigation failed.",
+      "s12": "Save",
+      "s13": "Cancel",
+      "s14": "Confirm",
+      "s15": "Synced",
+      "s16": "Partially synced · ",
+      "s17": " items on this device only",
+      "s18": "Saved on this device only",
+      "s19": "Error",
+      "s20": "The conversation changed, so the bookmark was not saved. Please try again.",
+      "s21": "Edit bookmark",
+      "s22": "Save bookmark",
+      "s23": " · Message #",
+      "s24": " · Choose a name to save",
+      "s25": "Bookmark name",
+      "s26": "Rename",
+      "s27": "Delete",
+      "s28": "Storage is full or unavailable.",
+      "s29": "This item is immutable.",
+      "s30": "Sidecar access denied. Check proxy consent in Settings.",
+      "s31": "Could not save",
+      "s32": "Please enter a name.",
+      "s33": "Bookmark renamed",
+      "s34": "Bookmark saved",
+      "s35": " (saved on this device only)",
+      "s36": "Bookmark deleted",
+      "s37": "Open bookmarks and table of contents",
+      "s38": "Bookmarks and table of contents",
+      "s39": "Bookmarks · Contents",
+      "s40": "Saved in this browser only. A sidecar is required to sync across devices.",
+      "s41": "Close",
+      "s42": "Contents",
+      "s43": "Saved on the sidecar and available on other devices signed into this WebUI.",
+      "s44": "Items rejected by the server remain in this browser (marked \"This device\" in the list).",
+      "s45": "Conversation ",
+      "s46": "Initializing storage…",
+      "s47": "Could not load bookmarks (",
+      "s48": "). Check the sidecar and reload. The last loaded list is shown below.",
+      "s49": "No bookmarks yet. Use the bookmark button below a message to save one.",
+      "s50": "Profile: ",
+      "s51": " (current)",
+      "s52": "Current conversation",
+      "s53": "Export (JSON)",
+      "s54": "Import (JSON)",
+      "s55": "Saved on this device only. ",
+      "s56": "The sidecar responded, but the data request failed (",
+      "s57": "). Check the sidecar logs and proxy consent in Settings → Extensions, then reload.",
+      "s58": "To sync across devices: start the sidecar (see sidecar/README), set a WebUI password, approve its proxy in Settings → Extensions → sigakhwa-bookmarks, then reload. This browser's bookmarks will be uploaded.",
+      "s59": " items remain on this device because the server rejected them (size or format). They are marked \"This device\" and retried on reload. Deleting them removes only the local copy.",
+      "s60": "Synced with the sidecar. Sign into this WebUI on another device to see the same list.",
+      "s61": "(Unnamed)",
+      "s62": "This device",
+      "s63": "The server rejected this item; it is saved in this browser only.",
+      "s64": "Rename bookmark",
+      "s65": "Enter a new name.",
+      "s66": "Renamed",
+      "s67": "Rename failed: ",
+      "s68": "Delete bookmark",
+      "s69": "Delete bookmark \"",
+      "s70": "\"?",
+      "s71": "Deleted",
+      "s72": "Delete failed: ",
+      "s73": "Export failed",
+      "s74": "File is too large (over 4 MiB)",
+      "s75": "Import: ",
+      "s76": " added, ",
+      "s77": " skipped",
+      "s78": "Import failed: ",
+      "s79": "Invalid format",
+      "s80": "Cannot read the file",
+      "s81": "No conversation is open.",
+      "s82": "Building table of contents…",
+      "s83": "No contents yet. Replies with headings (#, ##, ###), tables, Mermaid diagrams or one-line frames will appear here.",
+      "s84": "Reply · Message #",
+      "s85": " entries · ",
+      "s86": " replies. Use Core's Conversation Outline for the list of user questions.",
+      "s87": "Could not load the conversation",
+      "s88": "Storage is not ready yet",
+      "unavailable": "Sync unavailable",
+      "actionUnavailable": "The bookmark action could not be registered. Disable another extension message action and reload.",
+      "quota": "Storage limit reached (1,000 items / 2 MiB).",
+      "tooLarge": "Item is too large (over 256 KiB)."
+    }
+  };
+  function t(key) {
+    var lang = typeof document !== 'undefined' ? document.documentElement.lang : '';
+    return I18N[/^ko/i.test(lang || '') ? 'ko' : 'en'][key];
+  }
+
   var EXT_ID = 'sigakhwa-bookmarks';
   var NS = 'bookmarks';
   var VERSION = '0.1.1';
@@ -27,7 +224,6 @@
   var TOC_MAX_LINES = 20000;
   var TOC_MAX_LINE_LEN = 2000;
   var TOC_MAX_ENTRIES = 500;
-  var ROLE_LABEL = { user: '나', assistant: 'AI' };
 
   // ── pure helpers ───────────────────────────────────────────────────────────
   function collapseWs(s) {
@@ -60,9 +256,9 @@
 
   // Default bookmark name = first 40 visible characters of the message text.
   function defaultName(text) {
-    var t = collapseWs(stripInlineMarkdown(stripBlockMarkers(String(text || '').slice(0, 4000))));
-    if (!t) return '북마크';
-    return truncate(t, DEFAULT_NAME_LEN);
+    var visible = collapseWs(stripInlineMarkdown(stripBlockMarkers(String(text || '').slice(0, 4000))));
+    if (!visible) return t('s1');
+    return truncate(visible, DEFAULT_NAME_LEN);
   }
 
   function previewText(text) {
@@ -189,7 +385,7 @@
         }
         if (isTableSeparator(line) && prev.indexOf('|') >= 0) {
           var tl = tableHeaderLabel(prev);
-          entries.push({ messageIndex: mi, role: 'assistant', kind: 'table', label: tl || '표' });
+          entries.push({ messageIndex: mi, role: 'assistant', kind: 'table', label: tl || t('s2') });
           prev = '';
           continue;
         }
@@ -202,16 +398,15 @@
     return entries;
   }
 
-  var KIND_TAG = { heading: 'H', table: '표', diagram: '도식', frame: '프레임' };
 
   function reasonText(reason, extra) {
     switch (reason) {
-      case 'no_core': return '코어 UI를 찾을 수 없어 이동할 수 없습니다.';
-      case 'session_not_found': return '대화를 열 수 없습니다 (삭제되었거나 이 프로필에서 접근할 수 없음).';
-      case 'profile_switch_required': return '다른 프로필(' + (extra || '?') + ')의 대화입니다. 먼저 해당 프로필로 전환해 주세요.';
-      case 'row_not_found': return '메시지를 찾을 수 없습니다 (삭제·압축되었을 수 있음).';
-      case 'busy_switch_blocked': return '응답 생성 중에는 이동할 수 없습니다. 잠시 후 다시 시도해 주세요.';
-      default: return '이동에 실패했습니다.';
+      case 'no_core': return t('s5');
+      case 'session_not_found': return t('s6');
+      case 'profile_switch_required': return t('s7') + (extra || '?') + t('s8');
+      case 'row_not_found': return t('s9');
+      case 'busy_switch_blocked': return t('s10');
+      default: return t('s11');
     }
   }
 
@@ -273,13 +468,13 @@
   // Core's shared app dialogs (ui.js showPromptDialog / showConfirmDialog) when present, native fallbacks otherwise.
   function askText(title, message, value) {
     if (typeof window.showPromptDialog === 'function') {
-      try { return Promise.resolve(window.showPromptDialog({ title: title, message: message, value: value, confirmLabel: '저장', cancelLabel: '취소' })); } catch (_) { /* fall back */ }
+      try { return Promise.resolve(window.showPromptDialog({ title: title, message: message, value: value, confirmLabel: t('s12'), cancelLabel: t('s13') })); } catch (_) { /* fall back */ }
     }
     return Promise.resolve(typeof window.prompt === 'function' ? window.prompt(title + '\n' + message, value) : null);
   }
   function askConfirm(title, message, confirmLabel) {
     if (typeof window.showConfirmDialog === 'function') {
-      try { return Promise.resolve(window.showConfirmDialog({ title: title, message: message, confirmLabel: confirmLabel || '확인', cancelLabel: '취소' })).then(function (r) { return r === true; }); } catch (_) { /* fall back */ }
+      try { return Promise.resolve(window.showConfirmDialog({ title: title, message: message, confirmLabel: confirmLabel || t('s14'), cancelLabel: t('s13') })).then(function (r) { return r === true; }); } catch (_) { /* fall back */ }
     }
     return Promise.resolve(typeof window.confirm === 'function' ? !!window.confirm(title + '\n' + message) : false);
   }
@@ -311,22 +506,25 @@
   var lastWatchSid = null;
   var lastListError = null;       // last store.list() failure (shown in the panel instead of an empty list)
   var ui = {};
+  var actionAvailable = false;
 
   // Sync state shown to the user: 'local' (this browser only) | 'partial' (sidecar in use, but
   // store.pendingLocal items were refused and remain here) | 'synced'.
   function syncState() {
+    if (store && store.syncError) return 'unavailable';
     if (!store || store.backend !== 'sidecar') return 'local';
     return store.pendingLocal > 0 ? 'partial' : 'synced';
   }
   function badgeText(state) {
-    if (state === 'synced') return '동기화됨';
-    if (state === 'partial') return '일부 동기화됨 · ' + store.pendingLocal + '개는 이 기기에만';
-    return '이 기기에만 저장됨';
+    if (state === 'unavailable') return t('unavailable');
+    if (state === 'synced') return t('s15');
+    if (state === 'partial') return t('s16') + store.pendingLocal + t('s17');
+    return t('s18');
   }
   function describeError(e) {
-    if (!e) return '오류';
+    if (!e) return t('s19');
     if (e.status) return 'HTTP ' + e.status;
-    return String(e.code || e.message || '오류');
+    return String(e.code || e.message || t('s19'));
   }
 
   function activeKeyFor(ctx) {
@@ -368,7 +566,7 @@
       var old = document.getElementById('svbDialogBackdrop');
       if (old) old.remove();
       if (currentSid() !== ctx.sessionId) {
-        toast('대화가 바뀌어 북마크를 저장하지 않았습니다. 다시 시도해 주세요.', 'error');
+        toast(t('s20'), 'error');
         resolve();
         return;
       }
@@ -379,20 +577,20 @@
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('aria-modal', 'true');
       dialog.setAttribute('aria-labelledby', 'svbDialogTitle');
-      var title = el('h3', 'svb-dialog-title', existing ? '북마크 편집' : '북마크 저장');
+      var title = el('h3', 'svb-dialog-title', existing ? t('s21') : t('s22'));
       title.id = 'svbDialogTitle';
-      var meta = el('div', 'svb-dialog-meta', (ROLE_LABEL[ctx.role] || ctx.role) + ' · 메시지 #' + ctx.messageIndex + (existing ? '' : ' · 이름을 정해 저장합니다'));
+      var meta = el('div', 'svb-dialog-meta', ((ctx.role === 'user' ? t('s0') : 'AI')) + t('s23') + ctx.messageIndex + (existing ? '' : t('s24')));
       var preview = el('div', 'svb-dialog-preview', previewText(ctx.text));
       var input = el('input', 'svb-dialog-input');
       input.type = 'text';
       input.maxLength = NAME_MAX;
-      input.placeholder = '북마크 이름';
+      input.placeholder = t('s25');
       input.value = existing ? existing.name : defaultName(ctx.text);
-      input.setAttribute('aria-label', '북마크 이름');
+      input.setAttribute('aria-label', t('s25'));
       var row = el('div', 'svb-dialog-actions');
-      var cancel = btn('svb-btn', '취소');
-      var save = btn('svb-btn svb-btn--primary', existing ? '이름 변경' : '저장');
-      var del = existing ? btn('svb-btn svb-btn--danger', '삭제') : null;
+      var cancel = btn('svb-btn', t('s13'));
+      var save = btn('svb-btn svb-btn--primary', existing ? t('s26') : t('s12'));
+      var del = existing ? btn('svb-btn svb-btn--danger', t('s27')) : null;
       var err = el('div', 'svb-dialog-error');
       err.setAttribute('role', 'alert');
       row.appendChild(cancel);
@@ -420,20 +618,22 @@
       function sessionChanged() { return currentSid() !== ctx.sessionId; }
       function abortStale() {
         close();
-        toast('대화가 바뀌어 북마크를 저장하지 않았습니다. 다시 시도해 주세요.', 'error');
+        toast(t('s20'), 'error');
       }
       function busy(on) { save.disabled = on; cancel.disabled = on; if (del) del.disabled = on; input.disabled = on; }
       function fail(e) {
         busy(false);
         var code = e && e.code;
-        err.textContent = code === 'storage' ? '저장 공간이 부족하거나 저장소를 사용할 수 없습니다.'
-          : code === 'immutable' ? '변경할 수 없는 항목입니다.'
-          : code === 'unauthorized' ? '사이드카 권한이 없습니다. 설정에서 프록시 허용을 확인하세요.'
-          : '저장에 실패했습니다' + (e && e.message ? ' (' + e.message + ')' : '') + '.';
+        err.textContent = code === 'quota' ? t('quota')
+          : code === 'too_large' ? t('tooLarge')
+          : code === 'storage' ? t('s28')
+          : code === 'immutable' ? t('s29')
+          : code === 'unauthorized' ? t('s30')
+          : t('s31') + (e && e.message ? ' (' + e.message + ')' : '') + '.';
       }
       function onSave() {
         var name = collapseWs(input.value).slice(0, NAME_MAX);
-        if (!name) { err.textContent = '이름을 입력해 주세요.'; input.focus(); return; }
+        if (!name) { err.textContent = t('s32'); input.focus(); return; }
         if (sessionChanged()) { abortStale(); return; }
         busy(true);
         var p;
@@ -452,7 +652,7 @@
           });
         }
         p.then(function () {
-          toast(existing ? '북마크 이름을 변경했습니다' : '북마크를 저장했습니다' + (store.backend === 'sidecar' ? '' : ' (이 기기에만 저장됨)'));
+          toast(existing ? t('s33') : t('s34') + (store.backend === 'sidecar' ? '' : t('s35')));
           close();
           refreshIndex();
         }, fail);
@@ -460,7 +660,7 @@
       function onDelete() {
         busy(true);
         store.remove(existing.id).then(function () {
-          toast('북마크를 삭제했습니다');
+          toast(t('s36'));
           close();
           refreshIndex();
         }, fail);
@@ -498,7 +698,7 @@
     if (existing) existing.remove();   // not created by this closure (stale copy) → rebuild with our listeners
     var shell = document.querySelector('.messages-shell');
     if (!shell) return null;
-    var b = btn('svb-toggle', '', '북마크 · 목차 열기');
+    var b = btn('svb-toggle', '', t('s37'));
     b.id = 'svbToggleBtn';
     b.setAttribute('aria-haspopup', 'dialog');
     b.setAttribute('aria-expanded', 'false');
@@ -524,12 +724,17 @@
     b = b || document.getElementById('svbToggleBtn');
     if (!b) return;
     var right = 20;
-    var start = document.getElementById('jumpToSessionStartBtn');
-    if (start) {
-      var visible = false;
-      try { visible = getComputedStyle(start).display !== 'none' && start.getBoundingClientRect().width > 0; } catch (_) { visible = false; }
-      if (visible) right = 20 + start.getBoundingClientRect().width + 8;
-    }
+    var shell = document.querySelector('.messages-shell');
+    var neighbours = [document.getElementById('jumpToSessionStartBtn'), document.getElementById('hwxMessagePinsHeaderBtn')];
+    neighbours.forEach(function (other) {
+      if (!other || !shell) return;
+      try {
+        var rect = other.getBoundingClientRect();
+        if (getComputedStyle(other).display !== 'none' && rect.width > 0) {
+          right = Math.max(right, shell.getBoundingClientRect().right - rect.left + 8);
+        }
+      } catch (_) { /* ignore */ }
+    });
     b.style.right = right + 'px';
   }
 
@@ -562,25 +767,25 @@
     panel.id = 'svbPanel';
     panel.hidden = true;
     panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', '북마크와 목차');
+    panel.setAttribute('aria-label', t('s38'));
 
     var head = el('div', 'svb-head');
     var titleWrap = el('div', 'svb-head-title');
-    titleWrap.appendChild(el('span', 'svb-title', '북마크 · 목차'));
-    var badge = el('span', 'svb-sync-badge', '이 기기에만 저장됨');
-    badge.title = '브라우저 localStorage에만 저장됩니다. PC·폰 동기화는 사이드카가 필요합니다.';
+    titleWrap.appendChild(el('span', 'svb-title', t('s39')));
+    var badge = el('span', 'svb-sync-badge', t('s18'));
+    badge.title = t('s40');
     titleWrap.appendChild(badge);
     head.appendChild(titleWrap);
-    var close = btn('svb-close', '×', '닫기');
+    var close = btn('svb-close', '×', t('s41'));
     close.addEventListener('click', function () { setPanelOpen(false); });
     head.appendChild(close);
 
     var tabs = el('div', 'svb-tabs');
     tabs.setAttribute('role', 'tablist');
-    var tabB = btn('svb-tab', '북마크');
+    var tabB = btn('svb-tab', t('s1'));
     tabB.setAttribute('role', 'tab');
     tabB.dataset.tab = 'bookmarks';
-    var tabT = btn('svb-tab', '목차');
+    var tabT = btn('svb-tab', t('s42'));
     tabT.setAttribute('role', 'tab');
     tabT.dataset.tab = 'toc';
     tabB.addEventListener('click', function () { setTab('bookmarks'); });
@@ -619,6 +824,8 @@
       if (!watchTimer) {
         // Cheap session-change watch while open (no transcript-wide observers needed).
         watchTimer = setInterval(function () {
+          if (store && store.syncError) refreshIndex();
+          positionToggle();
           var sid = currentSid();
           if (sid !== lastWatchSid) { lastWatchSid = sid; tocCache = { key: null, entries: null, loading: null }; updateBadge(); renderPanel(); }
         }, 1000);
@@ -636,19 +843,29 @@
 
   function renderPanel() {
     if (!panelOpen || !ui.panel) return;
+    positionToggle();
+    if (ui.toggle) { ui.toggle.title = t('s37'); ui.toggle.setAttribute('aria-label', t('s37')); }
+    var close = ui.panel.querySelector('.svb-close');
+    close.title = t('s41');
+    close.setAttribute('aria-label', t('s41'));
+    ui.tabB.textContent = t('s1');
+    ui.tabT.textContent = t('s42');
+    ui.panel.querySelector('.svb-title').textContent = t('s39');
+    ui.panel.setAttribute('aria-label', t('s38'));
     var state = syncState();
     ui.badge.textContent = badgeText(state);
     ui.badge.classList.toggle('svb-sync-badge--on', state === 'synced');
     ui.badge.classList.toggle('svb-sync-badge--partial', state === 'partial');
-    ui.badge.title = state === 'synced' ? '사이드카에 저장되어 같은 WebUI에 로그인한 다른 기기에서도 보입니다.'
-      : state === 'partial' ? '서버가 받지 않은 항목은 이 브라우저에만 남아 있습니다 (목록에서 "이 기기" 표시).'
-      : '브라우저 localStorage에만 저장됩니다. PC·폰 동기화는 사이드카가 필요합니다.';
+    ui.badge.title = state === 'synced' ? t('s43')
+      : state === 'partial' ? t('s44')
+      : t('s40');
     ui.tabB.classList.toggle('svb-tab--active', activeTab === 'bookmarks');
     ui.tabT.classList.toggle('svb-tab--active', activeTab === 'toc');
     ui.tabB.setAttribute('aria-selected', activeTab === 'bookmarks' ? 'true' : 'false');
     ui.tabT.setAttribute('aria-selected', activeTab === 'toc' ? 'true' : 'false');
     clear(ui.body);
     clear(ui.foot);
+    if (!actionAvailable) ui.body.appendChild(el('p', 'svb-empty svb-error', t('actionUnavailable')));
     if (activeTab === 'bookmarks') renderBookmarks(); else renderToc();
   }
 
@@ -662,17 +879,17 @@
       var live = sessionTitle();
       if (live) title = live;
     }
-    return title || ('대화 ' + group.sessionId.slice(0, 8));
+    return title || (t('s45') + group.sessionId.slice(0, 8));
   }
 
   function renderBookmarks() {
     var body = ui.body;
-    if (!store) { body.appendChild(el('p', 'svb-empty', '저장소를 초기화하는 중…')); return; }
+    if (!store) { body.appendChild(el('p', 'svb-empty', t('s46'))); return; }
     if (lastListError) {
-      body.appendChild(el('p', 'svb-empty svb-error', '북마크 목록을 불러오지 못했습니다 (' + describeError(lastListError) + '). 사이드카 상태를 확인한 뒤 새로고침하세요. 아래는 마지막으로 읽은 목록입니다.'));
+      body.appendChild(el('p', 'svb-empty svb-error', t('s47') + describeError(lastListError) + t('s48')));
     }
     if (!items.length) {
-      body.appendChild(el('p', 'svb-empty', '저장된 북마크가 없습니다. 메시지 하단의 북마크 버튼으로 저장하세요.'));
+      body.appendChild(el('p', 'svb-empty', t('s49')));
     } else {
       var sid = currentSid();
       var active = currentProfile();
@@ -693,7 +910,7 @@
         return a.profile < b.profile ? -1 : 1;
       });
       profileList.forEach(function (pg) {
-        var pHead = el('div', 'svb-group-profile', '프로필: ' + pg.profile + (pg.profile === active ? ' (현재)' : ''));
+        var pHead = el('div', 'svb-group-profile', t('s50') + pg.profile + (pg.profile === active ? t('s51') : ''));
         body.appendChild(pHead);
         var sessions = Array.from(pg.sessions.values()).sort(function (a, b) {
           if (a.sessionId === sid) return -1;
@@ -703,7 +920,7 @@
         sessions.forEach(function (sg) {
           var sHead = el('div', 'svb-group-session');
           sHead.appendChild(el('span', 'svb-group-session-title', sessionLabelFor(sg)));
-          if (sg.sessionId === sid) sHead.appendChild(el('span', 'svb-chip', '현재 대화'));
+          if (sg.sessionId === sid) sHead.appendChild(el('span', 'svb-chip', t('s52')));
           body.appendChild(sHead);
           sg.items.sort(function (a, b) { return a.messageIndex - b.messageIndex; });
           sg.items.forEach(function (it) { body.appendChild(bookmarkRow(it, pg.profile)); });
@@ -713,9 +930,9 @@
     // footer: export / import + sync hint
     var foot = ui.foot;
     var tools = el('div', 'svb-tools');
-    var exp = btn('svb-btn svb-btn--small', '내보내기(JSON)');
+    var exp = btn('svb-btn svb-btn--small', t('s53'));
     exp.addEventListener('click', exportBookmarks);
-    var imp = btn('svb-btn svb-btn--small', '가져오기(JSON)');
+    var imp = btn('svb-btn svb-btn--small', t('s54'));
     var file = el('input', 'svb-file');
     file.type = 'file';
     file.accept = '.json,application/json';
@@ -727,55 +944,57 @@
     tools.appendChild(file);
     foot.appendChild(tools);
     var state = syncState();
-    if (state === 'local') {
+    if (state === 'unavailable') {
+      foot.appendChild(el('div', 'svb-hint', t('unavailable')));
+    } else if (state === 'local') {
       var hint = el('div', 'svb-hint');
-      hint.appendChild(el('strong', null, '이 기기에만 저장됨. '));
+      hint.appendChild(el('strong', null, t('s55')));
       if (store && store.syncError) {
         // /health answered but the data routes did not: say so instead of a silent dead sync.
-        hint.appendChild(document.createTextNode('사이드카는 응답했지만 데이터 요청이 실패했습니다 (' + describeError(store.syncError) + '). 사이드카 로그와 설정 → Extensions의 프록시 허용 상태를 확인한 뒤 새로고침하세요.'));
+        hint.appendChild(document.createTextNode(t('s56') + describeError(store.syncError) + t('s57')));
       } else {
-        hint.appendChild(document.createTextNode('PC와 폰에서 함께 보려면: ① 사이드카 실행 (sidecar/README: python -S sidecar.py) ② WebUI 비밀번호 설정 ③ 설정 → Extensions → sigakhwa-bookmarks → 사이드카 프록시 허용 ④ 새로고침. 그러면 이 기기의 북마크가 서버로 옮겨집니다.'));
+        hint.appendChild(document.createTextNode(t('s58')));
       }
       foot.appendChild(hint);
     } else if (state === 'partial') {
-      foot.appendChild(el('div', 'svb-hint', store.pendingLocal + '개 항목은 서버가 받지 않아 이 기기에만 남아 있습니다 (용량 초과 또는 형식 오류). 목록에서 "이 기기" 표시가 붙고, 새로고침할 때마다 다시 보내 봅니다. 삭제하면 이 기기에서만 지워집니다.'));
+      foot.appendChild(el('div', 'svb-hint', store.pendingLocal + t('s59')));
     } else {
-      foot.appendChild(el('div', 'svb-hint', '사이드카와 동기화 중입니다. 다른 기기에서 같은 WebUI에 로그인하면 같은 목록이 보입니다.'));
+      foot.appendChild(el('div', 'svb-hint', t('s60')));
     }
   }
 
   function bookmarkRow(it, profile) {
     var row = el('div', 'svb-entry-row');
     var main = btn('svb-entry', '');
-    main.appendChild(el('span', 'svb-role svb-role--' + it.role, ROLE_LABEL[it.role] || it.role));
-    main.appendChild(el('span', 'svb-entry-name', it.name || '(이름 없음)'));
+    main.appendChild(el('span', 'svb-role svb-role--' + it.role, (it.role === 'user' ? t('s0') : 'AI')));
+    main.appendChild(el('span', 'svb-entry-name', it.name || t('s61')));
     main.appendChild(el('span', 'svb-entry-idx', '#' + it.messageIndex));
     if (it.localOnly === true) {
-      var localChip = el('span', 'svb-chip svb-chip--local', '이 기기');
-      localChip.title = '서버가 받지 않아 이 브라우저에만 저장된 항목입니다.';
+      var localChip = el('span', 'svb-chip svb-chip--local', t('s62'));
+      localChip.title = t('s63');
       main.appendChild(localChip);
     }
     main.title = (it.data && it.data.preview) ? String(it.data.preview) : it.name;
     main.addEventListener('click', function () {
       jumpTo({ profile: profile, sessionId: it.sessionId, messageIndex: it.messageIndex, role: it.role });
     });
-    var rename = btn('svb-mini', '✎', '이름 변경');
+    var rename = btn('svb-mini', '✎', t('s26'));
     rename.addEventListener('click', function (ev) {
       ev.stopPropagation();
-      askText('북마크 이름 변경', '새 이름을 입력하세요.', it.name).then(function (name) {
+      askText(t('s64'), t('s65'), it.name).then(function (name) {
         if (name === null || name === undefined) return;
         name = collapseWs(name).slice(0, NAME_MAX);
         if (!name) return;
-        return store.patch(it.id, { name: name }).then(function () { toast('이름을 변경했습니다'); refreshIndex(); });
-      }).catch(function (e) { toast('변경 실패: ' + (e && e.message || ''), 'error'); });
+        return store.patch(it.id, { name: name }).then(function () { toast(t('s66')); refreshIndex(); });
+      }).catch(function (e) { toast(t('s67') + (e && e.message || ''), 'error'); });
     });
-    var del = btn('svb-mini svb-mini--danger', '×', '삭제');
+    var del = btn('svb-mini svb-mini--danger', '×', t('s27'));
     del.addEventListener('click', function (ev) {
       ev.stopPropagation();
-      askConfirm('북마크 삭제', '북마크 "' + it.name + '"을(를) 삭제할까요?', '삭제').then(function (ok) {
+      askConfirm(t('s68'), t('s69') + it.name + t('s70'), t('s27')).then(function (ok) {
         if (!ok) return;
-        return store.remove(it.id).then(function () { toast('삭제했습니다'); refreshIndex(); });
-      }).catch(function (e) { toast('삭제 실패: ' + (e && e.message || ''), 'error'); });
+        return store.remove(it.id).then(function () { toast(t('s71')); refreshIndex(); });
+      }).catch(function (e) { toast(t('s72') + (e && e.message || ''), 'error'); });
     });
     row.appendChild(main);
     row.appendChild(rename);
@@ -796,21 +1015,21 @@
         a.click();
         a.remove();
         setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
-      } catch (e) { toast('내보내기 실패', 'error'); }
-    }, function () { toast('내보내기 실패', 'error'); });
+      } catch (e) { toast(t('s73'), 'error'); }
+    }, function () { toast(t('s73'), 'error'); });
   }
 
   function importBookmarks(file) {
     if (!store) return;
-    if (file.size > 4 * 1024 * 1024) { toast('파일이 너무 큽니다 (4 MiB 초과)', 'error'); return; }
+    if (file.size > 4 * 1024 * 1024) { toast(t('s74'), 'error'); return; }
     var reader = new FileReader();
     reader.onload = function () {
       store.importJson(String(reader.result || ''), { merge: true }).then(function (r) {
-        toast('가져오기: ' + r.added + '개 추가, ' + r.skipped + '개 건너뜀');
+        toast(t('s75') + r.added + t('s76') + r.skipped + t('s77'));
         refreshIndex();
-      }, function (e) { toast('가져오기 실패: ' + (e && e.code === 'invalid' ? '형식이 올바르지 않습니다' : (e && e.message || '')), 'error'); });
+      }, function (e) { toast(t('s78') + (e && e.code === 'invalid' ? t('s79') : (e && e.message || '')), 'error'); });
     };
-    reader.onerror = function () { toast('파일을 읽을 수 없습니다', 'error'); };
+    reader.onerror = function () { toast(t('s80'), 'error'); };
     reader.readAsText(file);
   }
 
@@ -848,15 +1067,15 @@
   function renderToc() {
     var body = ui.body;
     var sid = currentSid();
-    if (!sid) { body.appendChild(el('p', 'svb-empty', '열린 대화가 없습니다.')); return; }
+    if (!sid) { body.appendChild(el('p', 'svb-empty', t('s81'))); return; }
     var profile = sessionProfile();
-    var loading = el('p', 'svb-empty', '목차를 만드는 중…');
+    var loading = el('p', 'svb-empty', t('s82'));
     body.appendChild(loading);
     tocEntriesFor(sid).then(function (entries) {
       if (!panelOpen || activeTab !== 'toc' || currentSid() !== sid) return;
       clear(body);
       if (!entries.length) {
-        body.appendChild(el('p', 'svb-empty', '목차 항목이 없습니다. 제목(#, ##, ###)·표·mermaid 도식·한 줄 프레임이 있는 답변이 나타나면 여기에 모입니다.'));
+        body.appendChild(el('p', 'svb-empty', t('s83')));
         return;
       }
       var lastMsg = -1;
@@ -865,10 +1084,10 @@
         if (e.messageIndex !== lastMsg) {
           lastMsg = e.messageIndex;
           n++;
-          body.appendChild(el('div', 'svb-group-session', '답변 · 메시지 #' + e.messageIndex));
+          body.appendChild(el('div', 'svb-group-session', t('s84') + e.messageIndex));
         }
         var b = btn('svb-entry svb-toc-entry svb-toc-' + e.kind + (e.level ? ' svb-toc-level-' + e.level : ''), '');
-        b.appendChild(el('span', 'svb-toc-tag', '[' + (KIND_TAG[e.kind] || e.kind) + ']'));
+        b.appendChild(el('span', 'svb-toc-tag', '[' + (({ heading: 'H', table: t('s2'), diagram: t('s3'), frame: t('s4') }[e.kind] || e.kind)) + ']'));
         b.appendChild(el('span', 'svb-entry-name', e.label));
         b.title = e.label;
         b.addEventListener('click', function () {
@@ -878,11 +1097,11 @@
       });
       var foot = ui.foot;
       clear(foot);
-      foot.appendChild(el('div', 'svb-hint', entries.length + '개 항목 · 답변 ' + n + '개. 핵심 대화 개요(사용자 질문 목록)는 코어의 Conversation Outline을 그대로 사용하세요.'));
+      foot.appendChild(el('div', 'svb-hint', entries.length + t('s85') + n + t('s86')));
     }, function (e) {
       if (!panelOpen || activeTab !== 'toc') return;
       clear(body);
-      body.appendChild(el('p', 'svb-empty', '대화 내용을 불러오지 못했습니다' + (e && e.message ? ' (' + e.message + ')' : '') + '.'));
+      body.appendChild(el('p', 'svb-empty', t('s87') + (e && e.message ? ' (' + e.message + ')' : '') + '.'));
     });
   }
 
@@ -897,12 +1116,12 @@
     }
     var unregister = handle.messages.registerAction({
       id: 'bookmark',
-      label: '북마크',
+      label: t('s1'),
       icon: 'bookmark',
       roles: ['user', 'assistant'],
       getPressed: function (ctx) { return index.has(activeKeyFor(ctx)); },
       onInvoke: function (ctx) {
-        if (!store) { toast('저장소가 아직 준비되지 않았습니다', 'error'); return; }
+        if (!store) { toast(t('s88'), 'error'); return; }
         return openBookmarkDialog(ctx);
       },
     });
@@ -926,7 +1145,7 @@
     }
     try { store = VS.open(NS); } catch (e) { try { console.warn('[' + EXT_ID + '] store open failed', e); } catch (_) { /* ignore */ } return; }
     pub.store = store;
-    store.subscribe(function () { refreshIndex(); });
+    store.subscribe(function (ev) { if (ev.type === 'status') renderPanel(); else refreshIndex(); });
     store.ready.then(function () { refreshIndex(); }, function () { refreshIndex(); });
   }
 
@@ -943,7 +1162,7 @@
     pub.installed = true;
     pub.installing = false;
     openStore(0);
-    registerAction();
+    actionAvailable = registerAction();
     ensureToggle();
     ensurePanel();
     observeStartButton();

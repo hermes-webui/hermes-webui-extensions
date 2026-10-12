@@ -26,7 +26,7 @@ conversations never collides.
 | Synced | sidecar running **and** proxy consent granted | the sidecar's JSON files on the WebUI host |
 
 When sync is first enabled, bookmarks already saved in a browser are uploaded once; server data is never
-silently overwritten from a browser.
+silently overwritten from a browser. Browser storage is capped per namespace at 1,000 items / 2 MiB (ASCII-escaped JSON); each item is limited to 256 KiB. Oversize items and full namespaces are reported separately.
 
 ### Enable PC ↔ phone sync (optional)
 
@@ -45,7 +45,7 @@ silently overwritten from a browser.
 
 The sidecar listens on `127.0.0.1:17831` only. Every route except `/health` requires the per-extension token
 that WebUI injects through its consented proxy (missing token file → 503, wrong token → 401). Revoke consent
-or stop the sidecar to go back to browser-only mode.
+or stop the sidecar and reload to go back to browser-only mode. A running page reports failed requests as Sync unavailable.
 
 ## Install
 
@@ -62,11 +62,11 @@ until you delete them. Stop the sidecar and revoke proxy consent if you enabled 
 ## WebUI surfaces used
 
 - `hermesExt.register()` with one message action (icon `bookmark`); core allows **two** message actions per
-  page, so this conflicts with other action-registering extensions such as *message-pins*.
+  page, and the panel reports registration failure when both slots are occupied. *message-pins* uses its own buttons; the toolbar toggle is positioned to their left.
 - `GET /api/session?...&msg_limit=all` to read the transcript for the TOC and for jumping to older messages.
 - Core `loadSession()` and `_switchProfileForSessionLoad()` (when present) to open another conversation;
   `showPromptDialog()` / `showConfirmDialog()` for rename and delete.
-- Its own panel and buttons only; it does not modify core views.
+- Injects its toolbar toggle into Core's `.messages-shell` and adds its own panel and dialogs.
 
 ## Trust and permissions
 
@@ -84,7 +84,4 @@ No external network.
 
 ## Compatibility and verification
 
-Tested against Hermes WebUI `7a74ae1b` (October 2026). Verified with unit tests (store, navigation, TOC
-parser, sidecar routes and token handling), a real-browser fixture, an isolated WebUI instance (save →
-reload → jump; two separate browser contexts sharing bookmarks through the consented sidecar), and
-day-to-day use on a self-hosted install across a PC and an Android phone.
+Targets Hermes WebUI `7a74ae1b`. Core PR nesquena/hermes-webui#8159 is merged and included in `exp-v0.52.460` on the experimental channel. Registered regression tests cover the store, navigation, TOC parser, UI and sidecar routes; run them through `scripts/run-behavior-tests.mjs`. UI defaults to English and uses the original Korean strings when the document language starts with `ko`.

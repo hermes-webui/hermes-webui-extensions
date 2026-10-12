@@ -35,26 +35,20 @@ same command (hidden, e.g. through `conhost.exe --headless`) keeps it running ac
 
 Token resolution (scaffold, re-read on every request): `HERMES_EXT_SIDECAR_TOKEN_FILE` →
 `$HERMES_WEBUI_STATE_DIR/sidecar-auth/sigakhwa-bookmarks.token` → `$HERMES_HOME/webui/sidecar-auth/…` →
-`%LOCALAPPDATA%\hermes\webui\sidecar-auth\…`. For a throw-away test you can point
-`HERMES_EXT_SIDECAR_TOKEN_FILE` at any file containing a token and send it yourself:
-
-```bash
-curl -s http://127.0.0.1:17831/health                                   # 200 {"ok":true,...}, tokenless
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:17831/v1/bookmarks/items   # 401 (no/wrong token) or 503 (no token file)
-curl -s -H "X-Hermes-Sidecar-Token: $(cat $HERMES_EXT_SIDECAR_TOKEN_FILE)" http://127.0.0.1:17831/v1/bookmarks/items
-```
+`%LOCALAPPDATA%\hermes\webui\sidecar-auth\…`. Check that `GET /health` returns `{"ok": true}` using a browser or HTTP tool.
+Data routes return 503 without a token file and 401 with a missing or wrong token.
 
 Enabling sync in WebUI: password auth must be on, then Settings → Extensions → Diagnostics → Sidecars →
 `sigakhwa-bookmarks` → **Approve proxy consent** (core mints the token file), then reload the page. The extension probes `GET <proxy>/health`; on 2xx it imports this browser's local
-bookmarks to the server once and shows "동기화됨".
+bookmarks to the server. It shows "Synced" only after successful data requests with no local leftovers; later request failures show "Sync unavailable".
 
-## Routes (all under the proxy base; `ns` = `/^[a-z0-9-]{1,32}$/`)
+## Routes (all under the proxy base; `ns` = `bookmarks` or `sigakhwa-vault`)
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/v1/{ns}/items?profile=&sessionId=&kind=&offset=` | newest first, ≤500 per page, pages ≤ ~400 KiB **as served**; `nextOffset` when truncated |
 | GET | `/v1/{ns}/items/{id}` | 404 when missing |
-| PUT | `/v1/{ns}/items/{id}` | create (201) / replace (200); 400 invalid, 409 `{"error":"immutable"}`, 413 `store_full` |
+| PUT | `/v1/{ns}/items/{id}` | create (201) / replace (200); 400 invalid, 409 `{"error":"immutable"}`, 413 `too_large` / `store_full` |
 | PATCH | `/v1/{ns}/items/{id}` | `{name?, tags?}` metadata only — allowed for immutable items |
 | DELETE | `/v1/{ns}/items/{id}` | `{"removed":true}` / 404 |
 | GET | `/v1/{ns}/export?offset=` | `{v:1, namespace, items, total, nextOffset?}` |
@@ -69,7 +63,7 @@ written atomically (tmp + `os.replace`), serialized by a per-namespace lock, cap
 Item and page caps are therefore measured with that same serializer (`_wire_size`), so a 256 KiB item is ≈43k
 Hangul characters (or ≈256k ASCII) and a page of Korean items can never exceed the WebUI proxy's hard 512 KiB
 response cap (`routes.py _EXTENSION_SIDECAR_PROXY_MAX_RESPONSE_BYTES` → 502 otherwise). The on-disk file stays
-UTF-8 (never proxied). 
+UTF-8 (never proxied). Directories use mode 0700 and new files mode 0600 on POSIX. Malformed files are moved to `<ns>.json.corrupt-<timestamp>` before recovery.
 
 Stop: Ctrl+C for a foreground process, or stop the service/task you created.
 

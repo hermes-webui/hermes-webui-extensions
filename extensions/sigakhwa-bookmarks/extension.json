@@ -43,17 +43,28 @@
   "permissions": {
     "webui_api": {
       "read": [
-        "session"
+        "session",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/health",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items/{id}",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/export"
       ],
-      "write": []
+      "write": [
+        "/api/profile/switch",
+        "/api/session/draft",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items/{id}",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/import"
+      ]
     },
     "webui_navigation": true,
     "dom": {
       "owned": true,
-      "mutates_core_views": false
+      "mutates_core_views": true
     },
     "storage": {
-      "owned": true,
+      "owned": [
+        "hermes-viz-store:bookmarks"
+      ],
       "shared_webui_keys": []
     },
     "loopback_sidecar": true,
