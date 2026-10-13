@@ -26,6 +26,8 @@
 
   var I18N = {
     "ko": {
+      "도식은 원문 코드로 보여 줍니다": "도식은 원문 코드로 보여 줍니다",
+      "session_changed": "이동 중 대화가 바뀌어 원문 이동을 중단했습니다. 다시 시도해 주세요.",
       "전체 답변": "전체 답변",
       "다이어그램: ": "다이어그램: ",
       "섹션: ": "섹션: ",
@@ -120,6 +122,8 @@
       "invalid_card": "손상된 카드"
     },
     "en": {
+      "도식은 원문 코드로 보여 줍니다": "Diagrams are shown as source code.",
+      "session_changed": "The conversation changed during navigation. Go to source was cancelled; try again.",
       "전체 답변": "Whole answer",
       "다이어그램: ": "Diagram: ",
       "섹션: ": "Section: ",
@@ -899,9 +903,70 @@
     return node;
   }
 
+  // Core's document handler approves on Enter. Keep native activation local,
+  // and contain repeats even after the activated control disappears.
+  var latchedKeys = new Set();
+  var keyboardGuardsStarted = false;
+  function activationKey(ev) { return ev.key === 'Spacebar' ? ' ' : ev.key; }
+
+  function coreDialogAboveVault() {
+    var nodes = document.querySelectorAll('#appDialogOverlay, .app-dialog-overlay, .img-lightbox, #onboardingOverlay, [role="dialog"], [role="alertdialog"], [aria-modal="true"]');
+    return Array.prototype.some.call(nodes, function (node) {
+      if (node.closest('#sgkvLayer')) return false;
+      for (var parent = node; parent && parent.nodeType === 1; parent = parent.parentElement) {
+        var style = window.getComputedStyle(parent);
+        if (parent.hidden || parent.getAttribute('aria-hidden') === 'true' || style.display === 'none' || style.visibility === 'hidden') return false;
+      }
+      return true;
+    });
+  }
+
+  function containActivationKeys(node) {
+    node.addEventListener('keydown', function (ev) {
+      if (ev.defaultPrevented || coreDialogAboveVault()) return;
+      var key = activationKey(ev);
+      if (key !== 'Enter' && key !== ' ') return;
+      ev.stopPropagation();
+      if (!ev.repeat) latchedKeys.add(key);
+    });
+  }
+
+  function startKeyboardGuards() {
+    if (keyboardGuardsStarted) return;
+    keyboardGuardsStarted = true;
+    window.addEventListener('keydown', function (ev) {
+      if (ev.defaultPrevented || coreDialogAboveVault()) return;
+      var key = activationKey(ev);
+      if (!latchedKeys.has(key)) return;
+      if (!ev.repeat) { latchedKeys.delete(key); return; }
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+    }, true);
+    window.addEventListener('keyup', function (ev) { latchedKeys.delete(activationKey(ev)); }, true);
+    window.addEventListener('blur', function () { latchedKeys.clear(); });
+    // The Core-rendered star may be replaced without notifying the extension.
+    document.body.addEventListener('keydown', function (ev) {
+      if (ev.defaultPrevented || coreDialogAboveVault()) return;
+      var key = activationKey(ev);
+      if (key !== 'Enter' && key !== ' ') return;
+      var target = ev.target && ev.target.closest && ev.target.closest('[data-extension-id="sigakhwa-vault"][data-extension-action-id="save-card"]');
+      if (!target) return;
+      ev.stopPropagation();
+      if (!ev.repeat) latchedKeys.add(key);
+    });
+  }
+
+  function focusVaultList() {
+    if (coreDialogAboveVault() || activeModal) return;
+    var panel = document.getElementById('sgkvPanel');
+    var target = panel && !panel.hidden ? document.getElementById('sgkvList') : document.getElementById('sgkvFab');
+    if (target) target.focus();
+  }
+
   function button(label, className, onClick) {
     var b = el('button', className, label);
     b.type = 'button';
+    containActivationKeys(b);
     if (onClick) b.addEventListener('click', onClick);
     return b;
   }
@@ -943,6 +1008,7 @@
         document.body.appendChild(layer);
       }
     });
+    startKeyboardGuards();
     startFabObserver();
     positionFab();
   }
@@ -950,6 +1016,7 @@
   var fabObserver = null;
   var fabResizeObserver = null;
   var observedScrollButton = null;
+  var observedOutlineButton = null;
   var observedShell = null;
   var observedComposer = null;
   var languageObserver = null;
@@ -957,12 +1024,15 @@
 
   function observeFabTargets() {
     var control = document.getElementById('scrollToBottomBtn');
+    var outline = document.getElementById('outlineToggleBtn');
     var shell = document.querySelector('.messages-shell');
     var composer = document.getElementById('composerWrap');
-    if (fabObserver && control !== observedScrollButton) {
+    if (fabObserver && (control !== observedScrollButton || outline !== observedOutlineButton)) {
       fabObserver.disconnect();
       if (control) fabObserver.observe(control, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+      if (outline) fabObserver.observe(outline, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
       observedScrollButton = control;
+      observedOutlineButton = outline;
     }
     if (fabResizeObserver && (shell !== observedShell || composer !== observedComposer)) {
       fabResizeObserver.disconnect();
@@ -978,6 +1048,7 @@
     if (!fab) return;
     observeFabTargets();
     var control = document.getElementById('scrollToBottomBtn');
+    var outline = document.getElementById('outlineToggleBtn');
     var shell = document.querySelector('.messages-shell');
     var composer = document.getElementById('composerWrap');
     var shellRect = shell && shell.getBoundingClientRect();
@@ -988,7 +1059,8 @@
     var floor = shellRect && shellRect.height > 0 ? Math.min(window.innerHeight, shellRect.bottom) : window.innerHeight;
     if (composerRect && composerRect.height > 0 && composerRect.right > left && composerRect.left < right) floor = Math.min(floor, composerRect.top);
     var bottom = Math.max(gap, window.innerHeight - floor + gap);
-    if (control) {
+    [control, outline].forEach(function (control) {
+      if (!control) return;
       var rect = control.getBoundingClientRect();
       var visible = rect.width > 0 && rect.height > 0;
       for (var node = control; node && visible && node.nodeType === 1; node = node.parentElement) {
@@ -996,21 +1068,28 @@
         if (node.hidden || style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse') visible = false;
       }
       if (visible) bottom = Math.max(bottom, window.innerHeight - rect.top + 8);
-    }
+    });
     var value = bottom + 'px';
     if (fab.style.bottom !== value) fab.style.bottom = value;
     var rightValue = Math.max(gap, window.innerWidth - right + gap) + 'px';
     if (fab.style.right !== rightValue) fab.style.right = rightValue;
     var panel = document.getElementById('sgkvPanel');
     if (panel) {
+      // Measure even if the previous short-viewport pass hid the FAB.
+      fab.hidden = false;
       var fabRect = fab.getBoundingClientRect();
       // jsdom/unlaid-out fixtures can report zero height; the browser uses the actual rect.
       var panelBottom = fabRect.height > 0 ? window.innerHeight - fabRect.top + 8 : bottom + 45;
       var panelRight = fabRect.width > 0 ? window.innerWidth - fabRect.right : parseFloat(rightValue);
-      panel.style.bottom = panelBottom + 'px';
+      var shellTop = Math.max(16, shellRect && shellRect.height > 0 ? shellRect.top + 8 : 16);
+      var shortSpace = window.innerHeight - panelBottom - shellTop < 240;
+      panel.style.top = shortSpace ? shellTop + 'px' : '';
+      panel.style.bottom = shortSpace ? 'auto' : panelBottom + 'px';
+      fab.hidden = shortSpace && !panel.hidden;
       panel.style.right = panelRight + 'px';
       panel.style.maxWidth = Math.max(0, right - left - gap * 2) + 'px';
-      panel.style.maxHeight = Math.max(0, Math.min(560, window.innerHeight * 0.7, window.innerHeight - panelBottom - 16)) + 'px';
+      panel.style.maxHeight = Math.max(0, shortSpace ? Math.min(560, window.innerHeight - shellTop - 16) : Math.min(560, window.innerHeight * 0.7, window.innerHeight - panelBottom - 16)) + 'px';
+      if (fab.hidden && document.activeElement === fab && !coreDialogAboveVault()) panel.querySelector('button').focus();
     }
   }
 
@@ -1031,6 +1110,7 @@
 
   function buildPanel() {
     var panel = el('aside', 'sgkv-panel');
+    containActivationKeys(panel);
     panel.id = 'sgkvPanel';
     panel.hidden = true;
     panel.setAttribute('aria-label', t('결과 보관함'));
@@ -1053,6 +1133,7 @@
 
     var list = el('div', 'sgkv-list');
     list.id = 'sgkvList';
+    list.tabIndex = -1;
     panel.appendChild(list);
     return panel;
   }
@@ -1089,8 +1170,12 @@
   }
 
   function panelKeydown(ev) {
-    if (ev.key === 'Escape' && !activeModal) {
+    if (ev.defaultPrevented || coreDialogAboveVault()) return;
+    var panel = document.getElementById('sgkvPanel');
+    var focus = document.activeElement;
+    if (ev.key === 'Escape' && !activeModal && (panel.contains(focus) || focus === document.getElementById('sgkvFab'))) {
       ev.preventDefault();
+      ev.stopPropagation();
       closePanel();
       var fab = document.getElementById('sgkvFab');
       if (fab) fab.focus();
@@ -1106,9 +1191,11 @@
       if (fab) {
         fab.setAttribute('aria-expanded', 'false');
         fab.classList.remove('sgkv-fab--panel-open');
+        fab.hidden = false;
       }
     });
     document.removeEventListener('keydown', panelKeydown);
+    if (panel.contains(document.activeElement) && !coreDialogAboveVault() && fab) fab.focus();
   }
 
   // ── UI: card list ────────────────────────────────────────────────────────
@@ -1170,6 +1257,7 @@
     // Recomputed on every render (the panel re-renders each time it opens and
     // on every store event), so a later successful sync clears the badge.
     var localOnly = isLocalOnly(getStore());
+    var ownedFocus = list.contains(document.activeElement);
     withOwnWrites(function () {
       list.textContent = '';
       if (!items.length) {
@@ -1182,6 +1270,7 @@
       }
     });
     updateCount(items.length);
+    if (ownedFocus) focusVaultList();
   }
 
   function buildCardRow(card, localOnly) {
@@ -1215,12 +1304,16 @@
   function closeModal() {
     var layer = document.getElementById('sgkvLayer');
     var modal = activeModal;
+    var ownsFocus = modal && !coreDialogAboveVault() && modal.node.contains(document.activeElement);
     activeModal = null;
     withOwnWrites(function () {
       if (layer) { layer.textContent = ''; layer.hidden = true; }
     });
     document.removeEventListener('keydown', modalKeydown, true);
-    if (modal && modal.returnFocus && modal.returnFocus.isConnected) modal.returnFocus.focus();
+    if (ownsFocus) {
+      if (modal.returnFocus && modal.returnFocus !== document.body && modal.returnFocus !== document.documentElement && modal.returnFocus.isConnected && !modal.returnFocus.disabled && !modal.returnFocus.closest('[hidden]') && window.getComputedStyle(modal.returnFocus).display !== 'none') modal.returnFocus.focus();
+      else focusVaultList();
+    }
     if (modal && typeof modal.onClose === 'function') {
       try { modal.onClose(); } catch (_err) {}
     }
@@ -1240,6 +1333,7 @@
   }
 
   function modalKeydown(ev) {
+    if (ev.defaultPrevented || coreDialogAboveVault()) return;
     if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeModal(); return; }
     if (ev.key !== 'Tab' || !activeModal) return;
     var box = activeModal.node;
@@ -1262,6 +1356,7 @@
     if (activeModal) closeModal();
     var returnFocus = document.activeElement;
     var box = el('div', 'sgkv-modal');
+    containActivationKeys(box);
     box.tabIndex = -1;
     box.setAttribute('role', 'dialog');
     box.setAttribute('aria-modal', 'true');
@@ -1327,7 +1422,15 @@
         closeModal();
         resolve(value);
       }
-      input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') submit(); });
+      input.addEventListener('keydown', function (ev) {
+        if (ev.defaultPrevented || coreDialogAboveVault()) return;
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          ev.stopPropagation();
+          latchedKeys.add('Enter');
+          submit();
+        }
+      });
       m.foot.appendChild(button(t('취소'), 'sgkv-btn', closeModal));
       m.foot.appendChild(button(t('확인'), 'sgkv-btn sgkv-btn--primary', submit));
       try { input.focus(); input.select(); } catch (_err) {}
@@ -1451,12 +1554,17 @@
           for (var i = 0; i < parts.length; i++) {
             (function (part) {
               var b = button('', 'sgkv-choice');
-              if (part.type !== 'full') b.appendChild(el('span', 'sgkv-badge', t(PART_BADGES[part.type] || '내용')));
+              if (part.type !== 'full') {
+                var badge = el('span', 'sgkv-badge', t(PART_BADGES[part.type] || '내용'));
+                badge.setAttribute('aria-hidden', 'true');
+                b.appendChild(badge);
+              }
               b.appendChild(el('span', 'sgkv-choice-label', part.label));
               b.setAttribute('role', 'radio');
               b.setAttribute('aria-checked', part === selected ? 'true' : 'false');
               b.tabIndex = part === selected ? 0 : -1;
               b.addEventListener('keydown', function (ev) {
+                if (ev.defaultPrevented || coreDialogAboveVault()) return;
                 var index = buttons.indexOf(b);
                 var next;
                 if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') next = (index + 1) % buttons.length;
@@ -1496,6 +1604,7 @@
 
           m.foot.appendChild(button(t('취소'), 'sgkv-btn', function () { closeModalIf(m.box); }));
           var saveBtn = button(t('저장'), 'sgkv-btn sgkv-btn--primary', function () {
+            if (document.activeElement === saveBtn && !coreDialogAboveVault()) m.box.focus();
             saveBtn.disabled = true;
             saveCard(getStore(), {
               part: selected,
@@ -1663,6 +1772,7 @@
     }
     if (data.sessionTitle) meta.appendChild(el('span', 'sgkv-card-src', t('출처: ') + data.sessionTitle));
     m.body.appendChild(meta);
+    if (data.contentType === 'mermaid') m.body.appendChild(el('p', 'sgkv-text', t('도식은 원문 코드로 보여 줍니다')));
 
     var status = el('p', 'sgkv-text');
     status.hidden = true;
@@ -1788,7 +1898,7 @@
           if (!s) { toast(t('저장 모듈이 없습니다.'), 'error'); return null; }
           return attempt(function () { return s.remove(id); }).then(function () {
             toast(t('카드를 삭제했습니다.'), 'success');
-            refreshList();
+            return refreshList();
           });
         }).catch(function (err) {
           toast(t('삭제하지 못했습니다.'), 'error');

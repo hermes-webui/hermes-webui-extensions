@@ -17,7 +17,7 @@
 (function () {
   'use strict';
   if (typeof window === 'undefined') return;
-  var BUILD = 2026101302;
+  var BUILD = 2026101401;
   var previous = window.HermesVizNav;
   if (previous && previous.build >= BUILD) {
     if (previous.build > BUILD) console.warn('[HermesVizNav] older helper ignored');
@@ -87,6 +87,21 @@
     return { sessionId: String(s.session.session_id), profile: String(s.activeProfile || 'default') };
   }
 
+  function loadGeneration() {
+    try { if (typeof _loadSessionGeneration !== 'undefined') return _loadSessionGeneration; } catch (_) { /* ignore */ }
+    return window._loadSessionGeneration;
+  }
+  function guardFor(sid, profile) {
+    var state = coreS(), generation = loadGeneration();
+    return function () {
+      var current = coreS();
+      if (current !== state || !current || !current.session || String(current.session.session_id) !== sid ||
+          !profileMatches(profile, String(current.activeProfile || 'default')) || loadGeneration() !== generation) {
+        throw { reason: 'session_changed' };
+      }
+    };
+  }
+
   function isBusy() {
     var s = coreS();
     return !!(s && (s.busy || s.activeStreamId));
@@ -137,7 +152,7 @@
     return null;
   }
 
-  function flash(row) {
+  function flash(row, guard) {
     if (!row || !row.classList || reducedMotion()) return;
     row.classList.remove('outline-jump-flash');
     row.classList.remove('hermes-viz-jump-flash');
@@ -145,6 +160,7 @@
     row.classList.add('outline-jump-flash');
     row.classList.add('hermes-viz-jump-flash');
     setTimeout(function () {
+      if (guard) { try { guard(); } catch (_) { return; } }
       row.classList.remove('outline-jump-flash');
       row.classList.remove('hermes-viz-jump-flash');
     }, FLASH_MS);
@@ -170,29 +186,34 @@
     if ('_nearBottomCount' in window) window._nearBottomCount = 0;
   }
 
-  function scrollTo(row, retry) {
+  function scrollTo(row, retry, guard) {
+    guard();
     beginJump();
+    guard();
     try { row.scrollIntoView({ block: 'start', behavior: retry || reducedMotion() ? 'auto' : 'smooth' }); } catch (_) {
       try { row.scrollIntoView(); } catch (_e) { /* ignore */ }
     }
-    flash(row);
+    guard();
+    flash(row, guard);
   }
 
-  function waitForMessages(sid) {
+  function waitForMessages(sid, guard) {
     var s = coreS();
     var started = Date.now();
     function check() {
+      guard();
       if (!s.session || s.session.session_id !== sid) return Promise.resolve(false);
       var loading = window._loadingSessionId;
       try { if (typeof _loadingSessionId !== 'undefined') loading = _loadingSessionId; } catch (_) { /* ignore */ }
-      if (!loading && Array.isArray(s.messages) && s.messages.length) return delay(SETTLE_MS).then(function () { return !s.session || s.session.session_id !== sid ? false : true; });
+      if (!loading && Array.isArray(s.messages) && s.messages.length) return delay(SETTLE_MS).then(function () { guard(); return true; });
       if (Date.now() - started > MESSAGES_WAIT_MS) return Promise.resolve(false);
       return delay(80).then(check);
     }
     return check();
   }
 
-  function mountTarget(messageIndex) {
+  function mountTarget(messageIndex, guard) {
+    guard();
     var rawFn = coreFn('_messageRawIdxForSessionIndex');
     var visible = coreFn('_getVisibleMessagesWithIdx');
     var indexFn = coreFn('_messageVisibleIndexForRawIdx');
@@ -203,10 +224,14 @@
     var rows = visible();
     var idx = indexFn(rawFn(messageIndex), rows);
     if (idx < 0) return;
+    guard();
     beginJump();
-    container.scrollTop = Math.max(0, Math.min(topFn(rows, idx, container), Math.max(0, container.scrollHeight - container.clientHeight)));
+    var top = Math.max(0, Math.min(topFn(rows, idx, container), Math.max(0, container.scrollHeight - container.clientHeight)));
+    guard();
+    container.scrollTop = top;
     try { if (typeof _messageVirtualWindowKey !== 'undefined') _messageVirtualWindowKey = ''; } catch (_) { /* ignore */ }
     if ('_messageVirtualWindowKey' in window) window._messageVirtualWindowKey = '';
+    guard();
     render({ preserveScroll: true });
   }
 
@@ -219,42 +244,48 @@
     return rect.bottom > top && rect.top < bottom;
   }
 
-  function land(sid, messageIndex, role, retry) {
+  function land(sid, messageIndex, role, retry, guard) {
+    guard();
     if (!coreS().session || coreS().session.session_id !== sid) return Promise.resolve(result(false, 'session_not_found'));
     var row = findRow(messageIndex, role);
     if (!row) return Promise.resolve(result(false, 'row_not_found'));
-    scrollTo(row, retry);
+    guard();
+    scrollTo(row, retry, guard);
     var started = Date.now();
     function check() {
+      guard();
       if (!coreS().session || coreS().session.session_id !== sid) return result(false, 'session_not_found');
       var current = findRow(messageIndex, role);
       if (!current) return result(false, 'row_not_found');
       if (rowInView(current)) return result(true);
       if (Date.now() - started < 1600) return delay(80).then(check);
-      return retry ? result(false, 'not_in_view') : land(sid, messageIndex, role, true);
+      return retry ? result(false, 'not_in_view') : land(sid, messageIndex, role, true, guard);
     }
     return delay(SETTLE_MS).then(check);
   }
 
   // Load the COMPLETE transcript (explicit msg_limit=all, see outline.js:109-115) and re-render.
-  function ensureFullTranscript(sid) {
+  function ensureFullTranscript(sid, guard) {
+    guard();
     var s = coreS();
     var ensure = coreFn('_ensureAllMessagesLoaded');
     var p;
     if (coreTruncated() && ensure) {
-      p = Promise.resolve().then(function () { return ensure(); }).then(function () { return true; }, function () { return false; });
+      p = Promise.resolve().then(function () { guard(); return ensure(); }).then(function () { return true; }, function () { return false; });
     } else if (coreTruncated()) {
       p = Promise.resolve(false);
     } else {
       p = Promise.resolve(true);
     }
     return p.then(function (ok) {
+      guard();
       if (!ok) return false;
       if (!s.session || s.session.session_id !== sid) return false;
+      guard();
       expandRenderWindow();
       var render = coreFn('renderMessages');
-      if (render) { try { render({ preserveScroll: true }); } catch (_) { /* ignore */ } }
-      return delay(SETTLE_MS).then(function () { return true; });
+      if (render) { guard(); try { render({ preserveScroll: true }); } catch (_) { /* ignore */ } }
+      return delay(SETTLE_MS).then(function () { guard(); return true; });
     });
   }
 
@@ -280,12 +311,21 @@
 
       if ((needProfile || needSession) && isBusy()) return result(false, 'busy_switch_blocked');
 
+      var originGeneration = loadGeneration();
+      function originGuard(expectedProfile) {
+        var state = coreS();
+        var sid = state && state.session && state.session.session_id ? String(state.session.session_id) : null;
+        if (state !== s || sid !== currentSid || loadGeneration() !== originGeneration ||
+            !profileMatches(expectedProfile, String(state.activeProfile || 'default'))) throw { reason: 'session_changed' };
+      }
+      var guard = (!needProfile && !needSession) ? guardFor(sessionId, profile) : null;
       var chain = Promise.resolve();
       if (needProfile) {
         var switchFn = coreFn('_switchProfileForSessionLoad');
         if (!switchFn) return result(false, 'profile_switch_required');
-        chain = chain.then(function () { return switchFn(profile); }).then(function () {
+        chain = chain.then(function () { originGuard(active); return switchFn(profile); }).then(function () {
           if (!profileMatches(profile, String(s.activeProfile || 'default'))) throw { reason: 'profile_switch_required' };
+          originGuard(profile);
         }, function (e) {
           throw (e && e.reason) ? e : { reason: 'profile_switch_required' };
         });
@@ -293,26 +333,32 @@
       if (needSession || needProfile) {
         chain = chain.then(function () {
           return Promise.resolve().then(function () {
-            return loadSessionFn(sessionId, { skipLineageResolve: true, skipContinuationResolve: true, skipExtHooks: false });
+            originGuard(needProfile ? profile : active);
+            var loading = loadSessionFn(sessionId, { skipLineageResolve: true, skipContinuationResolve: true, skipExtHooks: false });
+            guard = guardFor(sessionId, profile);
+            return loading;
           }).then(function () {
             if (!s.session || String(s.session.session_id) !== sessionId) throw { reason: 'session_not_found' };
-            return waitForMessages(sessionId).then(function (ok) { if (!ok) throw { reason: 'row_not_found' }; });
+            guard();
+            return waitForMessages(sessionId, guard).then(function (ok) { if (!ok) throw { reason: 'row_not_found' }; });
           }, function (e) {
             throw (e && e.reason) ? e : { reason: 'session_not_found' };
           });
         });
       }
       return chain.then(function () {
+        guard();
         if (!s.session || String(s.session.session_id) !== sessionId) return result(false, 'session_not_found');
         var row = findRow(messageIndex, role);
-        if (row) return land(sessionId, messageIndex, role, false);
+        if (row) return land(sessionId, messageIndex, role, false, guard);
         if (isBusy()) return result(false, 'busy_switch_blocked');
-        return ensureFullTranscript(sessionId).then(function (ok) {
+        return ensureFullTranscript(sessionId, guard).then(function (ok) {
           if (!ok) return result(false, 'row_not_found');
-          mountTarget(messageIndex);
-          return delay(SETTLE_MS).then(function () { return land(sessionId, messageIndex, role, false); });
+          guard();
+          mountTarget(messageIndex, guard);
+          return delay(SETTLE_MS).then(function () { return land(sessionId, messageIndex, role, false, guard); });
         });
-      }, function (e) {
+      }).catch(function (e) {
         return result(false, (e && e.reason) || 'session_not_found');
       });
     });
