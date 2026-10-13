@@ -111,7 +111,8 @@
       "unavailable": "동기화 안 됨(재시도 중)",
       "actionUnavailable": "메시지 북마크 버튼을 등록하지 못했습니다. 다른 확장의 메시지 액션을 비활성화한 뒤 새로고침하세요.",
       "quota": "저장 한도에 도달했습니다 (1,000개 / 2 MiB).",
-      "tooLarge": "항목이 너무 큽니다 (256 KiB 초과)."
+      "tooLarge": "항목이 너무 큽니다 (256 KiB 초과).",
+      "conflict": "충돌 · 이 기기 사본"
     },
     "en": {
       "s0": "Me",
@@ -206,7 +207,8 @@
       "unavailable": "Sync unavailable",
       "actionUnavailable": "The bookmark action could not be registered. Disable another extension message action and reload.",
       "quota": "Storage limit reached (1,000 items / 2 MiB).",
-      "tooLarge": "Item is too large (over 256 KiB)."
+      "tooLarge": "Item is too large (over 256 KiB).",
+      "conflict": "Conflict · This device copy"
     }
   };
   function t(key) {
@@ -244,8 +246,9 @@
 
   function truncate(s, n) {
     s = String(s || '');
-    if (s.length <= n) return s;
-    return s.slice(0, n).replace(/\s+$/, '') + '…';
+    var points = Array.from(s);
+    if (points.length <= n) return s;
+    return points.slice(0, n).join('').replace(/\s+$/, '') + '…';
   }
 
   // Leading block markers per line (heading #, bullet, ordered list, blockquote). Anchored + bounded → linear.
@@ -256,13 +259,13 @@
 
   // Default bookmark name = first 40 visible characters of the message text.
   function defaultName(text) {
-    var visible = collapseWs(stripInlineMarkdown(stripBlockMarkers(String(text || '').slice(0, 4000))));
+    var visible = collapseWs(stripInlineMarkdown(stripBlockMarkers(Array.from(String(text || '')).slice(0, 4000).join(''))));
     if (!visible) return t('s1');
     return truncate(visible, DEFAULT_NAME_LEN);
   }
 
   function previewText(text) {
-    return truncate(collapseWs(String(text || '').slice(0, 4000)), PREVIEW_LEN);
+    return truncate(collapseWs(Array.from(String(text || '')).slice(0, 4000).join('')), PREVIEW_LEN);
   }
 
   // Message content may be a string or an array of parts ({type:'text', text}).
@@ -507,6 +510,8 @@
   var lastListError = null;       // last store.list() failure (shown in the panel instead of an empty list)
   var ui = {};
   var actionAvailable = false;
+  var actionEventBound = false;
+  var panelReturnFocus = null;
 
   // Sync state shown to the user: 'local' (this browser only) | 'partial' (sidecar in use, but
   // store.pendingLocal items were refused and remain here) | 'synced'.
@@ -559,6 +564,7 @@
   // ── bookmark dialog (save / rename / delete) ───────────────────────────────
   function openBookmarkDialog(ctx) {
     return new Promise(function (resolve) {
+      var returnFocus = document.activeElement;
       var existing = index.get(activeKeyFor(ctx)) || null;
       // The dialog is not modal for core: a hash/URL/SSE-driven loadSession() can change S.session while
       // it is open. Capture the file-under values now and re-check the session before saving.
@@ -583,7 +589,6 @@
       var preview = el('div', 'svb-dialog-preview', previewText(ctx.text));
       var input = el('input', 'svb-dialog-input');
       input.type = 'text';
-      input.maxLength = NAME_MAX;
       input.placeholder = t('s25');
       input.value = existing ? existing.name : defaultName(ctx.text);
       input.setAttribute('aria-label', t('s25'));
@@ -613,6 +618,7 @@
         if (sessionGuard) clearInterval(sessionGuard);
         document.removeEventListener('keydown', onKey, true);
         backdrop.remove();
+        if (returnFocus && returnFocus.isConnected) returnFocus.focus();
         resolve();
       }
       function sessionChanged() { return currentSid() !== ctx.sessionId; }
@@ -632,7 +638,7 @@
           : t('s31') + (e && e.message ? ' (' + e.message + ')' : '') + '.';
       }
       function onSave() {
-        var name = collapseWs(input.value).slice(0, NAME_MAX);
+        var name = Array.from(collapseWs(input.value)).slice(0, NAME_MAX).join('');
         if (!name) { err.textContent = t('s32'); input.focus(); return; }
         if (sessionChanged()) { abortStale(); return; }
         busy(true);
@@ -668,6 +674,15 @@
       function onKey(ev) {
         if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); }
         else if (ev.key === 'Enter' && ev.target === input) { ev.preventDefault(); onSave(); }
+        else if (ev.key === 'Tab') {
+          var controls = Array.from(dialog.querySelectorAll('input:not([disabled]), button:not([disabled])'));
+          if (!controls.length) { ev.preventDefault(); return; }
+          var at = controls.indexOf(document.activeElement);
+          if (at < 0 || (!ev.shiftKey && at === controls.length - 1) || (ev.shiftKey && at === 0)) {
+            ev.preventDefault();
+            controls[ev.shiftKey ? controls.length - 1 : 0].focus();
+          }
+        }
       }
       cancel.addEventListener('click', close);
       save.addEventListener('click', onSave);
@@ -736,15 +751,42 @@
       } catch (_) { /* ignore */ }
     });
     b.style.right = right + 'px';
+    var align = neighbours.find(function (other) {
+      return other && getComputedStyle(other).display !== 'none' && other.getBoundingClientRect().width > 0;
+    });
+    var shellRect = shell && shell.getBoundingClientRect();
+    var top = align && shellRect ? align.getBoundingClientRect().top - shellRect.top : 16;
+    b.style.top = (Number.isFinite(top) ? top : 16) + 'px';
+    positionPanel();
   }
 
   var startObserver = null;
+  var placementFrame = null;
+  function schedulePosition() {
+    if (placementFrame !== null) return;
+    placementFrame = window.requestAnimationFrame(function () { placementFrame = null; positionToggle(); });
+  }
   function observeStartButton() {
-    var start = document.getElementById('jumpToSessionStartBtn');
-    if (!start || startObserver || typeof MutationObserver === 'undefined') return;
-    // Scoped: attributes of one core button only (its display toggles on scroll).
-    startObserver = new MutationObserver(function () { positionToggle(); });
-    startObserver.observe(start, { attributes: true, attributeFilter: ['style', 'class'] });
+    var shell = document.querySelector('.messages-shell');
+    if (!shell || typeof MutationObserver === 'undefined') return;
+    if (!startObserver) startObserver = new MutationObserver(function (records) {
+      if (records.some(function (record) { return record.type === 'childList'; })) observeStartButton();
+      schedulePosition();
+    });
+    startObserver.disconnect();
+    startObserver.observe(shell, { childList: true });
+    ['jumpToSessionStartBtn', 'hwxMessagePinsHeaderBtn'].forEach(function (id) {
+      var other = document.getElementById(id);
+      if (other) startObserver.observe(other, { attributes: true, attributeFilter: ['style', 'class'] });
+    });
+    schedulePosition();
+  }
+
+  function positionPanel() {
+    if (!ui.panel || !ui.toggle) return;
+    var rect = ui.toggle.getBoundingClientRect();
+    if (Number.isFinite(rect.bottom)) ui.panel.style.setProperty('--svb-panel-top', (rect.bottom + 8) + 'px');
+    if (Number.isFinite(rect.right)) ui.panel.style.setProperty('--svb-panel-right', Math.max(16, window.innerWidth - rect.right) + 'px');
   }
 
   function updateBadge() {
@@ -785,16 +827,27 @@
     var tabB = btn('svb-tab', t('s1'));
     tabB.setAttribute('role', 'tab');
     tabB.dataset.tab = 'bookmarks';
+    tabB.id = 'svbTabBookmarks';
+    tabB.setAttribute('aria-controls', 'svbPanelBody');
     var tabT = btn('svb-tab', t('s42'));
     tabT.setAttribute('role', 'tab');
     tabT.dataset.tab = 'toc';
+    tabT.id = 'svbTabToc';
+    tabT.setAttribute('aria-controls', 'svbPanelBody');
     tabB.addEventListener('click', function () { setTab('bookmarks'); });
     tabT.addEventListener('click', function () { setTab('toc'); });
+    tabs.addEventListener('keydown', function (ev) {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) return;
+      ev.preventDefault();
+      setTab(ev.key === 'Home' ? 'bookmarks' : ev.key === 'End' ? 'toc' : activeTab === 'bookmarks' ? 'toc' : 'bookmarks');
+      (activeTab === 'bookmarks' ? tabB : tabT).focus();
+    });
     tabs.appendChild(tabB);
     tabs.appendChild(tabT);
 
     var body = el('div', 'svb-body');
     body.setAttribute('role', 'tabpanel');
+    body.id = 'svbPanelBody';
     var foot = el('div', 'svb-foot');
 
     panel.appendChild(head);
@@ -813,6 +866,8 @@
 
   function setPanelOpen(open) {
     ensurePanel();
+    if (open && !panelOpen) panelReturnFocus = document.activeElement;
+    var wasOpen = panelOpen;
     panelOpen = !!open;
     ui.panel.hidden = !panelOpen;
     var toggle = document.getElementById('svbToggleBtn');
@@ -820,10 +875,12 @@
     if (panelOpen) {
       lastWatchSid = currentSid();
       renderPanel();
+      (activeTab === 'bookmarks' ? ui.tabB : ui.tabT).focus();
       refreshIndex();
       if (!watchTimer) {
         // Cheap session-change watch while open (no transcript-wide observers needed).
         watchTimer = setInterval(function () {
+          if (!chatVisible()) { setPanelOpen(false); return; }
           if (store && store.syncError) refreshIndex();
           positionToggle();
           var sid = currentSid();
@@ -831,14 +888,34 @@
         }, 1000);
       }
       document.addEventListener('keydown', onPanelKey, true);
+      document.addEventListener('click', onOutsideClick);
     } else {
       if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
       document.removeEventListener('keydown', onPanelKey, true);
+      document.removeEventListener('click', onOutsideClick);
+      if (wasOpen && panelReturnFocus && panelReturnFocus.isConnected && chatVisible()) panelReturnFocus.focus();
     }
   }
 
+  function chatVisible() {
+    var currentPanel = window._currentPanel || 'chat';
+    try { if (typeof _currentPanel !== 'undefined') currentPanel = _currentPanel || 'chat'; } catch (_) { /* ignore */ }
+    if (currentPanel !== 'chat' && currentPanel !== 'todos') return false;
+    var shell = document.querySelector('.messages-shell');
+    if (!shell) return false;
+    for (var node = shell; node && node.nodeType === 1; node = node.parentElement) {
+      if (node.hidden || getComputedStyle(node).display === 'none' || getComputedStyle(node).visibility === 'hidden') return false;
+    }
+    return true;
+  }
+
+  function onOutsideClick(ev) {
+    if (ui.panel.contains(ev.target) || ui.toggle.contains(ev.target) || document.getElementById('svbDialogBackdrop')) return;
+    setPanelOpen(false);
+  }
+
   function onPanelKey(ev) {
-    if (ev.key === 'Escape' && !document.getElementById('svbDialogBackdrop')) { setPanelOpen(false); }
+    if (ev.key === 'Escape' && !document.getElementById('svbDialogBackdrop')) { ev.preventDefault(); ev.stopPropagation(); setPanelOpen(false); }
   }
 
   function renderPanel() {
@@ -863,6 +940,9 @@
     ui.tabT.classList.toggle('svb-tab--active', activeTab === 'toc');
     ui.tabB.setAttribute('aria-selected', activeTab === 'bookmarks' ? 'true' : 'false');
     ui.tabT.setAttribute('aria-selected', activeTab === 'toc' ? 'true' : 'false');
+    ui.tabB.tabIndex = activeTab === 'bookmarks' ? 0 : -1;
+    ui.tabT.tabIndex = activeTab === 'toc' ? 0 : -1;
+    ui.body.setAttribute('aria-labelledby', activeTab === 'bookmarks' ? ui.tabB.id : ui.tabT.id);
     clear(ui.body);
     clear(ui.foot);
     if (!actionAvailable) ui.body.appendChild(el('p', 'svb-empty svb-error', t('actionUnavailable')));
@@ -970,7 +1050,7 @@
     main.appendChild(el('span', 'svb-entry-name', it.name || t('s61')));
     main.appendChild(el('span', 'svb-entry-idx', '#' + it.messageIndex));
     if (it.localOnly === true) {
-      var localChip = el('span', 'svb-chip svb-chip--local', t('s62'));
+      var localChip = el('span', 'svb-chip svb-chip--local', t(it.conflict ? 'conflict' : 's62'));
       localChip.title = t('s63');
       main.appendChild(localChip);
     }
@@ -983,7 +1063,7 @@
       ev.stopPropagation();
       askText(t('s64'), t('s65'), it.name).then(function (name) {
         if (name === null || name === undefined) return;
-        name = collapseWs(name).slice(0, NAME_MAX);
+        name = Array.from(collapseWs(name)).slice(0, NAME_MAX).join('');
         if (!name) return;
         return store.patch(it.id, { name: name }).then(function () { toast(t('s66')); refreshIndex(); });
       }).catch(function (e) { toast(t('s67') + (e && e.message || ''), 'error'); });
@@ -1109,7 +1189,7 @@
   function registerAction() {
     var ext = window.hermesExt;
     if (!ext || typeof ext.register !== 'function') return false;
-    handle = ext.register(EXT_ID);
+    handle = handle || ext.register(EXT_ID);
     if (!handle) {
       try { console.warn('[' + EXT_ID + '] hermesExt.register returned null (not in the boot manifest inventory)'); } catch (_) { /* ignore */ }
       return false;
@@ -1131,7 +1211,10 @@
     }
     pub.unregisterAction = unregister;
     try {
-      handle.events.on('turn:complete', function () { tocCache = { key: null, entries: null, loading: null }; });
+      if (!actionEventBound) {
+        handle.events.on('turn:complete', function () { tocCache = { key: null, entries: null, loading: null }; });
+        actionEventBound = true;
+      }
     } catch (_) { /* ignore */ }
     return true;
   }
@@ -1166,6 +1249,22 @@
     ensureToggle();
     ensurePanel();
     observeStartButton();
+    var viewObserver = new MutationObserver(function () { if (panelOpen && !chatVisible()) setPanelOpen(false); });
+    for (var ancestor = shell; ancestor && ancestor.nodeType === 1; ancestor = ancestor.parentElement) {
+      viewObserver.observe(ancestor, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    }
+    if (typeof ResizeObserver === 'function') {
+      var resizeObserver = new ResizeObserver(schedulePosition);
+      resizeObserver.observe(shell);
+    }
+    var languageObserver = new MutationObserver(function () {
+      if (typeof pub.unregisterAction === 'function') pub.unregisterAction();
+      actionAvailable = registerAction();
+      ui.toggle.title = t('s37'); ui.toggle.setAttribute('aria-label', t('s37'));
+      renderPanel();
+      if (handle) handle.messages.invalidateActions();
+    });
+    languageObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
     window.addEventListener('resize', function () { positionToggle(); });
     pub.open = function () { setPanelOpen(true); };
     pub.close = function () { setPanelOpen(false); };

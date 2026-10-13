@@ -18,6 +18,7 @@ function makeRow(sessionIdx, role, rawIdx) {
     classList: classList(),
     scrolls: [],
     offsetWidth: 10,
+    getBoundingClientRect() { return { top: 100, bottom: 140, left: 0, right: 500, width: 500, height: 40 }; },
     scrollIntoView(opts) { this.scrolls.push(opts || true); },
     closest(sel) { return sel === '[data-msg-idx]' ? this : null; },
   };
@@ -30,6 +31,10 @@ function makeWorld(opts) {
   const S = { session: o.session === undefined ? { session_id: 'sess-1', message_count: 10 } : o.session, messages: o.messages || [], busy: !!o.busy, activeStreamId: o.activeStreamId || null, activeProfile: o.activeProfile || 'default', activeProfileIsDefault: o.activeProfileIsDefault !== false };
   const rows = []; // rows in the DOM
   const inner = {
+    querySelectorAll(sel) {
+      const m = /^\[data-session-msg-idx="(\d+)"\]$/.exec(sel);
+      return m ? rows.filter((r) => r.sessionIdx === Number(m[1])) : [];
+    },
     querySelector(sel) {
       const m = /^\[data-session-msg-idx="(\d+)"\]$/.exec(sel);
       if (!m) return null;
@@ -39,13 +44,16 @@ function makeWorld(opts) {
   const document = {
     getElementById(id) {
       if (id === 'msgInner') return inner;
+      if (id === 'messages') return container;
       return rows.find((r) => r.id === id) || null;
     },
     querySelector: inner.querySelector,
   };
+  const container = { scrollTop: 0, scrollHeight: 20000, clientHeight: 800,
+    getBoundingClientRect: () => ({ top: 50, bottom: 850, width: 500, height: 800 }) };
   const calls = { loadSession: [], render: [], api: [], switchProfile: [], ensureAll: 0, windowSize: null };
   const win = {
-    S, document,
+    S, document, innerHeight: 900,
     loadSession: o.loadSession || (async (sid, lopts) => { calls.loadSession.push([sid, lopts]); if (!o.loadSessionFails) { S.session = { session_id: sid, message_count: 10 }; S.messages = o.messagesAfterLoad || [{ role: 'user' }]; } }),
     renderMessages: (ropts) => { calls.render.push(ropts); if (o.onRender) o.onRender(rows); },
     _messageRawIdxForSessionIndex: (idx) => idx - (win._oldestIdx || 0),
@@ -252,4 +260,104 @@ test('nav rejects prototype names without scrolling and uses the newest build', 
   w.win.HermesVizNav = newer;
   loadScripts(['nav'], w.win);
   assert.equal(w.win.HermesVizNav, newer);
+});
+
+test('review 1: waits for deferred Core loading and cancels bottom settle before taking jump ownership', async () => {
+  const w = makeWorld();
+  const row = makeRow(3, 'assistant', 3);
+  w.rows.push(row);
+  let loaded = false, cancel = false, owner = false;
+  w.win.loadSession = () => {
+    w.S.session = { session_id: 'sess-2' };
+    w.S.messages = [{ role: 'assistant' }];
+    w.ctx._loadingSessionId = 'sess-2';
+    setTimeout(() => { loaded = true; w.ctx._loadingSessionId = null; }, 300);
+  };
+  // Replace the lexical function too, as real Core functions live in that realm.
+  w.ctx.loadSession = w.win.loadSession;
+  w.win._cancelBottomSettle = () => { assert.equal(loaded, true); cancel = true; };
+  w.win._beginMessageJumpScroll = container => { assert.equal(cancel, true); assert.equal(container, w.win.document.getElementById('messages')); owner = true; };
+  row.scrollIntoView = () => { assert.equal(owner, true); };
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-2', messageIndex: 3, role: 'assistant' }), { ok: true });
+});
+
+test('review 1: jump owner survives streaming follow calls without direct flag writes', async () => {
+  const w = makeWorld({ busy: true });
+  const row = makeRow(0, 'user', 0);
+  w.rows.push(row);
+  const vm = await import('node:vm');
+  vm.runInContext('let _scrollPinned = true; let _messageUserUnpinned = false; let _nearBottomCount = 2;', w.ctx);
+  let owner = false, follows = 0;
+  w.win._beginMessageJumpScroll = () => { owner = true; };
+  row.scrollIntoView = () => {
+    for (let i = 0; i < 2; i++) { if (!owner) follows++; }
+    assert.equal(vm.runInContext('_nearBottomCount', w.ctx), 2, 'Core helper owns the pin state');
+  };
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'user' }), { ok: true });
+  assert.equal(follows, 0);
+});
+
+test('review 1: failed landing retries once and reports not_in_view', async () => {
+  const w = makeWorld();
+  const row = makeRow(0, 'user', 0);
+  row.getBoundingClientRect = () => ({ top: -3000, bottom: -2960, height: 40, width: 500 });
+  w.rows.push(row);
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'user' }), { ok: false, reason: 'not_in_view' });
+  assert.equal(row.scrolls.length, 2);
+  assert.equal(row.scrolls[1].behavior, 'auto');
+});
+
+test('review 1: retry can land and disappearing row returns row_not_found', async () => {
+  const w = makeWorld();
+  const row = makeRow(0, 'user', 0);
+  let calls = 0;
+  row.scrollIntoView = () => { calls++; };
+  row.getBoundingClientRect = () => ({ top: calls > 1 ? 100 : -3000, bottom: calls > 1 ? 140 : -2960, height: 40, width: 500 });
+  w.rows.push(row);
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'user' }), { ok: true });
+  assert.equal(calls, 2);
+  row.scrollIntoView = () => { w.rows.length = 0; };
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'user' }), { ok: false, reason: 'row_not_found' });
+});
+
+test('review 5: skip hidden worklogs and zero-height matches; hidden-only targets fail', async () => {
+  const w = makeWorld();
+  const hidden = makeRow(0, 'assistant', 0);
+  hidden.closest = () => hidden;
+  const zero = makeRow(0, 'assistant', 0);
+  zero.getBoundingClientRect = () => ({ width: 500, height: 0 });
+  const visible = makeRow(0, 'assistant', 0);
+  w.rows.push(hidden, zero, visible);
+  assert.equal(w.nav._findRow(0, 'assistant'), visible);
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'assistant' }), { ok: true });
+  assert.equal(hidden.scrolls.length, 0);
+  w.rows.pop();
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'assistant' }), { ok: false, reason: 'row_not_found' });
+});
+
+test('review 6: virtual scroll mounts message 0 of 200 outside retained window', async () => {
+  const w = makeWorld({ messages: new Array(200).fill({ role: 'assistant' }) });
+  const container = w.win.document.getElementById('messages');
+  container.scrollTop = 19000;
+  w.win._getVisibleMessagesWithIdx = () => w.S.messages;
+  w.win._messageVisibleIndexForRawIdx = idx => idx;
+  w.win._messageVirtualScrollTopForVisibleIdx = (_rows, idx) => idx * 100;
+  w.ctx.renderMessages = opts => {
+    w.calls.render.push(opts);
+    if (container.scrollTop === 0) w.rows.push(makeRow(0, 'assistant', 0));
+  };
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'assistant' }), { ok: true });
+  assert.equal(container.scrollTop, 0);
+  assert.equal(w.calls.render.length, 2);
+});
+
+test('review 11: reduced motion uses instant scrolling and skips both flash classes', async () => {
+  const w = makeWorld();
+  w.win.matchMedia = () => ({ matches: true });
+  const row = makeRow(0, 'user', 0);
+  w.rows.push(row);
+  deepEqual(await w.nav.goTo({ sessionId: 'sess-1', messageIndex: 0, role: 'user' }), { ok: true });
+  assert.equal(row.scrolls[0].behavior, 'auto');
+  assert.equal(row.classList.contains('hermes-viz-jump-flash'), false);
+  assert.equal(row.classList.contains('outline-jump-flash'), false);
 });

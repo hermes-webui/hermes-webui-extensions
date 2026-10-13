@@ -56,7 +56,13 @@ bookmarks to the server. It shows "Synced" only after successful data requests w
 
 Storage: `<HERMES_VIZ_STORE_DIR>/<ns>.json` = `{"v":1,"namespace":…,"updatedAt":…,"items":[…]}`,
 written atomically (tmp + `os.replace`), serialized by a per-namespace lock, capped at 2 MiB per file
-(413 beyond that), items ≤ 256 KiB each, ≤ 20000 items per namespace. Ids: `^[A-Za-z0-9._:-]{1,128}$`.
+(413 beyond that), items ≤ 256 KiB each, ≤ 1,000 items per namespace. Ids: `^[A-Za-z0-9._:-]{1,128}$`.
+
+Migration uses PUT with `?createOnly=1`: an existing id returns 409 without replacement,
+and newly created items retain their imported timestamps. Conflicting local versions remain
+visible and exportable. DELETE with `?ifUnchanged=1` and an expected item body only removes
+that exact version, for cleanup of an upload deleted locally while migration was in flight.
+Lone surrogate code points in incoming items are rejected with 400.
 
 **Size accounting.** Every response leaves through the scaffold's `Sidecar.json` (`json.dumps` with the default
 `ensure_ascii=True`), which writes each Hangul/CJK character as a 6-byte `\uXXXX` escape — twice its UTF-8 size.

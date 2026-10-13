@@ -161,6 +161,31 @@ class RoutesTests(unittest.TestCase):
         self.assertEqual(self.put("private")[0], 201)
         self.assertEqual(stat.S_IMODE((self.directory / "bookmarks.json").stat().st_mode), 0o600)
 
+    def test_review3_create_only_preserves_versions_and_existing_server_edits(self):
+        original = item(id="migration", createdAt=10, updatedAt=20)
+        status, saved, _ = self.call("PUT", "/v1/bookmarks/items/migration?createOnly=1", original)
+        self.assertEqual(status, 201)
+        self.assertEqual((saved["createdAt"], saved["updatedAt"]), (10, 20))
+        before = (self.directory / "bookmarks.json").read_bytes()
+        for name in ("same", "different"):
+            self.assertEqual(self.call("PUT", "/v1/bookmarks/items/migration?createOnly=1", item(id="migration", name=name))[0], 409)
+            self.assertEqual((self.directory / "bookmarks.json").read_bytes(), before)
+        self.assertEqual(self.call("DELETE", "/v1/bookmarks/items/migration?ifUnchanged=1", dict(saved, name="wrong"))[0], 409)
+        self.assertEqual(self.call("DELETE", "/v1/bookmarks/items/migration?ifUnchanged=1", saved)[0], 200)
+
+    def test_review4_lone_surrogates_rejected_and_emoji_persisted(self):
+        self.assertEqual(self.put("emoji", name="x" * 39 + "😀")[0], 201)
+        self.assertEqual(self.call("GET", "/v1/bookmarks/items/emoji")[1]["name"], "x" * 39 + "😀")
+        before = (self.directory / "bookmarks.json").read_bytes()
+        for fields in ({"name": "\ud83d"}, {"data": {"nested": ["\ude00"]}}, {"data": {"\ud83d": "key"}}):
+            self.assertEqual(self.put("invalid", **fields)[0], 400)
+            self.assertEqual((self.directory / "bookmarks.json").read_bytes(), before)
+        self.assertEqual(self.call("PATCH", "/v1/bookmarks/items/emoji", {"name": "\ud83d"})[0], 400)
+
+    def test_review12_readme_matches_namespace_limit(self):
+        self.assertEqual(routes.MAX_ITEMS_PER_NS, 1000)
+        self.assertIn("1,000 items per namespace", (SIDECAR / "README.md").read_text(encoding="utf-8"))
+
     def test_merge_import_does_not_overwrite_existing(self):
         self.put("saved", name="original")
         status, body, _ = self.call("POST", "/v1/bookmarks/import", {"items": [item(id="saved", name="replace"), item(id="new")]})

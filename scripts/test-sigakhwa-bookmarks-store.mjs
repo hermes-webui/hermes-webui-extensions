@@ -214,7 +214,7 @@ test('sidecar: immutable 409 → code immutable; export/import round trip throug
   assert.equal(sc.state.ns.get('sigakhwa-vault').size, 2);
 });
 
-test('sidecar: one-way import of local-only items on open, then prefer the server (local copy dropped)', async () => {
+test('sidecar: migration retires acknowledged copies, preserves conflicts and keeps server deletions', async () => {
   const ls = fakeLocalStorage();
   // Phase 1: offline → two local bookmarks
   let sc = fakeSidecar({ healthy: false });
@@ -222,7 +222,7 @@ test('sidecar: one-way import of local-only items on open, then prefer the serve
   let s = ctx.window.HermesVizStore.open('bookmarks');
   const l1 = await s.put(baseItem({ name: 'local 1' }));
   const l2 = await s.put(baseItem({ name: 'local 2', messageIndex: 9 }));
-  // Phase 2: sidecar up, already holding one unrelated item and a copy of l2
+  // Phase 2: sidecar up, holding an unrelated item and a DIFFERENT version of l2.
   sc = fakeSidecar();
   sc.state.ns.set('bookmarks', new Map([
     ['srv-1', baseItem({ id: 'srv-1', name: 'server only', createdAt: 5 })],
@@ -232,20 +232,34 @@ test('sidecar: one-way import of local-only items on open, then prefer the serve
   s = ctx.window.HermesVizStore.open('bookmarks');
   await s.ready;
   assert.equal(s.backend, 'sidecar');
-  assert.equal(s.synced, true);
+  assert.equal(s.synced, false, 'a conflicting local version is not synced');
+  assert.equal(s.pendingLocal, 1);
   const server = sc.state.ns.get('bookmarks');
   assert.equal(server.size, 3, 'l1 imported, l2 not duplicated');
   assert.equal(server.get(l1.id).name, 'local 1');
-  assert.equal(server.get(l2.id).name, 'server copy of l2', 'server wins — never overwritten by the local copy');
-  assert.equal(ls.getItem('hermes-viz-store:bookmarks'), null, 'migrated local copy removed → no resurrection');
+  assert.equal(server.get(l2.id).name, 'server copy of l2', 'migration never overwrites the server version');
+  deepEqual(JSON.parse(ls.getItem('hermes-viz-store:bookmarks')).items, [l2], 'only the acknowledged l1 copy is retired');
   const rows = await s.list();
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 4, 'both versions of l2 remain visible');
+  const conflict = rows.find(row => row.id === l2.id && row.localOnly);
+  assert.equal(conflict.name, 'local 2');
+  assert.equal(conflict.conflict, true);
+  assert.equal((await s.get(l2.id)).name, 'local 2');
+  const exported = JSON.parse(await s.exportJson());
+  assert.equal(exported.items.filter(row => row.id === l2.id).length, 2);
+  assert.equal(exported.items.find(row => row.localOnly).conflict, true);
   // Phase 3: a delete on the server (another device) stays deleted after reload
   server.delete(l1.id);
   ctx = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch });
   s = ctx.window.HermesVizStore.open('bookmarks');
   await s.ready;
   assert.equal(server.size, 2, 'nothing resurrected');
+  assert.equal(server.has(l1.id), false);
+  assert.equal(server.get(l2.id).name, 'server copy of l2');
+  assert.equal(s.pendingLocal, 1, 'reload preserves the unresolved conflict');
+  assert.equal((await s.get(l2.id)).conflict, true);
+  assert.equal((await s.list()).length, 3);
+  assert.equal(JSON.parse(await s.exportJson()).items.length, 3);
 });
 
 test('sidecar: paginated list follows nextOffset', async () => {
@@ -522,4 +536,97 @@ test('response-body transport failure clears synced instead of leaving a stale b
   await assert.rejects(s.list(), e => e.code === 'network');
   assert.equal(s.synced, false);
   assert.equal(s.syncError.code, 'network');
+});
+
+test('review 3: edits made during migration survive list, get, export and reload as conflicts', async () => {
+  const ls = fakeLocalStorage();
+  const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+  await local.put(baseItem({ id: 'edited' }));
+  const sc = fakeSidecar();
+  let edited = false;
+  const fetch = async (url, init) => {
+    if (init?.method === 'PUT' && !edited) { edited = true; await local.patch('edited', { name: 'new local version' }); }
+    return sc.fetch(url, init);
+  };
+  let s = loadScripts(['store'], { localStorage: ls, fetch }).window.HermesVizStore.open('bookmarks');
+  for (let reload = 0; reload < 2; reload++) {
+    await s.ready;
+    const rows = await s.list();
+    assert.equal(rows.length, 2);
+    const conflict = rows.find(r => r.localOnly);
+    assert.equal(conflict.conflict, true);
+    assert.equal(conflict.name, 'new local version');
+    assert.equal((await s.get('edited')).name, 'new local version');
+    const out = JSON.parse(await s.exportJson());
+    assert.equal(out.items.length, 2);
+    assert.equal(out.items.find(r => r.localOnly).conflict, true);
+    assert.equal(s.pendingLocal, 1);
+    assert.equal(s.synced, false);
+    s = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+  }
+  await s.ready;
+  await s.remove('edited');
+  assert.equal(sc.state.ns.get('bookmarks').has('edited'), true, 'deleting a local conflict keeps the server version');
+});
+
+test('review 3: create-only PUT cannot overwrite a server item created after the list', async () => {
+  const ls = fakeLocalStorage();
+  const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+  const old = await local.put(baseItem({ id: 'race', name: 'local' }));
+  const sc = fakeSidecar();
+  const fetch = async (url, init) => {
+    if (init?.method === 'PUT') sc.state.ns.get('bookmarks').set('race', { ...plain(old), name: 'server wins' });
+    return sc.fetch(url, init);
+  };
+  const s = loadScripts(['store'], { localStorage: ls, fetch }).window.HermesVizStore.open('bookmarks');
+  await s.ready;
+  assert.match(sc.state.calls.find(c => c.method === 'PUT').url, /createOnly=1/);
+  assert.equal(sc.state.ns.get('bookmarks').get('race').name, 'server wins');
+  assert.equal((await s.list()).find(r => r.localOnly).conflict, true);
+  assert.equal(JSON.parse(await s.exportJson()).items.length, 2);
+});
+
+test('review 3: deleted local items are not resurrected by in-flight or queued migration PUTs', async () => {
+  for (const sameStore of [false, true]) {
+    const ls = fakeLocalStorage();
+    const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+    await local.put(baseItem({ id: 'in-flight', createdAt: 2 }));
+    await local.put(baseItem({ id: 'queued', createdAt: 1 }));
+    const sc = fakeSidecar();
+    let release, entered;
+    const gate = new Promise(resolve => { release = resolve; });
+    const start = new Promise(resolve => { entered = resolve; });
+    const fetch = async (url, init) => {
+      if (init?.method === 'PUT') { entered(); await gate; }
+      return sc.fetch(url, init);
+    };
+    const s = loadScripts(['store'], { localStorage: ls, fetch }).window.HermesVizStore.open('bookmarks');
+    await start;
+    const removing = Promise.all(['in-flight', 'queued'].map(id => (sameStore ? s : local).remove(id)));
+    release();
+    await removing;
+    await s.ready;
+    assert.equal((await s.list()).length, 0);
+    assert.equal(JSON.parse(await s.exportJson()).items.length, 0);
+    assert.equal(ls.getItem('hermes-viz-store:bookmarks'), null);
+    const reload = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+    await reload.ready;
+    assert.equal((await reload.list()).length, 0);
+  }
+});
+
+test('review 3: only identical persisted versions retire local data', async () => {
+  const ls = fakeLocalStorage();
+  const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+  const saved = await local.put(baseItem({ id: 'equal' }));
+  const changed = await local.put(baseItem({ id: 'different-time' }));
+  const sc = fakeSidecar();
+  await sc.fetch(sc.base + '/v1/bookmarks/items?offset=0');
+  sc.state.ns.get('bookmarks').set('equal', Object.fromEntries(Object.entries(plain(saved)).reverse()));
+  sc.state.ns.get('bookmarks').set('different-time', { ...plain(changed), updatedAt: changed.updatedAt + 1 });
+  const s = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+  await s.ready;
+  const left = JSON.parse(ls.getItem('hermes-viz-store:bookmarks')).items;
+  assert.deepEqual(left.map(r => r.id), ['different-time']);
+  assert.equal(sc.state.calls.some(c => c.method === 'PUT'), false);
 });

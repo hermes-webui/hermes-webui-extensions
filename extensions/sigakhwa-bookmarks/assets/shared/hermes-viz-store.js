@@ -28,7 +28,7 @@
 (function () {
   'use strict';
   if (typeof window === 'undefined') return;
-  var BUILD = 2026101301;
+  var BUILD = 2026101302;
   var previous = window.HermesVizStore;
   if (previous && previous.build >= BUILD) {
     if (previous.build > BUILD) console.warn('[HermesVizStore] older helper ignored');
@@ -123,6 +123,18 @@
   function sortNewest(a, b) {
     if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt;
     return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+  }
+
+  // Compare persisted versions independently of JSON object key ordering and UI flags.
+  function sameVersion(a, b) {
+    function canonical(value) {
+      if (Array.isArray(value)) return value.map(canonical);
+      if (!value || typeof value !== 'object') return value;
+      var out = Object.create(null);
+      Object.keys(value).sort().forEach(function (key) { out[key] = canonical(value[key]); });
+      return out;
+    }
+    return !!a && !!b && JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
   }
 
   // Validate a stored/incoming item. Returns a normalized copy or null.
@@ -387,6 +399,7 @@
     function fail(res, fallbackCode) {
       var code = fallbackCode || 'server';
       if (res.status === 409 && res.json && res.json.error === 'immutable') code = 'immutable';
+      else if (res.status === 409) code = 'conflict';
       else if (res.status === 404) code = 'not_found';
       else if (res.status === 400) code = 'invalid';
       else if (res.status === 413) code = res.json && res.json.error === 'too_large' ? 'too_large' : 'quota';
@@ -439,14 +452,14 @@
           return acceptStoredItem(res.json, namespace);
         });
       },
-      put: function (item) {
+      put: function (item, createOnly) {
         var probe;
         try { probe = normalizeItem(item, namespace, null); } catch (e) { return Promise.reject(e); }
         if (!probe) return Promise.reject(err('invalid', 'invalid item'));
         var payload = clone(item);
         payload.id = probe.id;
         payload.namespace = namespace;
-        return request('PUT', root + '/items/' + encodeURIComponent(probe.id), payload).then(function (res) {
+        return request('PUT', root + '/items/' + encodeURIComponent(probe.id) + (createOnly ? '?createOnly=1' : ''), payload).then(function (res) {
           if (!res.ok) return fail(res);
           var stored = acceptStoredItem(res.json, namespace);
           if (!stored) return Promise.reject(err('server', 'sidecar returned an invalid item'));
@@ -464,8 +477,8 @@
           return stored;
         });
       },
-      remove: function (id) {
-        return request('DELETE', root + '/items/' + encodeURIComponent(id)).then(function (res) {
+      remove: function (id, expected) {
+        return request('DELETE', root + '/items/' + encodeURIComponent(id) + (expected ? '?ifUnchanged=1' : ''), expected).then(function (res) {
           if (res.status === 404) return false;
           if (!res.ok) return fail(res);
           return !!(res.json && res.json.removed !== false);
@@ -506,6 +519,8 @@
     var active = local;
     var subs = new Set();
     var store = {};
+    var deletedDuringMigration = new Set();
+    var migrating = true;
 
     function emit(ev) {
       var frozen = Object.freeze(Object.assign({}, ev));
@@ -518,7 +533,15 @@
 
     // While the sidecar is active, whatever is still in localStorage is a leftover the server refused.
     function leftovers() { return local._readAll(); }
-    function markLocalOnly(it) { var c = clone(it); c.localOnly = true; return c; }
+    function markLocalOnly(it, server) { var c = clone(it); c.localOnly = true; if (server && !sameVersion(it, server)) c.conflict = true; return c; }
+    function mergeRows(rows, filter) {
+      var server = new Map(rows.map(function (r) { return [r.id, r]; }));
+      leftovers().forEach(function (it) {
+        if (matches(it, filter) && !sameVersion(it, server.get(it.id))) rows.push(markLocalOnly(it, server.get(it.id)));
+      });
+      rows.sort(sortNewest);
+      return rows;
+    }
     function syncFlags() {
       var n = active === hybrid ? leftovers().size : 0;
       store.pendingLocal = n;
@@ -531,26 +554,24 @@
     var hybrid = {
       name: 'sidecar',
       list: function (filter) {
-        return remote.list(filter).then(function (rows) {
-          var lo = leftovers();
-          if (!lo.size) return rows;
-          var ids = new Set(rows.map(function (r) { return r.id; }));
-          lo.forEach(function (it) { if (!ids.has(it.id) && matches(it, filter)) rows.push(markLocalOnly(it)); });
-          rows.sort(sortNewest);
-          return rows;
+        return remote.list().then(function (rows) {
+          return mergeRows(rows).filter(function (it) { return matches(it, filter); });
         });
       },
       get: function (id) {
         return remote.get(id).then(function (it) {
-          if (it) return it;
           var lo = leftovers().get(id);
-          return lo ? markLocalOnly(lo) : null;
+          return lo && !sameVersion(lo, it) ? markLocalOnly(lo, it) : it;
         });
       },
       put: function (item) {
+        var snapshot = leftovers().get(item.id);
         return remote.put(item).then(function (saved) {
           var lo = leftovers();
-          if (lo.has(saved.id)) {
+          var submitted = acceptStoredItem(item, namespace);
+          var confirmed = clone(saved);
+          if (submitted) confirmed.updatedAt = submitted.updatedAt;
+          if (sameVersion(lo.get(saved.id), snapshot) && sameVersion(submitted, confirmed)) {
             lo.delete(saved.id);
             try { local._writeAll(lo); } catch (_) { /* non-fatal: retried on next open() */ }
             syncFlags();
@@ -563,6 +584,7 @@
         return remote.patch(id, fields);
       },
       remove: function (id) {
+        if (leftovers().has(id)) return local.remove(id).then(function (ok) { syncFlags(); return ok; });
         return remote.remove(id).then(function (ok) {
           if (!leftovers().has(id)) return ok;
           return local.remove(id).then(function (ok2) { syncFlags(); return ok || ok2; });
@@ -570,12 +592,7 @@
       },
       exportJson: function () {
         return remote.exportRows().then(function (rows) {
-          var lo = leftovers();
-          if (lo.size) {
-            var ids = new Set(rows.map(function (r) { return r && r.id; }));
-            lo.forEach(function (it) { if (!ids.has(it.id)) rows.push(markLocalOnly(it)); });
-          }
-          return exportEnvelope(namespace, rows);
+          return exportEnvelope(namespace, mergeRows(rows));
         });
       },
       importJson: function (text, opts) { return remote.importJson(text, opts); },
@@ -589,31 +606,46 @@
       // Always touch the data route once: /health alone does not prove the proxied data path works.
       return remote.list().then(function (serverRows) {
         if (!localMap.size) return { migrated: 0, leftover: 0 };
-        var onServer = new Set(serverRows.map(function (r) { return r.id; }));
+        var onServer = new Map(serverRows.map(function (r) { return [r.id, r]; }));
         var pending = [];
-        localMap.forEach(function (it) { if (!onServer.has(it.id)) pending.push(it); });
-        var migrated = [];
+        localMap.forEach(function (it) { pending.push(it); });
+        var migrated = new Map();
         var failed = 0;
         var chain = Promise.resolve();
         pending.forEach(function (it) {
           chain = chain.then(function () {
-            return remote.put(it).then(function () { migrated.push(it.id); }, function (e) {
+            function cleanup(saved) {
+              return remote.remove(it.id, saved).catch(function (e) { if (!e || e.code !== 'conflict') throw e; });
+            }
+            if (deletedDuringMigration.has(it.id) || !local._readAll().has(it.id)) {
+              if (sameVersion(it, onServer.get(it.id))) return cleanup(onServer.get(it.id));
+              return;
+            }
+            if (onServer.has(it.id)) {
+              if (sameVersion(it, onServer.get(it.id))) migrated.set(it.id, onServer.get(it.id));
+              return;
+            }
+            return remote.put(it, true).then(function (saved) {
+              if (deletedDuringMigration.has(it.id) || !local._readAll().has(it.id)) {
+                return cleanup(saved);
+              }
+              if (sameVersion(it, saved)) migrated.set(it.id, saved);
+            }, function (e) {
               failed++;
               try { console.warn('[HermesVizStore] ' + namespace + ': item ' + it.id + ' stays in this browser only (' + ((e && e.code) || 'error') + (e && e.status ? ' ' + e.status : '') + ')'); } catch (_) { /* ignore */ }
             });
           });
         });
-        return chain.then(function () {
-          // Items already on the server (same id) are also redundant locally.
-          localMap.forEach(function (it) { if (onServer.has(it.id)) migrated.push(it.id); });
-          if (migrated.length) {
-            var current = local._readAll();
-            migrated.forEach(function (id) {
-              if (JSON.stringify(current.get(id)) === JSON.stringify(localMap.get(id))) current.delete(id);
-            });
-            try { local._writeAll(current); } catch (_) { /* non-fatal */ }
-          }
-          return { migrated: migrated.length, leftover: failed };
+        return chain.then(function () { return remote.list(); }).then(function (confirmedRows) {
+          // Re-read the server too: it may have changed since the initial list or a PUT.
+          var confirmed = new Map(confirmedRows.map(function (it) { return [it.id, it]; }));
+          var current = local._readAll();
+          var retired = 0;
+          localMap.forEach(function (it, id) {
+            if (sameVersion(current.get(id), confirmed.get(id))) { current.delete(id); retired++; }
+          });
+          if (retired) { try { local._writeAll(current); } catch (_) { /* non-fatal */ } }
+          return { migrated: retired, leftover: failed };
         });
       });
     }
@@ -631,7 +663,7 @@
         // (e.g. 502 from the proxy) instead of failing silently.
         store.syncError = { code: (e && e.code) || 'server', status: (e && e.status) || null, message: (e && e.message) || '' };
       });
-    }).catch(function () { /* stay local */ });
+    }).catch(function () { /* stay local */ }).then(function () { migrating = false; });
 
     function run(fn) {
       var before;
@@ -675,6 +707,15 @@
     };
     store.remove = function (id) {
       if (typeof id !== 'string' || !id) return Promise.resolve(false);
+      if (migrating) {
+        deletedDuringMigration.add(id);
+        var hadLocal = local._readAll().has(id);
+        return local.remove(id).then(function (ok) { return ready.then(function () {
+          syncFlags();
+          if (ok) emit({ type: 'remove', id: id });
+          return hadLocal ? ok : active.remove(id);
+        }); });
+      }
       return run(function (b) { return b.remove(id); }).then(function (ok) {
         if (ok) emit({ type: 'remove', id: id });
         return ok;

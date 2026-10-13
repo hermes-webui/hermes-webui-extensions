@@ -79,12 +79,13 @@ function fakeSidecar(opts) {
       const forced = typeof o.putStatus === 'function' ? o.putStatus(id, body) : null;
       if (forced) return json(forced, { error: forced === 413 ? 'store_full' : 'rejected' });
       const existing = items.get(id);
+      if (existing && q.get('createOnly') === '1') return json(409, { error: 'conflict' });
       if (existing && existing.immutable) {
         const same = JSON.stringify(existing.data) === JSON.stringify(body.data) && (existing.contentHash || null) === (body.contentHash || null);
         if (!same) return json(409, { error: 'immutable' });
       }
       const now = Date.now();
-      const next = Object.assign({}, body, { id, namespace: ns, createdAt: existing ? existing.createdAt : (body.createdAt || now), updatedAt: now });
+      const next = Object.assign({}, body, { id, namespace: ns, createdAt: existing ? existing.createdAt : (body.createdAt || now), updatedAt: q.get('createOnly') === '1' ? (body.updatedAt ?? now) : now });
       if (existing && existing.immutable) next.immutable = true;
       items.set(id, next);
       return json(200, next);
@@ -101,6 +102,7 @@ function fakeSidecar(opts) {
     }
     if (kind === 'items' && id && method === 'DELETE') {
       if (!items.has(id)) return json(404, { error: 'not found' });
+      if (q.get('ifUnchanged') === '1' && JSON.stringify(items.get(id)) !== JSON.stringify(body)) return json(409, { error: 'conflict' });
       items.delete(id);
       return json(200, { removed: true });
     }

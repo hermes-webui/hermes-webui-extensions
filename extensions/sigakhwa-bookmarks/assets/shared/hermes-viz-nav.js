@@ -17,7 +17,7 @@
 (function () {
   'use strict';
   if (typeof window === 'undefined') return;
-  var BUILD = 2026101301;
+  var BUILD = 2026101302;
   var previous = window.HermesVizNav;
   if (previous && previous.build >= BUILD) {
     if (previous.build > BUILD) console.warn('[HermesVizNav] older helper ignored');
@@ -41,6 +41,10 @@
     try {
       switch (name) {
         case '_cancelBottomSettle': fn = typeof _cancelBottomSettle === 'function' ? _cancelBottomSettle : null; break;
+        case '_beginMessageJumpScroll': fn = typeof _beginMessageJumpScroll === 'function' ? _beginMessageJumpScroll : null; break;
+        case '_getVisibleMessagesWithIdx': fn = typeof _getVisibleMessagesWithIdx === 'function' ? _getVisibleMessagesWithIdx : null; break;
+        case '_messageVisibleIndexForRawIdx': fn = typeof _messageVisibleIndexForRawIdx === 'function' ? _messageVisibleIndexForRawIdx : null; break;
+        case '_messageVirtualScrollTopForVisibleIdx': fn = typeof _messageVirtualScrollTopForVisibleIdx === 'function' ? _messageVirtualScrollTopForVisibleIdx : null; break;
         case 'loadSession': fn = typeof loadSession === 'function' ? loadSession : null; break;
         case 'renderMessages': fn = typeof renderMessages === 'function' ? renderMessages : null; break;
         case 'api': fn = typeof api === 'function' ? api : null; break;
@@ -100,28 +104,41 @@
     return document.getElementById('msgInner') || document.getElementById('messages') || document;
   }
 
+  function visibleRow(row) {
+    if (!row || !row.getBoundingClientRect) return false;
+    if (row.closest && row.closest('.assistant-segment-worklog-source, .assistant-segment-anchor, [hidden]')) return false;
+    if (window.getComputedStyle) {
+      var style = window.getComputedStyle(row);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+    }
+    var rect = row.getBoundingClientRect();
+    return rect.height > 0 && rect.width > 0;
+  }
+
   function findRow(messageIndex, role) {
     var root = messagesRoot();
     var row = null;
-    try { row = root.querySelector('[data-session-msg-idx="' + String(messageIndex) + '"]'); } catch (_) { row = null; }
-    if (row) {
+    var rows = root.querySelectorAll('[data-session-msg-idx="' + String(messageIndex) + '"]');
+    for (var i = 0; i < rows.length; i++) {
+      row = rows[i];
+      if (!visibleRow(row)) continue;
       // Prefer the real message row; a nested element carrying the same index is still acceptable.
       var owner = row.closest ? (row.closest('[data-msg-idx]') || row) : row;
-      return owner;
+      if (visibleRow(owner)) return owner;
     }
     if (role === 'user') {
       var rawFn = coreFn('_messageRawIdxForSessionIndex');
       var rawIdx = rawFn ? rawFn(messageIndex) : messageIndex;
       if (Number.isFinite(rawIdx) && rawIdx >= 0) {
         row = document.getElementById('msg-user-' + rawIdx);
-        if (row) return row;
+        if (visibleRow(row)) return row;
       }
     }
     return null;
   }
 
   function flash(row) {
-    if (!row || !row.classList) return;
+    if (!row || !row.classList || reducedMotion()) return;
     row.classList.remove('outline-jump-flash');
     row.classList.remove('hermes-viz-jump-flash');
     try { void row.offsetWidth; } catch (_) { /* ignore */ }
@@ -133,10 +150,17 @@
     }, FLASH_MS);
   }
 
-  function scrollTo(row) {
+  function reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function beginJump() {
     // Same sticky-unpin state as manual upward scrolling (pinned Core ui.js:7123-7126; cancellation at 6647).
     var cancel = coreFn('_cancelBottomSettle');
     if (cancel) { try { cancel(); } catch (_) { /* ignore */ } }
+    var begin = coreFn('_beginMessageJumpScroll');
+    var container = document.getElementById('messages');
+    if (begin && container) { begin(container); return; }
     // Clear it immediately before scrolling so queued render/follow work cannot reclaim the tail.
     try { if (typeof _scrollPinned !== 'undefined') _scrollPinned = false; } catch (_) { /* ignore */ }
     try { if (typeof _messageUserUnpinned !== 'undefined') _messageUserUnpinned = true; } catch (_) { /* ignore */ }
@@ -144,7 +168,11 @@
     if ('_scrollPinned' in window) window._scrollPinned = false;
     if ('_messageUserUnpinned' in window) window._messageUserUnpinned = true;
     if ('_nearBottomCount' in window) window._nearBottomCount = 0;
-    try { row.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (_) {
+  }
+
+  function scrollTo(row, retry) {
+    beginJump();
+    try { row.scrollIntoView({ block: 'start', behavior: retry || reducedMotion() ? 'auto' : 'smooth' }); } catch (_) {
       try { row.scrollIntoView(); } catch (_e) { /* ignore */ }
     }
     flash(row);
@@ -155,11 +183,57 @@
     var started = Date.now();
     function check() {
       if (!s.session || s.session.session_id !== sid) return Promise.resolve(false);
-      if (Array.isArray(s.messages) && s.messages.length) return Promise.resolve(true);
+      var loading = window._loadingSessionId;
+      try { if (typeof _loadingSessionId !== 'undefined') loading = _loadingSessionId; } catch (_) { /* ignore */ }
+      if (!loading && Array.isArray(s.messages) && s.messages.length) return delay(SETTLE_MS).then(function () { return !s.session || s.session.session_id !== sid ? false : true; });
       if (Date.now() - started > MESSAGES_WAIT_MS) return Promise.resolve(false);
       return delay(80).then(check);
     }
     return check();
+  }
+
+  function mountTarget(messageIndex) {
+    var rawFn = coreFn('_messageRawIdxForSessionIndex');
+    var visible = coreFn('_getVisibleMessagesWithIdx');
+    var indexFn = coreFn('_messageVisibleIndexForRawIdx');
+    var topFn = coreFn('_messageVirtualScrollTopForVisibleIdx');
+    var container = document.getElementById('messages');
+    var render = coreFn('renderMessages');
+    if (!rawFn || !visible || !indexFn || !topFn || !container || !render) return;
+    var rows = visible();
+    var idx = indexFn(rawFn(messageIndex), rows);
+    if (idx < 0) return;
+    beginJump();
+    container.scrollTop = Math.max(0, Math.min(topFn(rows, idx, container), Math.max(0, container.scrollHeight - container.clientHeight)));
+    try { if (typeof _messageVirtualWindowKey !== 'undefined') _messageVirtualWindowKey = ''; } catch (_) { /* ignore */ }
+    if ('_messageVirtualWindowKey' in window) window._messageVirtualWindowKey = '';
+    render({ preserveScroll: true });
+  }
+
+  function rowInView(row) {
+    if (!visibleRow(row)) return false;
+    var rect = row.getBoundingClientRect();
+    var container = document.getElementById('messages');
+    var bounds = container ? container.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    var top = Math.max(0, bounds.top), bottom = Math.min(window.innerHeight, bounds.bottom);
+    return rect.bottom > top && rect.top < bottom;
+  }
+
+  function land(sid, messageIndex, role, retry) {
+    if (!coreS().session || coreS().session.session_id !== sid) return Promise.resolve(result(false, 'session_not_found'));
+    var row = findRow(messageIndex, role);
+    if (!row) return Promise.resolve(result(false, 'row_not_found'));
+    scrollTo(row, retry);
+    var started = Date.now();
+    function check() {
+      if (!coreS().session || coreS().session.session_id !== sid) return result(false, 'session_not_found');
+      var current = findRow(messageIndex, role);
+      if (!current) return result(false, 'row_not_found');
+      if (rowInView(current)) return result(true);
+      if (Date.now() - started < 1600) return delay(80).then(check);
+      return retry ? result(false, 'not_in_view') : land(sid, messageIndex, role, true);
+    }
+    return delay(SETTLE_MS).then(check);
   }
 
   // Load the COMPLETE transcript (explicit msg_limit=all, see outline.js:109-115) and re-render.
@@ -222,7 +296,7 @@
             return loadSessionFn(sessionId, { skipLineageResolve: true, skipContinuationResolve: true, skipExtHooks: false });
           }).then(function () {
             if (!s.session || String(s.session.session_id) !== sessionId) throw { reason: 'session_not_found' };
-            return waitForMessages(sessionId);
+            return waitForMessages(sessionId).then(function (ok) { if (!ok) throw { reason: 'row_not_found' }; });
           }, function (e) {
             throw (e && e.reason) ? e : { reason: 'session_not_found' };
           });
@@ -231,14 +305,12 @@
       return chain.then(function () {
         if (!s.session || String(s.session.session_id) !== sessionId) return result(false, 'session_not_found');
         var row = findRow(messageIndex, role);
-        if (row) { scrollTo(row); return result(true); }
+        if (row) return land(sessionId, messageIndex, role, false);
         if (isBusy()) return result(false, 'busy_switch_blocked');
         return ensureFullTranscript(sessionId).then(function (ok) {
           if (!ok) return result(false, 'row_not_found');
-          var again = findRow(messageIndex, role);
-          if (!again) return result(false, 'row_not_found');
-          scrollTo(again);
-          return result(true);
+          mountTarget(messageIndex);
+          return delay(SETTLE_MS).then(function () { return land(sessionId, messageIndex, role, false); });
         });
       }, function (e) {
         return result(false, (e && e.reason) || 'session_not_found');

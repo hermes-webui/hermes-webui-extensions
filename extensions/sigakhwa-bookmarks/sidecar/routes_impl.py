@@ -177,6 +177,9 @@ def _str(value: Any, max_len: int) -> Optional[str]:
 def normalize_item(raw: Any, ns: str, existing: Optional[Dict[str, Any]] = None, item_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     if not isinstance(raw, dict):
         return None
+    # Reject lone surrogate code points in any nested string, including data keys.
+    if _has_surrogate(raw):
+        return None
     rid = raw.get("id") if item_id is None else item_id
     if rid is not None and (not isinstance(rid, str) or not ID_RE.match(rid)):
         return None
@@ -240,6 +243,16 @@ def normalize_item(raw: Any, ns: str, existing: Optional[Dict[str, Any]] = None,
     if size > MAX_ITEM_BYTES:
         raise ItemTooLarge()
     return item
+
+
+def _has_surrogate(value: Any) -> bool:
+    if isinstance(value, str):
+        return any(0xD800 <= ord(char) <= 0xDFFF for char in value)
+    if isinstance(value, list):
+        return any(_has_surrogate(entry) for entry in value)
+    if isinstance(value, dict):
+        return any(_has_surrogate(key) or _has_surrogate(entry) for key, entry in value.items())
+    return False
 
 
 def _accept_stored(raw: Any, ns: str) -> Optional[Dict[str, Any]]:
@@ -348,12 +361,20 @@ def register(app) -> None:
         with _lock_for(ns):
             items = _read_ns(ns)
             existing = items.get(item_id)
+            create_only = req.query_one("createOnly") == "1"
+            if create_only and existing is not None:
+                return app.json({"error": "conflict", "id": item_id}, status=409)
             try:
                 incoming = normalize_item(body, ns, existing, item_id=item_id)
             except ItemTooLarge:
                 return app.json({"error": "too_large"}, status=413)
             if incoming is None:
                 return app.json({"error": "invalid item"}, status=400)
+            if create_only:
+                for key in ("createdAt", "updatedAt"):
+                    val = body.get(key)
+                    if isinstance(val, (int, float)) and not isinstance(val, bool):
+                        incoming[key] = int(val)
             if immutable_conflict(existing, incoming):
                 return app.json({"error": "immutable", "id": item_id}, status=409)
             if existing is None and len(items) >= MAX_ITEMS_PER_NS:
@@ -424,6 +445,8 @@ def register(app) -> None:
             items = _read_ns(ns)
             if item_id not in items:
                 return app.json({"error": "not found", "removed": False}, status=404)
+            if req.query_one("ifUnchanged") == "1" and items[item_id] != _parse_body(req):
+                return app.json({"error": "conflict", "id": item_id}, status=409)
             del items[item_id]
             try:
                 _write_ns(ns, items)
