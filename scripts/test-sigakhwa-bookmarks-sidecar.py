@@ -194,5 +194,20 @@ class RoutesTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/v1/bookmarks/items/saved")[1]["name"], "original")
 
 
+    def test_round3_conflict_export_ids_preserve_both_copies_and_original_id(self):
+        status, server, _ = self.put("original", name="server version")
+        self.assertEqual(status, 201)
+        local = dict(server, id="conflict-copy-valid", name="local version", conflictOriginalId="original")
+        payload = {"v": 1, "items": [server, local]}
+        status, result, _ = self.call("POST", "/v1/bookmarks/import?merge=0", payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(result["added"], 2)
+        rows = self.call("GET", "/v1/bookmarks/export")[1]["items"]
+        self.assertEqual({r["name"] for r in rows}, {"server version", "local version"})
+        self.assertEqual(next(r for r in rows if r["id"] == local["id"])["conflictOriginalId"], "original")
+        local["conflictOriginalId"] = "bad/id"
+        self.assertIsNone(routes.normalize_item(local, "bookmarks", None))
+
+
 if __name__ == "__main__":
     unittest.main()

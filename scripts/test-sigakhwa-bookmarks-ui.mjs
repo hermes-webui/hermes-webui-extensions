@@ -216,3 +216,220 @@ test('review 3: conflicting local version is visibly labelled in both languages'
   await flush();
   assert.equal(doc.querySelector('.svb-chip--local').textContent, '충돌 · 이 기기 사본');
 });
+
+function approvalSpy(w) {
+  const card = w.document.createElement('div'); card.id = 'approvalCard'; card.className = 'visible'; w.document.body.append(card);
+  let calls = 0;
+  w.$ = id => w.document.getElementById(id);
+  w.respondApproval = () => { calls++; };
+  // Core static/boot.js ~2945, approval shortcut excerpt (Core ab5f2ce).
+  // Keep this fixture in the suite so a clean checkout needs no external Core files.
+  w.eval(`document.addEventListener('keydown', function(e) {
+    if(e.key==='Enter'&&!e.metaKey&&!e.ctrlKey&&!e.shiftKey){
+      const card=$('approvalCard');
+      const tag=(document.activeElement||{}).tagName||'';
+      if(card&&card.classList.contains('visible')&&tag!=='TEXTAREA'&&tag!=='INPUT'&&tag!=='SELECT'){
+        e.preventDefault();
+        if(typeof respondApproval==='function') respondApproval('once');
+        return;
+      }
+    }
+  });`);
+  return () => calls;
+}
+
+function press(w, node, key, repeat = false) {
+  return node.dispatchEvent(new w.KeyboardEvent('keydown', { key, repeat, bubbles: true, cancelable: true }));
+}
+
+function exercise(w, node, key, activate = () => node.click()) {
+  node.focus();
+  press(w, node, key);
+  activate(); // jsdom does not implement native button default activation.
+  press(w, w.document.activeElement, key, true);
+  press(w, w.document.body, key, true);
+  // A different key must not release the held key's latch.
+  press(w, w.document.getElementById('svbToggleBtn'), key === 'Enter' ? ' ' : 'Enter');
+  press(w, w.document.body, key, true);
+}
+
+for (const key of ['Enter', ' ', 'Spacebar']) {
+  test(`round 3: every panel control contains ${JSON.stringify(key)} and held-key repeats with approval visible`, async () => {
+    const row = { id: 'key-row', kind: 'bookmark', profile: 'default', sessionId: 's1', messageIndex: 0, role: 'user', name: 'keyboard', createdAt: 1, updatedAt: 2, data: {} };
+    const { w, doc } = await boot({ localRows: [row] });
+    const calls = approvalSpy(w);
+    w.prompt = () => null; w.confirm = () => false;
+    const nodes = [...doc.querySelectorAll('#svbPanel button'), doc.getElementById('svbToggleBtn')];
+    for (const old of nodes) {
+      doc.getElementById('svbTabBookmarks').click(); await flush();
+      const node = old.isConnected ? old : [...doc.querySelectorAll('#svbPanel button')].find(n => n.className === old.className && n.textContent === old.textContent);
+      assert.ok(node, old.className);
+      exercise(w, node, key, () => {
+        if (node.textContent.includes('Export') || node.textContent.includes('Import')) return;
+        node.click();
+      });
+      assert.equal(calls(), 0, node.className);
+      w.SigakhwaBookmarks.open();
+      await flush();
+    }
+    w.S.session.message_count = 1;
+    w.fetch = async () => ({ ok: true, json: async () => ({ session: { messages: [{ role: 'assistant', content: '# Heading' }] } }) });
+    doc.getElementById('svbTabToc').click(); await flush();
+    w.HermesVizNav = { goTo: async () => ({ ok: true }) };
+    const toc = doc.querySelector('.svb-toc-entry');
+    assert.ok(toc);
+    exercise(w, toc, key); await flush();
+    assert.equal(doc.getElementById('svbPanel').hidden, true);
+    assert.equal(doc.activeElement, doc.getElementById('svbToggleBtn'));
+    assert.equal(calls(), 0);
+  });
+
+  test(`round 3: rerendered message action and save/edit dialog contain ${JSON.stringify(key)} with focus handoff`, async () => {
+    const { w, doc, state } = await boot();
+    const calls = approvalSpy(w);
+    for (let rerender = 0; rerender < 2; rerender++) {
+      const action = doc.createElement('button');
+      action.dataset.extensionId = 'sigakhwa-bookmarks'; action.dataset.extensionActionId = 'bookmark'; doc.body.append(action);
+      action.focus(); press(w, action, key);
+      const pending = state.action.onInvoke({ sessionId: 's1', messageIndex: 0, role: 'user', text: 'Keyboard bookmark' });
+      await flush();
+      press(w, doc.body, key, true);
+      for (const control of doc.querySelectorAll('.svb-dialog input, .svb-dialog button')) {
+        control.focus(); press(w, control, key); press(w, control, key, true);
+      }
+      const save = doc.querySelector('.svb-dialog .svb-btn--primary');
+      exercise(w, save, key); await pending; await flush();
+      assert.equal(doc.activeElement, action);
+      assert.equal(calls(), 0);
+      // Open the edit dialog, then remove its origin before Delete closes it.
+      const editing = state.action.onInvoke({ sessionId: 's1', messageIndex: 0, role: 'user', text: 'Keyboard bookmark' });
+      await flush(); action.remove();
+      const del = doc.querySelector('.svb-dialog .svb-btn--danger'); assert.ok(del);
+      exercise(w, del, key); await editing; await flush();
+      assert.equal(doc.activeElement, doc.getElementById('svbToggleBtn'));
+      assert.equal(calls(), 0);
+    }
+    // Ordinary fresh Enter outside the extension still reaches Core.
+    press(w, doc.body, 'Enter');
+    assert.equal(calls(), 1);
+  });
+}
+
+test('round 3: Enter in bookmark input saves once and contains repeats after close', async () => {
+  const { w, doc, state } = await boot();
+  const calls = approvalSpy(w);
+  const pending = state.action.onInvoke({ sessionId: 's1', messageIndex: 0, role: 'user', text: 'Input save' });
+  await flush();
+  const input = doc.querySelector('.svb-dialog-input'); input.focus(); press(w, input, 'Enter');
+  await pending; await flush();
+  press(w, doc.body, 'Enter', true);
+  assert.equal((await w.SigakhwaBookmarks.store.list()).length, 1);
+  assert.equal(calls(), 0);
+});
+
+for (const key of ['Enter', ' ']) {
+  test(`round 3: shared rename/delete dialog contains ${JSON.stringify(key)} and restores focus after row removal`, async () => {
+    const row = { id: 'shared', kind: 'bookmark', profile: 'default', sessionId: 's1', messageIndex: 0, role: 'user', name: 'local', createdAt: 1, updatedAt: 2, data: {} };
+    const { w, doc } = await boot({ localRows: [row] });
+    const calls = approvalSpy(w);
+    function shared({ value }) {
+      const origin = doc.activeElement;
+      const overlay = doc.createElement('div'); overlay.id = 'appDialogOverlay';
+      overlay.innerHTML = '<input id="appDialogInput"><button id="appDialogCancel">Cancel</button><button id="appDialogConfirm">Confirm</button>';
+      doc.body.append(overlay);
+      doc.getElementById('appDialogInput').value = value || 'renamed';
+      return new Promise(resolve => {
+        for (const id of ['appDialogCancel', 'appDialogConfirm']) doc.getElementById(id).onclick = () => {
+          overlay.remove(); origin.focus(); resolve(id === 'appDialogCancel' ? null : value !== undefined ? 'renamed' : true);
+        };
+      });
+    }
+    w.showPromptDialog = shared; w.showConfirmDialog = shared;
+    for (const selector of ['.svb-mini:not(.svb-mini--danger)', '.svb-mini--danger']) {
+      let button = doc.querySelector(selector); button.focus(); button.click();
+      const cancel = doc.getElementById('appDialogCancel');
+      exercise(w, cancel, key); await flush();
+      assert.equal(doc.getElementById('svbPanel').hidden, false);
+      assert.equal(calls(), 0);
+      button = doc.querySelector(selector); button.focus(); button.click();
+      const confirm = doc.getElementById('appDialogConfirm');
+      exercise(w, confirm, key); await flush();
+      press(w, doc.body, key, true);
+      assert.equal(calls(), 0);
+      assert.equal(doc.getElementById('svbPanel').hidden, false);
+      assert.notEqual(doc.activeElement, doc.body);
+    }
+  });
+}
+
+test('round 3: Core overlay owns outside clicks, Escape and focus restoration; hidden overlay does not block panel', async () => {
+  const { w, doc } = await boot();
+  const overlay = doc.createElement('div'); overlay.id = 'appDialogOverlay';
+  const input = doc.createElement('input'); overlay.append(input); doc.body.append(overlay); input.focus();
+  input.click(); press(w, input, 'Escape');
+  assert.equal(doc.getElementById('svbPanel').hidden, false);
+  assert.equal(doc.activeElement, input);
+  w.SigakhwaBookmarks.close();
+  assert.equal(doc.activeElement, input);
+  overlay.style.display = 'none';
+  w.SigakhwaBookmarks.open(); doc.body.click();
+  assert.equal(doc.getElementById('svbPanel').hidden, true);
+  await flush();
+});
+
+for (const width of [390, 1440]) {
+  test(`round 3: successful jump closes panel at width ${width}; failure leaves it open`, async () => {
+    const { w, doc } = await boot(); Object.defineProperty(w, 'innerWidth', { value: width });
+    w.HermesVizNav = { goTo: async () => ({ ok: false, reason: 'row_not_found' }) };
+    assert.equal(await w.SigakhwaBookmarks.jumpTo({}), false);
+    assert.equal(doc.getElementById('svbPanel').hidden, false);
+    w.HermesVizNav.goTo = async () => ({ ok: true });
+    assert.equal(await w.SigakhwaBookmarks.jumpTo({}), true);
+    assert.equal(doc.getElementById('svbPanel').hidden, true);
+  });
+}
+
+test('round 3: primary and local status CSS use Core contrast recipes', () => {
+  const css = fs.readFileSync('extensions/sigakhwa-bookmarks/assets/sigakhwa-bookmarks.css', 'utf8');
+  for (const selector of ['.svb-toggle-badge', '.svb-btn--primary']) {
+    const rule = css.slice(css.indexOf(selector + ' {')).split('}')[0];
+    assert.match(rule, /var\(--accent-text\)/); assert.match(rule, /var\(--accent\)/); assert.doesNotMatch(rule, /color: #fff/);
+  }
+  for (const selector of ['.svb-sync-badge', '.svb-chip--local']) {
+    const rule = css.slice(css.indexOf(selector + ' {')).split('}')[0];
+    assert.match(rule, /color-mix\(in srgb, var\(--warning\) 14%, var\(--surface\)\)/);
+    assert.match(rule, /color: var\(--text\)/);
+  }
+});
+
+for (const key of ['Enter', ' ']) {
+  test(`round 3: Cancel closes bookmark dialog, restores toggle and swallows held ${JSON.stringify(key)}`, async () => {
+    const { w, doc, state } = await boot();
+    const calls = approvalSpy(w);
+    const pending = state.action.onInvoke({ sessionId: 's1', messageIndex: 0, role: 'user', text: 'Cancel' });
+    await flush();
+    const cancel = doc.querySelector('.svb-dialog .svb-btn');
+    exercise(w, cancel, key); await pending;
+    assert.equal(doc.activeElement, doc.getElementById('svbTabBookmarks'));
+    press(w, doc.body, key, true);
+    assert.equal(calls(), 0);
+  });
+}
+
+for (const backend of ['local', 'server']) {
+  test(`round 3: conflict panel rename/delete forwards ${backend} backend`, async () => {
+    const row = { id: 'ui-conflict', kind: 'bookmark', profile: 'default', sessionId: 's1', messageIndex: 0, role: 'user', name: 'local', createdAt: 1, updatedAt: 2, data: {} };
+    const sidecar = fakeSidecar();
+    sidecar.state.ns.set('bookmarks', new Map([[row.id, { ...row, namespace: 'bookmarks', name: 'server' }]]));
+    const { w, doc } = await boot({ sidecar, localRows: [row] });
+    w.prompt = () => 'renamed'; w.confirm = () => true;
+    const selected = () => [...doc.querySelectorAll('.svb-entry-row')].find(r => !!r.querySelector('.svb-chip--local') === (backend === 'local'));
+    selected().querySelector('.svb-mini:not(.svb-mini--danger)').click(); await flush();
+    assert.equal(selected().querySelector('.svb-entry-name').textContent, 'renamed');
+    const other = [...doc.querySelectorAll('.svb-entry-row')].find(r => r !== selected());
+    assert.equal(other.querySelector('.svb-entry-name').textContent, backend === 'local' ? 'server' : 'local');
+    selected().querySelector('.svb-mini--danger').click(); await flush();
+    assert.equal(doc.querySelectorAll('.svb-entry-row').length, 1);
+    assert.equal(doc.querySelector('.svb-entry-name').textContent, backend === 'local' ? 'server' : 'local');
+  });
+}

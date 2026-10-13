@@ -468,16 +468,43 @@
     try { return window.matchMedia && window.matchMedia('(max-width: 480px)').matches; } catch (_) { return false; }
   }
 
+  // Keep each activation press contained, including repeats after its control disappears.
+  var latchedKeys = new Set();
+  var sharedDialogDepth = 0;
+  function coreDialogOpen() {
+    var overlay = document.getElementById('appDialogOverlay');
+    return !!(overlay && !overlay.hidden && overlay.style.display !== 'none');
+  }
+  function containActivationKeys(node) {
+    node.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      ev.stopPropagation();
+      if (!ev.repeat) latchedKeys.add(ev.key);
+    });
+  }
+  function restoreControlFocus(origin) {
+    if (coreDialogOpen()) return;
+    var target = origin && origin !== document.body && origin !== document.documentElement && origin.isConnected && !origin.disabled && !origin.closest('[hidden]') ? origin : ui.toggle;
+    if (target) target.focus({ preventScroll: true });
+  }
+  function ownSharedDialog(promise) {
+    sharedDialogDepth++;
+    return Promise.resolve(promise).finally(function () {
+      sharedDialogDepth--;
+      restoreControlFocus(document.activeElement);
+    });
+  }
+
   // Core's shared app dialogs (ui.js showPromptDialog / showConfirmDialog) when present, native fallbacks otherwise.
   function askText(title, message, value) {
     if (typeof window.showPromptDialog === 'function') {
-      try { return Promise.resolve(window.showPromptDialog({ title: title, message: message, value: value, confirmLabel: t('s12'), cancelLabel: t('s13') })); } catch (_) { /* fall back */ }
+      try { return ownSharedDialog(window.showPromptDialog({ title: title, message: message, value: value, confirmLabel: t('s12'), cancelLabel: t('s13') })); } catch (_) { /* fall back */ }
     }
     return Promise.resolve(typeof window.prompt === 'function' ? window.prompt(title + '\n' + message, value) : null);
   }
   function askConfirm(title, message, confirmLabel) {
     if (typeof window.showConfirmDialog === 'function') {
-      try { return Promise.resolve(window.showConfirmDialog({ title: title, message: message, confirmLabel: confirmLabel || t('s14'), cancelLabel: t('s13') })).then(function (r) { return r === true; }); } catch (_) { /* fall back */ }
+      try { return ownSharedDialog(window.showConfirmDialog({ title: title, message: message, confirmLabel: confirmLabel || t('s14'), cancelLabel: t('s13') })).then(function (r) { return r === true; }); } catch (_) { /* fall back */ }
     }
     return Promise.resolve(typeof window.confirm === 'function' ? !!window.confirm(title + '\n' + message) : false);
   }
@@ -486,6 +513,7 @@
   function el(tag, cls, text) {
     var n = document.createElement(tag);
     if (cls) n.className = cls;
+    if (tag === 'button' || tag === 'input' || tag === 'select') containActivationKeys(n);
     if (text !== undefined && text !== null) n.textContent = String(text);
     return n;
   }
@@ -495,7 +523,10 @@
     if (label) { b.title = label; b.setAttribute('aria-label', label); }
     return b;
   }
-  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function clear(node) {
+    if (node.contains(document.activeElement)) restoreControlFocus(ui.toggle);
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
 
   // ── state ──────────────────────────────────────────────────────────────────
   var store = null;
@@ -618,7 +649,7 @@
         if (sessionGuard) clearInterval(sessionGuard);
         document.removeEventListener('keydown', onKey, true);
         backdrop.remove();
-        if (returnFocus && returnFocus.isConnected) returnFocus.focus();
+        restoreControlFocus(returnFocus);
         resolve();
       }
       function sessionChanged() { return currentSid() !== ctx.sessionId; }
@@ -644,7 +675,7 @@
         busy(true);
         var p;
         if (existing) {
-          p = store.patch(existing.id, { name: name });
+          p = store.patch(existing.id, { name: name }, existing.localOnly ? 'local' : 'server');
         } else {
           p = store.put({
             kind: 'bookmark',
@@ -665,15 +696,16 @@
       }
       function onDelete() {
         busy(true);
-        store.remove(existing.id).then(function () {
+        store.remove(existing.id, existing.localOnly ? 'local' : 'server').then(function () {
           toast(t('s36'));
           close();
           refreshIndex();
         }, fail);
       }
       function onKey(ev) {
+        if (ev.defaultPrevented || coreDialogOpen()) return;
         if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); }
-        else if (ev.key === 'Enter' && ev.target === input) { ev.preventDefault(); onSave(); }
+        else if (ev.key === 'Enter' && ev.target === input) { ev.preventDefault(); ev.stopPropagation(); latchedKeys.add(ev.key); onSave(); }
         else if (ev.key === 'Tab') {
           var controls = Array.from(dialog.querySelectorAll('input:not([disabled]), button:not([disabled])'));
           if (!controls.length) { ev.preventDefault(); return; }
@@ -701,7 +733,7 @@
     if (!nav || typeof nav.goTo !== 'function') { toast(reasonText('no_core'), 'error'); return Promise.resolve(false); }
     return nav.goTo(target).then(function (r) {
       if (!r || !r.ok) { toast(reasonText(r && r.reason, target.profile), 'error'); return false; }
-      if (isPhone()) setPanelOpen(false);
+      setPanelOpen(false);
       return true;
     }, function () { toast(reasonText('row_not_found'), 'error'); return false; });
   }
@@ -893,7 +925,7 @@
       if (watchTimer) { clearInterval(watchTimer); watchTimer = null; }
       document.removeEventListener('keydown', onPanelKey, true);
       document.removeEventListener('click', onOutsideClick);
-      if (wasOpen && panelReturnFocus && panelReturnFocus.isConnected && chatVisible()) panelReturnFocus.focus();
+      if (wasOpen && panelReturnFocus && panelReturnFocus.isConnected && chatVisible() && !coreDialogOpen()) restoreControlFocus(panelReturnFocus);
     }
   }
 
@@ -910,11 +942,15 @@
   }
 
   function onOutsideClick(ev) {
-    if (ui.panel.contains(ev.target) || ui.toggle.contains(ev.target) || document.getElementById('svbDialogBackdrop')) return;
+    // The clicked dialog may already have removed itself before this event bubbles here.
+    if (ev.target.closest && ev.target.closest('#appDialogOverlay, #svbDialogBackdrop')) return;
+    if (ev.composedPath && ev.composedPath().some(function (node) { return node.id === 'appDialogOverlay' || node.id === 'svbDialogBackdrop'; })) return;
+    if (ui.panel.contains(ev.target) || ui.toggle.contains(ev.target) || document.getElementById('svbDialogBackdrop') || coreDialogOpen()) return;
     setPanelOpen(false);
   }
 
   function onPanelKey(ev) {
+    if (ev.defaultPrevented || coreDialogOpen()) return;
     if (ev.key === 'Escape' && !document.getElementById('svbDialogBackdrop')) { ev.preventDefault(); ev.stopPropagation(); setPanelOpen(false); }
   }
 
@@ -1065,7 +1101,7 @@
         if (name === null || name === undefined) return;
         name = Array.from(collapseWs(name)).slice(0, NAME_MAX).join('');
         if (!name) return;
-        return store.patch(it.id, { name: name }).then(function () { toast(t('s66')); refreshIndex(); });
+        return store.patch(it.id, { name: name }, it.localOnly ? 'local' : 'server').then(function () { toast(t('s66')); refreshIndex(); });
       }).catch(function (e) { toast(t('s67') + (e && e.message || ''), 'error'); });
     });
     var del = btn('svb-mini svb-mini--danger', '×', t('s27'));
@@ -1073,7 +1109,7 @@
       ev.stopPropagation();
       askConfirm(t('s68'), t('s69') + it.name + t('s70'), t('s27')).then(function (ok) {
         if (!ok) return;
-        return store.remove(it.id).then(function () { toast(t('s71')); refreshIndex(); });
+        return store.remove(it.id, it.localOnly ? 'local' : 'server').then(function () { toast(t('s71')); refreshIndex(); });
       }).catch(function (e) { toast(t('s72') + (e && e.message || ''), 'error'); });
     });
     row.appendChild(main);
@@ -1245,6 +1281,25 @@
     pub.installed = true;
     pub.installing = false;
     openStore(0);
+    document.addEventListener('keydown', function (ev) {
+      if (latchedKeys.has(ev.key)) {
+        if (ev.repeat) { ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+        latchedKeys.delete(ev.key);
+      }
+      if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+      var target = ev.target;
+      // Core renders message actions repeatedly; delegate containment to a stable listener.
+      if (target && target.closest && (target.closest('[data-extension-id="sigakhwa-bookmarks"][data-extension-action-id="bookmark"]') ||
+          (sharedDialogDepth && target.closest('#appDialogOverlay')))) {
+        ev.stopPropagation();
+        if (!ev.repeat) latchedKeys.add(ev.key);
+        if (sharedDialogDepth && ev.key === 'Enter' && target.tagName === 'INPUT' && !ev.defaultPrevented && !ev.isComposing) {
+          ev.preventDefault();
+          var confirm = document.getElementById('appDialogConfirm');
+          if (confirm) confirm.click();
+        }
+      }
+    }, true);
     actionAvailable = registerAction();
     ensureToggle();
     ensurePanel();

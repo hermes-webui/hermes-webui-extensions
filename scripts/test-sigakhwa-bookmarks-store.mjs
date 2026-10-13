@@ -246,7 +246,8 @@ test('sidecar: migration retires acknowledged copies, preserves conflicts and ke
   assert.equal(conflict.conflict, true);
   assert.equal((await s.get(l2.id)).name, 'local 2');
   const exported = JSON.parse(await s.exportJson());
-  assert.equal(exported.items.filter(row => row.id === l2.id).length, 2);
+  assert.equal(exported.items.filter(row => row.id === l2.id).length, 1);
+  assert.equal(exported.items.find(row => row.localOnly).conflictOriginalId, l2.id);
   assert.equal(exported.items.find(row => row.localOnly).conflict, true);
   // Phase 3: a delete on the server (another device) stays deleted after reload
   server.delete(l1.id);
@@ -629,4 +630,105 @@ test('review 3: only identical persisted versions retire local data', async () =
   const left = JSON.parse(ls.getItem('hermes-viz-store:bookmarks')).items;
   assert.deepEqual(left.map(r => r.id), ['different-time']);
   assert.equal(sc.state.calls.some(c => c.method === 'PUT'), false);
+});
+
+for (const serverEdit of [false, true]) {
+  test(`round 3: deletion during final GET preserves concurrent server edits=${serverEdit} through reload`, async () => {
+    const ls = fakeLocalStorage(), sc = fakeSidecar();
+    const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+    await local.put(baseItem({ id: 'late-delete' }));
+    let entered, release, gets = 0;
+    const gate = new Promise(r => { release = r; }), start = new Promise(r => { entered = r; });
+    const fetch = async (url, init) => {
+      const response = await sc.fetch(url, init);
+      if (url.includes('/items?') && ++gets === 2) { entered(); await gate; }
+      return response;
+    };
+    const s = loadScripts(['store'], { localStorage: ls, fetch }).window.HermesVizStore.open('bookmarks');
+    await start;
+    const deletion = s.remove('late-delete');
+    if (serverEdit) sc.state.ns.get('bookmarks').get('late-delete').name = 'concurrent server edit';
+    release();
+    assert.equal(await deletion, true);
+    await s.ready;
+    assert.equal(ls.getItem('hermes-viz-store:bookmarks'), null);
+    const reload = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+    const rows = await reload.list();
+    assert.equal(rows.length, serverEdit ? 1 : 0);
+    if (serverEdit) assert.equal(rows[0].name, 'concurrent server edit');
+    assert.equal(sc.state.calls.filter(c => c.method === 'DELETE').every(c => c.url.includes('ifUnchanged=1')), true);
+  });
+}
+
+test('round 3: server deletion after PUT acknowledgment retires local snapshot through reload', async () => {
+  const ls = fakeLocalStorage(), sc = fakeSidecar();
+  const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+  await local.put(baseItem({ id: 'server-deleted' }));
+  let gets = 0;
+  const fetch = async (url, init) => {
+    if (url.includes('/items?') && ++gets === 2) sc.state.ns.get('bookmarks').delete('server-deleted');
+    return sc.fetch(url, init);
+  };
+  const s = loadScripts(['store'], { localStorage: ls, fetch }).window.HermesVizStore.open('bookmarks');
+  assert.equal((await s.list()).length, 0);
+  assert.equal(ls.getItem('hermes-viz-store:bookmarks'), null);
+  const reload = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+  assert.equal((await reload.list()).length, 0);
+});
+
+test('round 3: conflict export round trips both versions through browser and sidecar imports', async () => {
+  const ls = fakeLocalStorage(), sc = fakeSidecar();
+  const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+  const row = await local.put(baseItem({ id: 'original', name: 'local version' }));
+  sc.state.ns.set('bookmarks', new Map([[row.id, { ...plain(row), name: 'server version' }]]));
+  const s = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+  const exported = await s.exportJson(), rows = JSON.parse(exported).items;
+  assert.equal(new Set(rows.map(r => r.id)).size, 2);
+  const copy = rows.find(r => r.conflictOriginalId);
+  assert.equal(copy.conflictOriginalId, 'original');
+  assert.match(copy.id, /^[A-Za-z0-9._:-]{1,128}$/);
+  for (const target of [fakeSidecar({ healthy: false }), fakeSidecar()]) {
+    const dest = loadScripts(['store'], { localStorage: fakeLocalStorage(), fetch: target.fetch }).window.HermesVizStore.open('bookmarks');
+    assert.equal((await dest.importJson(exported)).added, 2);
+    const imported = await dest.list();
+    deepEqual(imported.map(r => r.name).sort(), ['local version', 'server version']);
+    assert.equal(imported.find(r => r.id === copy.id).conflictOriginalId, 'original');
+  }
+});
+
+for (const backend of ['local', 'server']) {
+  test(`round 3: conflict row patch/remove acts only on ${backend} copy`, async () => {
+    const ls = fakeLocalStorage(), sc = fakeSidecar();
+    const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+    const row = await local.put(baseItem({ id: 'conflict-row', name: 'local' }));
+    sc.state.ns.set('bookmarks', new Map([[row.id, { ...plain(row), name: 'server' }]]));
+    const s = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+    await s.patch(row.id, { name: 'renamed' }, backend);
+    const rows = await s.list();
+    assert.equal(rows.find(r => !!r.localOnly === (backend === 'local')).name, 'renamed');
+    assert.equal(rows.find(r => !!r.localOnly !== (backend === 'local')).name, backend === 'local' ? 'server' : 'local');
+    assert.equal(await s.remove(row.id, backend), true);
+    assert.equal((await s.list()).length, 1);
+    assert.equal((await s.list())[0].name, backend === 'local' ? 'server' : 'local');
+  });
+}
+
+test('round 3: failed final GET still retires acknowledged snapshots before reload', async () => {
+  const ls = fakeLocalStorage(), sc = fakeSidecar();
+  const local = loadScripts(['store'], { localStorage: ls, fetch: fakeSidecar({ healthy: false }).fetch }).window.HermesVizStore.open('bookmarks');
+  await local.put(baseItem({ id: 'acknowledged' }));
+  let gets = 0;
+  const fetch = async (url, init) => {
+    if (url.includes('/items?') && ++gets === 2) {
+      sc.state.ns.get('bookmarks').delete('acknowledged');
+      return { status: 502, text: async () => JSON.stringify({ error: 'unavailable' }) };
+    }
+    return sc.fetch(url, init);
+  };
+  const s = loadScripts(['store'], { localStorage: ls, fetch }).window.HermesVizStore.open('bookmarks');
+  await s.ready;
+  assert.equal(s.syncError.status, 502);
+  assert.equal(ls.getItem('hermes-viz-store:bookmarks'), null);
+  const reload = loadScripts(['store'], { localStorage: ls, fetch: sc.fetch }).window.HermesVizStore.open('bookmarks');
+  assert.equal((await reload.list()).length, 0);
 });

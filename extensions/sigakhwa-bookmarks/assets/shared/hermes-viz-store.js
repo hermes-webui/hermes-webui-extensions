@@ -28,7 +28,7 @@
 (function () {
   'use strict';
   if (typeof window === 'undefined') return;
-  var BUILD = 2026101302;
+  var BUILD = 2026101401;
   var previous = window.HermesVizStore;
   if (previous && previous.build >= BUILD) {
     if (previous.build > BUILD) console.warn('[HermesVizStore] older helper ignored');
@@ -189,6 +189,10 @@
     if (tags) out.tags = tags;
     if (immutable) out.immutable = true;
     if (contentHash !== undefined) out.contentHash = contentHash;
+    if (raw.conflictOriginalId !== undefined) {
+      if (typeof raw.conflictOriginalId !== 'string' || !ID_RE.test(raw.conflictOriginalId)) return null;
+      out.conflictOriginalId = raw.conflictOriginalId;
+    }
     var size;
     try { size = measureItemBytes(out); } catch (_) { return null; }
     if (size > MAX_ITEM_BYTES) throw err('too_large', 'item exceeds 256 KiB');
@@ -579,12 +583,13 @@
           return saved;
         });
       },
-      patch: function (id, fields) {
-        if (leftovers().has(id)) return local.patch(id, fields).then(markLocalOnly);
+      patch: function (id, fields, backend) {
+        if (backend === 'local' || (!backend && leftovers().has(id))) return local.patch(id, fields).then(markLocalOnly);
         return remote.patch(id, fields);
       },
-      remove: function (id) {
-        if (leftovers().has(id)) return local.remove(id).then(function (ok) { syncFlags(); return ok; });
+      remove: function (id, backend) {
+        if (backend === 'local' || (!backend && leftovers().has(id))) return local.remove(id).then(function (ok) { syncFlags(); return ok; });
+        if (backend === 'server') return remote.remove(id);
         return remote.remove(id).then(function (ok) {
           if (!leftovers().has(id)) return ok;
           return local.remove(id).then(function (ok2) { syncFlags(); return ok || ok2; });
@@ -592,7 +597,15 @@
       },
       exportJson: function () {
         return remote.exportRows().then(function (rows) {
-          return exportEnvelope(namespace, mergeRows(rows));
+          var merged = mergeRows(rows);
+          var ids = new Set(merged.map(function (it) { return it.id; }));
+          merged.forEach(function (it) {
+            if (!it.conflict || !it.localOnly) return;
+            it.conflictOriginalId = it.id;
+            do { it.id = uuid(); } while (ids.has(it.id));
+            ids.add(it.id);
+          });
+          return exportEnvelope(namespace, merged);
         });
       },
       importJson: function (text, opts) { return remote.importJson(text, opts); },
@@ -636,16 +649,36 @@
             });
           });
         });
-        return chain.then(function () { return remote.list(); }).then(function (confirmedRows) {
-          // Re-read the server too: it may have changed since the initial list or a PUT.
+        function reconcile(confirmedRows) {
           var confirmed = new Map(confirmedRows.map(function (it) { return [it.id, it]; }));
-          var current = local._readAll();
-          var retired = 0;
-          localMap.forEach(function (it, id) {
-            if (sameVersion(current.get(id), confirmed.get(id))) { current.delete(id); retired++; }
-          });
-          if (retired) { try { local._writeAll(current); } catch (_) { /* non-fatal */ } }
-          return { migrated: retired, leftover: failed };
+          var cleaned = new Set();
+          function finish() {
+            var current = local._readAll();
+            var cleanup = [];
+            migrated.forEach(function (acknowledged, id) {
+              if (!cleaned.has(id) && (deletedDuringMigration.has(id) || !current.has(id))) {
+                cleaned.add(id);
+                cleanup.push(remote.remove(id, acknowledged).catch(function (e) { if (!e || e.code !== 'conflict') throw e; }));
+              }
+            });
+            // Another local deletion can arrive while conditional cleanup is in flight.
+            if (cleanup.length) return Promise.all(cleanup).then(finish);
+            var retired = 0;
+            localMap.forEach(function (it, id) {
+              // Retire acknowledged snapshots even if the server subsequently edited/deleted them.
+              // Any concurrent local edit remains a separate, unsynced version.
+              if (sameVersion(current.get(id), it) && (migrated.has(id) || sameVersion(it, confirmed.get(id)))) {
+                current.delete(id); retired++;
+              }
+            });
+            if (retired) { try { local._writeAll(current); } catch (_) { /* non-fatal */ } }
+            return Promise.resolve({ migrated: retired, leftover: failed });
+          }
+          return finish();
+        }
+        return chain.then(function () { return remote.list(); }).then(reconcile, function (e) {
+          // A failed final GET does not invalidate already acknowledged PUTs.
+          return reconcile([]).then(function () { throw e; });
         });
       });
     }
@@ -698,16 +731,16 @@
         return saved;
       });
     };
-    store.patch = function (id, fields) {
+    store.patch = function (id, fields, backend) {
       if (typeof id !== 'string' || !id) return Promise.reject(err('not_found', 'item not found'));
-      return run(function (b) { return b.patch(id, fields || {}); }).then(function (saved) {
+      return run(function (b) { return b.patch(id, fields || {}, backend); }).then(function (saved) {
         emit({ type: 'put', id: saved.id });
         return saved;
       });
     };
-    store.remove = function (id) {
+    store.remove = function (id, backend) {
       if (typeof id !== 'string' || !id) return Promise.resolve(false);
-      if (migrating) {
+      if (migrating && backend !== 'server') {
         deletedDuringMigration.add(id);
         var hadLocal = local._readAll().has(id);
         return local.remove(id).then(function (ok) { return ready.then(function () {
@@ -716,7 +749,7 @@
           return hadLocal ? ok : active.remove(id);
         }); });
       }
-      return run(function (b) { return b.remove(id); }).then(function (ok) {
+      return run(function (b) { return b.remove(id, backend); }).then(function (ok) {
         if (ok) emit({ type: 'remove', id: id });
         return ok;
       });

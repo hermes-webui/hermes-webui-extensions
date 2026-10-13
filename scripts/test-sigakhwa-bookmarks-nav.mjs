@@ -361,3 +361,41 @@ test('review 11: reduced motion uses instant scrolling and skips both flash clas
   assert.equal(row.classList.contains('hermes-viz-jump-flash'), false);
   assert.equal(row.classList.contains('outline-jump-flash'), false);
 });
+
+for (const change of ['session', 'profile', 'generation']) {
+  for (const phase of ['settle', 'mount-settle', 'landing', 'loading']) {
+    test(`round 3: ${change} change during ${phase} leaves the new conversation untouched`, async () => {
+      const w = makeWorld({ truncated: phase === 'settle' });
+      const container = w.win.document.getElementById('messages');
+      w.win._loadSessionGeneration = 0;
+      if (phase === 'landing') w.rows.push(makeRow(0, 'assistant', 0));
+      w.win._getVisibleMessagesWithIdx = () => [{ role: 'assistant' }];
+      w.win._messageVisibleIndexForRawIdx = () => 0;
+      w.win._messageVirtualScrollTopForVisibleIdx = () => 0;
+      const changeState = () => {
+        if (change === 'session') w.S.session = { session_id: 'new-session' };
+        if (change === 'profile') w.S.activeProfile = 'new-profile';
+        if (change === 'generation') w.win._loadSessionGeneration++;
+        w.calls.render.length = 0;
+        container.scrollTop = 777;
+        w.win._beginMessageJumpScroll = () => { assert.fail('stale jump took scroll ownership'); };
+      };
+      if (phase === 'loading') {
+        w.ctx.loadSession = async sid => {
+          w.S.session = { session_id: sid }; w.S.messages = [{ role: 'assistant' }];
+          w.ctx._loadingSessionId = sid;
+          setTimeout(changeState, 40);
+          setTimeout(() => { w.ctx._loadingSessionId = null; }, 90);
+        };
+      } else if (phase === 'mount-settle') {
+        let renders = 0;
+        w.ctx.renderMessages = () => { w.calls.render.push({}); if (++renders === 2) setTimeout(changeState, 30); };
+      } else setTimeout(changeState, 40);
+      const result = await w.nav.goTo({ profile: 'default', sessionId: phase === 'loading' ? 'target' : 'sess-1', messageIndex: 0, role: 'assistant' });
+      assert.equal(result.ok, false);
+      assert.equal(result.reason, 'session_changed');
+      assert.equal(w.calls.render.length, 0);
+      assert.equal(container.scrollTop, 777);
+    });
+  }
+}

@@ -236,6 +236,11 @@ def normalize_item(raw: Any, ns: str, existing: Optional[Dict[str, Any]] = None,
         item["immutable"] = True
     if content_hash is not None:
         item["contentHash"] = content_hash
+    if "conflictOriginalId" in raw:
+        original = raw["conflictOriginalId"]
+        if not isinstance(original, str) or not ID_RE.fullmatch(original):
+            return None
+        item["conflictOriginalId"] = original
     try:
         size = _wire_size(item)
     except (TypeError, ValueError):
