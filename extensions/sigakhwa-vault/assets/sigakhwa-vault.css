@@ -13,9 +13,8 @@
 .sgkv-fab {
   position: fixed;
   right: 16px;
-  /* Sits above the composer. Owner B's bookmarks button takes the lower slot
-     (~bottom: 76px); keep these two apart if both are installed. */
-  bottom: 132px;
+  /* JS derives right/bottom from the chat shell and composer. */
+  bottom: 16px;
   z-index: 160;
   display: inline-flex;
   align-items: center;
@@ -47,14 +46,14 @@
 .sgkv-panel {
   position: fixed;
   right: 16px;
-  bottom: 176px;
+  /* JS positions the panel 8px above the actual FAB rect. */
+  bottom: 61px;
   z-index: 161;
   display: flex;
   flex-direction: column;
   width: 360px;
   max-width: calc(100vw - 32px);
-  /* never taller than the space above its bottom offset (176px) + 16px gap */
-  max-height: min(70vh, 560px, calc(100vh - 192px));
+  max-height: min(70vh, 560px);
   color: var(--text, #1a1610);
   background: var(--bg, #fefcf7);
   border: 1px solid var(--border, #e0d8c8);
@@ -287,30 +286,9 @@
 }
 .sgkv-toast--show { opacity: 1; transform: translate(-50%, 0); }
 
-/* ── short landscape windows (e.g. 844x390): drop the panel to the bottom
-   edge, use the full height, and get the fab out of its way ── */
-@media (min-width: 481px) and (max-height: 600px) {
-  .sgkv-panel { bottom: 12px; max-height: calc(100vh - 24px); }
-  .sgkv-fab--panel-open { display: none; }
-}
-
-/* ── phone ── */
+/* Phone layout. Panel geometry remains anchored above the visible FAB. */
 @media (max-width: 480px) {
-  .sgkv-fab { right: 12px; bottom: 120px; padding: 7px 11px; }
-  /* the bottom sheet covers the button slot, so get out of its way */
-  .sgkv-fab--panel-open { display: none; }
-  .sgkv-panel {
-    right: 0;
-    left: 0;
-    bottom: 0;
-    width: auto;
-    max-width: none;
-    max-height: 80vh;
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
-    border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0;
-  }
+  .sgkv-fab { padding: 7px 11px; }
   .sgkv-layer { padding: 0; align-items: flex-end; }
   .sgkv-modal { max-height: 92vh; border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0; }
   .sgkv-modal-foot { justify-content: stretch; }

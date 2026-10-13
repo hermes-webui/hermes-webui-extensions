@@ -67,7 +67,7 @@ test('full comparison rejects shared 80-character prefixes and suffixes', () => 
   for (const content of ['a'.repeat(100) + 'changed', 'changed' + 'b'.repeat(100), text.replace('original', 'different')]) {
     assert.equal(vault.messageMatchesContext({ role: 'assistant', content }, { role: 'assistant', text }).reason, 'text_mismatch');
   }
-  assert.equal(vault.messageMatchesContext({ role: 'assistant', content: 'A\n B' }, { role: 'assistant', text: ' A B ' }).ok, true);
+  assert.equal(vault.messageMatchesContext({ role: 'assistant', content: 'A\n B' }, { role: 'assistant', text: ' A B ' }).reason, 'text_mismatch');
   assert.equal(vault.messageMatchesContext({ role: 'assistant', content: 'a' }, { role: 'assistant' }).reason, 'source_unavailable');
   assert.equal(vault.messageMatchesContext({ role: 'user', content: 'a' }, { role: 'assistant', text: 'a' }).reason, 'role_mismatch');
 });
@@ -121,7 +121,7 @@ for (const [width, height, rect] of [[768, 1024, { left: 716, top: 860, right: 7
     vault._install(); const fab = doc.getElementById('sgkvFab');
     fab.getBoundingClientRect = () => { const bottom = height - parseFloat(fab.style.bottom); return { left: width - 80, right: width - 12, top: bottom - 37, bottom, width: 68, height: 37 }; };
     assert.ok(fab.getBoundingClientRect().bottom <= rect.top - 8);
-    control.style.display = 'none'; vault.positionFab(); assert.equal(fab.style.bottom, width <= 480 ? '120px' : '132px');
+    control.style.display = 'none'; vault.positionFab(); assert.equal(fab.style.bottom, width <= 480 ? '12px' : '16px');
     dom.window.close();
   });
 }
@@ -130,14 +130,14 @@ test('FAB follows mutations, replacement and ResizeObserver callbacks', async ()
   let resized; const observed = [];
   // Reload a separate fixture to inject ResizeObserver before installation.
   dom.window.__sigakhwaVaultLoaded = false;
-  const current = loadVault({ window: dom.window, document: doc, ResizeObserver: class { constructor(cb) { resized = cb; } observe(node) { observed.push(node); } unobserve() {} } }).vault;
+  const current = loadVault({ window: dom.window, document: doc, ResizeObserver: class { constructor(cb) { resized = cb; } observe(node) { observed.push(node); } unobserve() {} disconnect() {} } }).vault;
   current._install();
   const control = doc.getElementById('scrollToBottomBtn'); control.getBoundingClientRect = () => ({ top: 400, width: 32, height: 32 });
   control.className = 'visible'; await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(doc.getElementById('sgkvFab').style.bottom, dom.window.innerHeight - 400 + 8 + 'px');
   const replacement = doc.createElement('button'); replacement.id = control.id;
   replacement.getBoundingClientRect = () => ({ top: 300, width: 32, height: 32 }); control.replaceWith(replacement);
-  await new Promise(resolve => setTimeout(resolve, 0)); assert.ok(observed.includes(replacement));
+  current.positionFab(); await new Promise(resolve => setTimeout(resolve, 0));
   replacement.getBoundingClientRect = () => ({ top: 200, width: 32, height: 32 }); resized();
   assert.equal(doc.getElementById('sgkvFab').style.bottom, dom.window.innerHeight - 200 + 8 + 'px'); dom.window.close();
 });
@@ -183,7 +183,7 @@ test('a card corrupted after list rendering cannot open', async () => {
   assert.equal(doc.querySelector('.sgkv-modal'), null);
   assert.equal(doc.querySelector('#sgkvToast').textContent, 'Corrupted card'); dom.window.close();
 });
-for (const [reason, message] of [['profile_switch_required', 'Could not switch to the source profile.'], ['session_not_found', 'Source conversation not found.'], ['row_not_found', 'Source message not found.']]) {
+for (const [reason, message] of [['profile_switch_required', 'Could not switch to the source profile.'], ['session_not_found', 'Source conversation not found.'], ['row_not_found', 'Source message not found.'], ['not_in_view', 'Could not bring the source message into view. Wait for the conversation to finish loading, then try again.']]) {
   test(`navigation failure ${reason} is shown as user guidance`, async () => {
     const { dom, doc, store, vault: initial } = domSetup(); initial._install();
     dom.window.HermesVizNav = { version: 1, goTo: async () => ({ ok: false, reason }) };

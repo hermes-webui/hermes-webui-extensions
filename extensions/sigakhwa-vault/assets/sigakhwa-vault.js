@@ -14,8 +14,8 @@
  * load time, and nothing here ever sends a message to the model.
  *
  * Core APIs used: window.hermesExt.register / handle.messages.registerAction,
- * GET /api/session (read-only), optional global showToast(), optional global
- * mermaid.render(). No core files are modified.
+ * GET /api/session (read-only), optional global showToast().
+ * No core files are modified. Saved Mermaid is displayed as escaped code.
  */
 (function () {
   'use strict';
@@ -115,6 +115,7 @@
       "profile_switch_required": "원문 프로필로 전환하지 못했습니다.",
       "session_not_found": "원문 대화를 찾을 수 없습니다.",
       "row_not_found": "원문 메시지를 찾을 수 없습니다.",
+      "not_in_view": "원문 메시지를 화면에 표시하지 못했습니다. 대화 로딩이 끝난 뒤 다시 시도해 주세요.",
       "invalid_target": "원문 위치가 올바르지 않습니다.",
       "invalid_card": "손상된 카드"
     },
@@ -208,6 +209,7 @@
       "profile_switch_required": "Could not switch to the source profile.",
       "session_not_found": "Source conversation not found.",
       "row_not_found": "Source message not found.",
+      "not_in_view": "Could not bring the source message into view. Wait for the conversation to finish loading, then try again.",
       "invalid_target": "Invalid source location.",
       "invalid_card": "Corrupted card"
     }
@@ -688,7 +690,7 @@
   }
 
   function normalizeForCompare(text) {
-    return String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    return String(text == null ? '' : text).replace(/\r\n/g, '\n');
   }
 
   // Compare the complete normalized source captured from Core at invoke time.
@@ -924,6 +926,7 @@
         fab.id = 'sgkvFab';
         fab.title = t('결과 보관함 열기');
         fab.setAttribute('aria-expanded', 'false');
+        fab.setAttribute('aria-controls', 'sgkvPanel');
         var count = el('span', 'sgkv-fab-count', '0');
         count.id = 'sgkvFabCount';
         count.hidden = true;
@@ -947,16 +950,44 @@
   var fabObserver = null;
   var fabResizeObserver = null;
   var observedScrollButton = null;
+  var observedShell = null;
+  var observedComposer = null;
+  var languageObserver = null;
+  var fabObserversStarted = false;
+
+  function observeFabTargets() {
+    var control = document.getElementById('scrollToBottomBtn');
+    var shell = document.querySelector('.messages-shell');
+    var composer = document.getElementById('composerWrap');
+    if (fabObserver && control !== observedScrollButton) {
+      fabObserver.disconnect();
+      if (control) fabObserver.observe(control, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+      observedScrollButton = control;
+    }
+    if (fabResizeObserver && (shell !== observedShell || composer !== observedComposer)) {
+      fabResizeObserver.disconnect();
+      if (shell) fabResizeObserver.observe(shell);
+      if (composer) fabResizeObserver.observe(composer);
+      observedShell = shell;
+      observedComposer = composer;
+    }
+  }
+
   function positionFab() {
     var fab = document.getElementById('sgkvFab');
     if (!fab) return;
+    observeFabTargets();
     var control = document.getElementById('scrollToBottomBtn');
-    if (fabResizeObserver && control !== observedScrollButton) {
-      if (observedScrollButton) fabResizeObserver.unobserve(observedScrollButton);
-      if (control) fabResizeObserver.observe(control);
-      observedScrollButton = control;
-    }
-    var bottom = window.innerWidth <= 480 ? 120 : 132;
+    var shell = document.querySelector('.messages-shell');
+    var composer = document.getElementById('composerWrap');
+    var shellRect = shell && shell.getBoundingClientRect();
+    var composerRect = composer && composer.getBoundingClientRect();
+    var gap = window.innerWidth <= 480 ? 12 : 16;
+    var left = shellRect && shellRect.width > 0 ? Math.max(0, shellRect.left) : 0;
+    var right = shellRect && shellRect.width > 0 ? Math.min(window.innerWidth, shellRect.right) : window.innerWidth;
+    var floor = shellRect && shellRect.height > 0 ? Math.min(window.innerHeight, shellRect.bottom) : window.innerHeight;
+    if (composerRect && composerRect.height > 0 && composerRect.right > left && composerRect.left < right) floor = Math.min(floor, composerRect.top);
+    var bottom = Math.max(gap, window.innerHeight - floor + gap);
     if (control) {
       var rect = control.getBoundingClientRect();
       var visible = rect.width > 0 && rect.height > 0;
@@ -968,23 +999,33 @@
     }
     var value = bottom + 'px';
     if (fab.style.bottom !== value) fab.style.bottom = value;
+    var rightValue = Math.max(gap, window.innerWidth - right + gap) + 'px';
+    if (fab.style.right !== rightValue) fab.style.right = rightValue;
+    var panel = document.getElementById('sgkvPanel');
+    if (panel) {
+      var fabRect = fab.getBoundingClientRect();
+      // jsdom/unlaid-out fixtures can report zero height; the browser uses the actual rect.
+      var panelBottom = fabRect.height > 0 ? window.innerHeight - fabRect.top + 8 : bottom + 45;
+      var panelRight = fabRect.width > 0 ? window.innerWidth - fabRect.right : parseFloat(rightValue);
+      panel.style.bottom = panelBottom + 'px';
+      panel.style.right = panelRight + 'px';
+      panel.style.maxWidth = Math.max(0, right - left - gap * 2) + 'px';
+      panel.style.maxHeight = Math.max(0, Math.min(560, window.innerHeight * 0.7, window.innerHeight - panelBottom - 16)) + 'px';
+    }
   }
 
   function startFabObserver() {
-    if (fabObserver || typeof MutationObserver === 'undefined') return;
-    fabObserver = new MutationObserver(function (records) {
-      for (var i = 0; i < records.length; i++) {
-        var target = records[i].target;
-        if (target.nodeType === 1 && target.closest('[id^="sgkv"], [class^="sgkv-"]')) continue;
-        positionFab();
-        break;
-      }
-    });
-    fabObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    if (fabObserversStarted) return;
+    fabObserversStarted = true;
+    if (typeof MutationObserver !== 'undefined') {
+      fabObserver = new MutationObserver(positionFab);
+      languageObserver = new MutationObserver(localizeChrome);
+      languageObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    }
     if (typeof ResizeObserver !== 'undefined') {
       fabResizeObserver = new ResizeObserver(positionFab);
-      fabResizeObserver.observe(document.documentElement);
     }
+    observeFabTargets();
     window.addEventListener('resize', positionFab);
   }
 
@@ -1039,12 +1080,21 @@
       panel.hidden = false;
       if (fab) {
         fab.setAttribute('aria-expanded', 'true');
-        // At phone width the panel is a bottom sheet that would sit on top of
-        // the button; hide it while the sheet is open (CSS, >480px keeps it).
         fab.classList.add('sgkv-fab--panel-open');
       }
     });
+    positionFab();
+    document.addEventListener('keydown', panelKeydown);
     refreshList();
+  }
+
+  function panelKeydown(ev) {
+    if (ev.key === 'Escape' && !activeModal) {
+      ev.preventDefault();
+      closePanel();
+      var fab = document.getElementById('sgkvFab');
+      if (fab) fab.focus();
+    }
   }
 
   function closePanel() {
@@ -1058,6 +1108,7 @@
         fab.classList.remove('sgkv-fab--panel-open');
       }
     });
+    document.removeEventListener('keydown', panelKeydown);
   }
 
   // ── UI: card list ────────────────────────────────────────────────────────
@@ -1169,6 +1220,7 @@
       if (layer) { layer.textContent = ''; layer.hidden = true; }
     });
     document.removeEventListener('keydown', modalKeydown, true);
+    if (modal && modal.returnFocus && modal.returnFocus.isConnected) modal.returnFocus.focus();
     if (modal && typeof modal.onClose === 'function') {
       try { modal.onClose(); } catch (_err) {}
     }
@@ -1188,7 +1240,18 @@
   }
 
   function modalKeydown(ev) {
-    if (ev.key === 'Escape') { ev.stopPropagation(); closeModal(); }
+    if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeModal(); return; }
+    if (ev.key !== 'Tab' || !activeModal) return;
+    var box = activeModal.node;
+    var controls = Array.prototype.filter.call(box.querySelectorAll('button, input, select, textarea, a[href], [tabindex]'), function (node) {
+      return !node.disabled && node.tabIndex >= 0 && !node.closest('[hidden]') && window.getComputedStyle(node).display !== 'none';
+    });
+    var first = controls[0] || box;
+    var last = controls[controls.length - 1] || box;
+    if (!controls.length || !box.contains(document.activeElement) || (ev.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+      ev.preventDefault();
+      (ev.shiftKey ? last : first).focus();
+    }
   }
 
   // Opens a modal. `onClose` always runs exactly once, so a pending
@@ -1197,11 +1260,16 @@
     var layer = document.getElementById('sgkvLayer');
     if (!layer) return null;
     if (activeModal) closeModal();
+    var returnFocus = document.activeElement;
     var box = el('div', 'sgkv-modal');
+    box.tabIndex = -1;
     box.setAttribute('role', 'dialog');
     box.setAttribute('aria-modal', 'true');
     var head = el('div', 'sgkv-modal-head');
-    head.appendChild(el('span', 'sgkv-modal-title', title));
+    var heading = el('span', 'sgkv-modal-title', title);
+    heading.id = 'sgkvModalTitle';
+    box.setAttribute('aria-labelledby', heading.id);
+    head.appendChild(heading);
     var x = button('×', 'sgkv-btn sgkv-btn--icon', closeModal);
     x.setAttribute('aria-label', t('닫기'));
     head.appendChild(x);
@@ -1218,7 +1286,8 @@
     });
     layer.onclick = function (ev) { if (ev.target === layer) closeModal(); };
     document.addEventListener('keydown', modalKeydown, true);
-    activeModal = { node: box, onClose: onClose };
+    activeModal = { node: box, onClose: onClose, returnFocus: returnFocus };
+    x.focus();
     return { box: box, body: body, foot: foot };
   }
 
@@ -1374,15 +1443,31 @@
 
           m.body.appendChild(el('div', 'sgkv-field-label', t('저장할 내용')));
           var chooser = el('div', 'sgkv-chooser');
+          chooser.setAttribute('role', 'radiogroup');
+          chooser.setAttribute('aria-label', t('저장할 내용'));
           var selected = parts[0];
           var buttons = [];
           var preview = el('pre', 'sgkv-preview', parts[0].content.slice(0, 600));
           for (var i = 0; i < parts.length; i++) {
             (function (part) {
               var b = button('', 'sgkv-choice');
-              b.appendChild(el('span', 'sgkv-badge', t(PART_BADGES[part.type] || '내용')));
+              if (part.type !== 'full') b.appendChild(el('span', 'sgkv-badge', t(PART_BADGES[part.type] || '내용')));
               b.appendChild(el('span', 'sgkv-choice-label', part.label));
-              b.setAttribute('aria-pressed', part === selected ? 'true' : 'false');
+              b.setAttribute('role', 'radio');
+              b.setAttribute('aria-checked', part === selected ? 'true' : 'false');
+              b.tabIndex = part === selected ? 0 : -1;
+              b.addEventListener('keydown', function (ev) {
+                var index = buttons.indexOf(b);
+                var next;
+                if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') next = (index + 1) % buttons.length;
+                else if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft') next = (index + buttons.length - 1) % buttons.length;
+                else if (ev.key === 'Home') next = 0;
+                else if (ev.key === 'End') next = buttons.length - 1;
+                else return;
+                ev.preventDefault();
+                buttons[next].click();
+                buttons[next].focus();
+              });
               if (part === selected) b.classList.add('sgkv-choice--on');
               b.dataset.sgkvPartId = part.id;
               b.addEventListener('click', function () {
@@ -1391,7 +1476,8 @@
                   for (var k = 0; k < buttons.length; k++) {
                     var on = buttons[k].dataset.sgkvPartId === part.id;
                     buttons[k].classList.toggle('sgkv-choice--on', on);
-                    buttons[k].setAttribute('aria-pressed', on ? 'true' : 'false');
+                    buttons[k].setAttribute('aria-checked', on ? 'true' : 'false');
+                    buttons[k].tabIndex = on ? 0 : -1;
                   }
                   preview.textContent = part.content.slice(0, 600);
                   if (!nameEdited) nameInput.value = defaultTitleForPart(part, msg.sessionTitle);
@@ -1711,85 +1797,18 @@
     }));
   }
 
-  // mermaid.render() parks a temporary `#d<id>` container (and, for sandboxed
-  // diagrams, `#i<id>`) in <body>; on a parse error mermaid 10 can also leave
-  // its error SVG `#<id>` there. Core removes the container after both success
-  // and failure (upstream static/ui.js:21927-21928, 21934-21935); we do the
-  // same, and also sweep any body-level leftovers carrying our id prefix.
-  var MERMAID_ID_PREFIX = 'sgkv-mermaid-';
-  var mermaidInFlight = {};   // renderId -> true while mermaid.render runs
-
-  function ownerRenderId(id) {
-    var bare = id.charAt(0) === 'd' || id.charAt(0) === 'i' ? id.slice(1) : id;
-    return bare.indexOf(MERMAID_ID_PREFIX) === 0 ? bare : (id.indexOf(MERMAID_ID_PREFIX) === 0 ? id : '');
-  }
-
-  function cleanupMermaidTemp(renderId, host) {
-    if (typeof document === 'undefined' || !document) return;
-    withOwnWrites(function () {
-      var ids = ['d' + renderId, 'i' + renderId, renderId];
-      for (var i = 0; i < ids.length; i++) {
-        for (var guard = 0; guard < 4; guard++) {
-          var node = document.getElementById(ids[i]);
-          if (!node || (host && host.contains(node))) break;
-          node.remove();
-        }
-      }
-      if (document.body && document.body.children) {
-        var stray = [];
-        for (var k = 0; k < document.body.children.length; k++) {
-          var child = document.body.children[k];
-          var owner = ownerRenderId(String(child.id || ''));
-          // never touch the temp nodes of a render that is still running
-          if (owner && !mermaidInFlight[owner]) stray.push(child);
-        }
-        for (var s = 0; s < stray.length; s++) stray[s].remove();
-      }
-    });
-  }
-
-  // Renders a saved snapshot. Mermaid uses a global mermaid.render with a
-  // unique id when present; otherwise the code block is shown as-is. Markdown
-  // and tables go through our own escaping renderer.
+  // Saved diagrams show escaped code. Mermaid can request remote CSS,
+  // fonts or media during rendering, even before it produces an SVG.
   function renderSnapshotInto(host, data) {
     var content = data && typeof data.content === 'string' ? data.content : '';
-    if (data && data.contentType === 'mermaid') {
-      var code = mermaidCode(content);
-      var fallback = function () {
-        withOwnWrites(function () {
-          host.textContent = '';
-          host.insertAdjacentHTML('beforeend',
-            '<pre><code>' + escapeHtml(code) + '</code></pre>');
-        });
-      };
-      var mermaidRef = window.mermaid;
-      if (/<\s*(?:img|image)\b/i.test(code) || /&lt;\s*(?:img|image)\b/i.test(code)) { fallback(); return; }
-      if (!mermaidRef || typeof mermaidRef.render !== 'function') { fallback(); return; }
-      var renderId = MERMAID_ID_PREFIX + Date.now().toString(36) + '-'
-        + Math.floor(Math.random() * 1e6).toString(36);
-      mermaidInFlight[renderId] = true;
-      attempt(function () { return mermaidRef.render(renderId, code); }).then(function (out) {
-        delete mermaidInFlight[renderId];
-        cleanupMermaidTemp(renderId, null);
-        var svg = out && typeof out.svg === 'string' ? out.svg : (typeof out === 'string' ? out : '');
-        if (!svg) { fallback(); return; }
-        // mermaid-generated SVG (mermaid runs with core's strict securityLevel);
-        // the raw model text is never injected as HTML here.
-        withOwnWrites(function () { host.textContent = ''; host.insertAdjacentHTML('beforeend', svg); });
-      }, function () {
-        delete mermaidInFlight[renderId];
-        cleanupMermaidTemp(renderId, null);
-        fallback();
-      });
-      return;
-    }
     withOwnWrites(function () {
       host.textContent = '';
-      host.insertAdjacentHTML('beforeend', renderMarkdownToSafeHtml(content));
+      host.insertAdjacentHTML('beforeend', data && data.contentType === 'mermaid'
+        ? '<pre><code>' + escapeHtml(mermaidCode(content)) + '</code></pre>'
+        : renderMarkdownToSafeHtml(content));
     });
   }
 
-  // ── export / import ──────────────────────────────────────────────────────
   function exportCards() {
     var store = getStore();
     if (!store || typeof store.exportJson !== 'function') { toast(t('저장 모듈이 없습니다.'), 'error'); return; }
