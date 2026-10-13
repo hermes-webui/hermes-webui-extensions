@@ -1,0 +1,21 @@
+# systemd user unit (Linux hosts) for the sigakhwa-bookmarks sidecar — adapted from the scaffold template.
+# On Windows use a logon scheduled task instead; see README.md.
+#
+# Copy to ~/.config/systemd/user/sigakhwa-bookmarks-sidecar.service, adjust the state dir and the
+# matching extension WorkingDirectory together, then:
+#   systemctl --user enable --now sigakhwa-bookmarks-sidecar.service
+# No token in this file: WebUI provisions it in the state dir and the scaffold resolves it there.
+[Unit]
+Description=Hermes WebUI sidecar (sigakhwa-bookmarks)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.hermes/webui/extensions/sigakhwa-bookmarks/sidecar
+Environment=HERMES_WEBUI_STATE_DIR=%h/.hermes/webui
+# Environment=HERMES_VIZ_STORE_DIR=%h/.local/share/hermes-viz/store
+ExecStart=/usr/bin/python3 -S -u sidecar.py
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
