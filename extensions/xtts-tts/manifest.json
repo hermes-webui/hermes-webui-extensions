@@ -1,0 +1,13 @@
+{
+  "extensions": [
+    {
+      "id": "xtts-tts",
+      "name": "XTTS v2 (local studio voice)",
+      "description": "Adds a text-to-speech engine that synthesizes through a local XTTS v2 HTTP daemon on loopback, so replies are spoken in the daemon's studio voice instead of a browser/system voice.",
+      "scripts": [
+        "assets/xtts-tts.js"
+      ],
+      "stylesheets": []
+    }
+  ]
+}
