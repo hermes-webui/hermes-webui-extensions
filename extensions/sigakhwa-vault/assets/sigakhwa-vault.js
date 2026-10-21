@@ -923,9 +923,9 @@
 
   function containActivationKeys(node) {
     node.addEventListener('keydown', function (ev) {
-      if (ev.defaultPrevented || coreDialogAboveVault()) return;
       var key = activationKey(ev);
-      if (key !== 'Enter' && key !== ' ') return;
+      if (key !== 'Enter' && key !== ' ') return;   // ordinary typing never pays the dialog scan
+      if (ev.defaultPrevented || coreDialogAboveVault()) return;
       ev.stopPropagation();
       if (!ev.repeat) latchedKeys.add(key);
     });
@@ -935,9 +935,9 @@
     if (keyboardGuardsStarted) return;
     keyboardGuardsStarted = true;
     window.addEventListener('keydown', function (ev) {
-      if (ev.defaultPrevented || coreDialogAboveVault()) return;
       var key = activationKey(ev);
-      if (!latchedKeys.has(key)) return;
+      if (!latchedKeys.has(key)) return;              // only a latched Enter/Space needs the dialog scan
+      if (ev.defaultPrevented || coreDialogAboveVault()) return;
       if (!ev.repeat) { latchedKeys.delete(key); return; }
       ev.preventDefault();
       ev.stopImmediatePropagation();
@@ -946,11 +946,11 @@
     window.addEventListener('blur', function () { latchedKeys.clear(); });
     // The Core-rendered star may be replaced without notifying the extension.
     document.body.addEventListener('keydown', function (ev) {
-      if (ev.defaultPrevented || coreDialogAboveVault()) return;
       var key = activationKey(ev);
       if (key !== 'Enter' && key !== ' ') return;
       var target = ev.target && ev.target.closest && ev.target.closest('[data-extension-id="sigakhwa-vault"][data-extension-action-id="save-card"]');
       if (!target) return;
+      if (ev.defaultPrevented || coreDialogAboveVault()) return;
       ev.stopPropagation();
       if (!ev.repeat) latchedKeys.add(key);
     });
