@@ -1,0 +1,5 @@
+{
+  "id": "hermes-graph",
+  "port": 17803,
+  "proxy_auth": "token-v1"
+}

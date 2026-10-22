@@ -1,0 +1,51 @@
+{
+  "extensions": [
+    {
+      "id": "hermes-graph",
+      "name": "Hermes Graph",
+      "description": "Graph view of workspace files and Hermes memory/skills/sessions.",
+      "scripts": [
+        "assets/graph.js"
+      ],
+      "stylesheets": [
+        "assets/graph.css"
+      ],
+      "permissions": {
+        "storage": {
+          "owned": true
+        }
+      },
+      "settings_schema": [
+        {
+          "key": "default_roots",
+          "type": "enum",
+          "label": "Default scope",
+          "options": [
+            {
+              "value": "ws",
+              "label": "Workspace + Hermes brain"
+            },
+            {
+              "value": "ws,sk",
+              "label": "+ skill folders' files"
+            }
+          ],
+          "default": "ws"
+        },
+        {
+          "key": "max_nodes",
+          "type": "integer",
+          "label": "Max nodes requested",
+          "default": 3000
+        }
+      ],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17803",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      },
+      "version": "0.3.0"
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "id": "hermes-graph",
+  "name": "Hermes Graph",
+  "description": "Obsidian-style graph of the workspace files plus the Hermes brain — memory, skills, sessions, crons and MCP servers — indexed read-only by a loopback sidecar, with a collision-free force layout and WebGL rendering.",
+  "version": "0.3.0",
+  "author": "gleison",
+  "assets": {
+    "scripts": [
+      "assets/graph.js"
+    ],
+    "stylesheets": [
+      "assets/graph.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "requires_local_app": true,
+    "local_app_label": "Hermes Graph sidecar",
+    "summary": "Install sidecar/hermes-graph-sidecar.service as a systemd user unit (127.0.0.1:17803), then approve the sidecar proxy in Settings → Extensions → Diagnostics. WebUI authentication must be enabled for the token-v1 proxy to work."
+  },
+  "screenshots": [
+    "screenshots/graph-desktop.jpg",
+    "screenshots/graph-mobile.png"
+  ],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "/api/extensions/status",
+        "/api/extensions/hermes-graph/sidecar/graph",
+        "/api/extensions/hermes-graph/sidecar/graph/ego",
+        "/api/extensions/hermes-graph/sidecar/status"
+      ],
+      "write": [
+        "/api/extensions/hermes-graph/sidecar/reindex"
+      ]
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": false
+    },
+    "storage": {
+      "owned": true,
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true,
+      "note": "The browser assets read no files. The sidecar reads (read-only, never following symlinks) the configured workspace roots, ~/.hermes/skills, ~/.hermes/memories, ~/.hermes/webui/sessions, ~/.hermes/cron/jobs.json and the mcp_servers key names of ~/.hermes/config.yaml. Files whose names look sensitive (creds, tokens, keys, .env) are never opened. It writes one SQLite cache under <state dir>/hermes-graph/."
+    },
+    "network_external": false
+  },
+  "settings_schema": [
+    {
+      "key": "default_roots",
+      "type": "enum",
+      "label": "Default scope",
+      "options": [
+        {
+          "value": "ws",
+          "label": "Workspace + Hermes brain"
+        },
+        {
+          "value": "ws,sk",
+          "label": "+ skill folders' files"
+        }
+      ],
+      "default": "ws"
+    },
+    {
+      "key": "max_nodes",
+      "type": "integer",
+      "label": "Max nodes requested",
+      "default": 3000
+    }
+  ],
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17803",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  }
+}
