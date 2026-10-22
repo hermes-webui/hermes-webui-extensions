@@ -1,0 +1,52 @@
+{
+  "extensions": [
+    {
+      "id": "sigakhwa-vault",
+      "name": "Sigakhwa Result Vault",
+      "description": "Save the whole answer, a table, a Mermaid diagram or a section of an assistant reply as an immutable card with a hash of the source message. Reopen cards later, check whether the source changed, and jump back to it. Uses the same store as Sigakhwa Bookmarks, so cards also sync between devices when that extension's sidecar is enabled.",
+      "scripts": [
+        "assets/shared/hermes-viz-store.js",
+        "assets/shared/hermes-viz-nav.js",
+        "assets/sigakhwa-vault.js"
+      ],
+      "stylesheets": [
+        "assets/sigakhwa-vault.css"
+      ],
+      "permissions": {
+        "webui_api": {
+          "read": [
+            "session",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/health",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/items",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/items/{id}",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/export"
+          ],
+          "write": [
+            "/api/profile/switch",
+            "/api/session/draft",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/items/{id}",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/sigakhwa-vault/import"
+          ]
+        },
+        "webui_navigation": true,
+        "dom": {
+          "owned": true,
+          "mutates_core_views": true
+        },
+        "storage": {
+          "owned": [
+            "hermes-viz-store:sigakhwa-vault"
+          ],
+          "shared_webui_keys": []
+        },
+        "loopback_sidecar": true,
+        "native_host": false,
+        "filesystem": {
+          "arbitrary": false,
+          "serves_bundled_assets": true
+        },
+        "network_external": false
+      }
+    }
+  ]
+}
