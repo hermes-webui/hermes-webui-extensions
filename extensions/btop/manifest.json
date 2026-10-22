@@ -1,0 +1,67 @@
+{
+  "extensions": [
+    {
+      "id": "btop",
+      "name": "btop",
+      "description": "btop-style system monitor page: CPU, memory, disks, network, Hermes process groups and a process table, via a loopback sidecar.",
+      "scripts": [
+        "assets/btop-core.js",
+        "assets/btop.js"
+      ],
+      "stylesheets": [
+        "assets/btop.css"
+      ],
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17797",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      },
+      "permissions": {
+        "storage": {
+          "owned": true
+        },
+        "network_external": false,
+        "webui_api": {
+          "read": [
+            "/api/extensions/btop/sidecar/api/snapshot",
+            "/api/extensions/btop/sidecar/api/proc"
+          ],
+          "write": [
+            "/api/extensions/btop/sidecar/api/proc"
+          ]
+        }
+      },
+      "settings_schema": [
+        {
+          "key": "interval",
+          "type": "integer",
+          "label": "Refresh interval in ms (250-10000)",
+          "default": 1000
+        },
+        {
+          "key": "graph",
+          "type": "enum",
+          "label": "Graph style",
+          "default": "dots",
+          "options": [
+            {
+              "value": "dots",
+              "label": "Dots (btop braille look)"
+            },
+            {
+              "value": "area",
+              "label": "Area"
+            }
+          ]
+        },
+        {
+          "key": "perCore",
+          "type": "boolean",
+          "label": "Process CPU% per core (100% = one core) instead of share of all cores",
+          "default": false
+        }
+      ]
+    }
+  ]
+}

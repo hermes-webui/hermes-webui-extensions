@@ -1,0 +1,78 @@
+{
+  "id": "btop",
+  "name": "btop",
+  "version": "0.2.0",
+  "author": "blabbleu",
+  "description": "A btop-style system monitor as its own WebUI page (rail icon). CPU graph with per-core meters and temps, memory/swap, disks with I/O, network up/down graphs, a Hermes box that groups agent/WebUI/cron/MCP/swe-pilot processes, and a sortable, filterable process table with tree view, details and signals. Data comes from a stdlib-only loopback sidecar reading /proc.",
+  "assets": {
+    "scripts": [
+      "assets/btop-core.js",
+      "assets/btop.js"
+    ],
+    "stylesheets": [
+      "assets/btop.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": true,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "requires_local_app": true,
+    "local_app_label": "btop sidecar",
+    "summary": "Start the bundled sidecar as the WebUI user: mkdir -p ~/.config/systemd/user; copy sidecar/hermes-btop-sidecar.service there; systemctl --user daemon-reload; systemctl --user enable --now hermes-btop-sidecar (or run python3 -S sidecar.py). Then approve the proxy in Settings → Extensions → Diagnostics → Loopback sidecars. Requires WebUI auth on (token-v1)."
+  },
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "/api/extensions/btop/sidecar/api/snapshot",
+        "/api/extensions/btop/sidecar/api/proc"
+      ],
+      "write": [
+        "/api/extensions/btop/sidecar/api/proc"
+      ]
+    },
+    "webui_navigation": true,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "prefs"
+      ],
+      "shared_webui_keys": [],
+      "note": "Only the extension-owned key 'prefs' via hermesExt storage; no raw localStorage keys."
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true,
+      "note": "Sidecar reads (never writes): /proc/<pid>/{stat,status,io,cmdline} plus fd count and cwd/exe links; /proc/{stat,meminfo,net/dev,diskstats,loadavg,uptime,cpuinfo,self/mounts}; /sys/class/hwmon; statvfs on real filesystem mounts (own worker, 1.5 s timeout per mount); /etc/os-release, /run/systemd/container, /.dockerenv (existence), /etc/passwd via getpwuid; WebUI's token file <state>/sidecar-auth/btop.token. It does not read other processes' environ. Command lines are masked per argv element before leaving the sidecar; masking is best-effort, not a guarantee. Signals (TERM/INT/HUP/KILL/STOP/CONT) are pinned to the confirmed process via start time + pidfd and act with the sidecar user's privileges; BTOP_SIGNALS=0 disables them."
+    },
+    "network_external": false
+  },
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17797",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  },
+  "screenshots": [
+    "screenshots/desktop-light.png",
+    "screenshots/desktop-tree.png",
+    "screenshots/phone-hermes.png",
+    "screenshots/phone-top.png"
+  ]
+}
