@@ -2,7 +2,7 @@
   "id": "xtts-tts",
   "name": "XTTS v2 (local studio voice)",
   "description": "Adds a text-to-speech engine that synthesizes through a local XTTS v2 HTTP daemon on loopback, so replies are spoken in the daemon's studio voice instead of a browser/system voice. The engine appears in Settings -> TTS Engine and drives both the per-message Listen button and voice mode.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "gaidar0yegor",
   "assets": {
     "scripts": [
@@ -15,7 +15,7 @@
   ],
   "lifecycle": {
     "webui_restart_required": false,
-    "sidecar_start_required": false,
+    "sidecar_start_required": true,
     "native_host_start_required": false,
     "native_host_autostart": "none"
   },
@@ -34,7 +34,7 @@
       "owned": true,
       "shared_webui_keys": []
     },
-    "loopback_sidecar": false,
+    "loopback_sidecar": true,
     "native_host": false,
     "filesystem": {
       "arbitrary": false,
@@ -53,17 +53,43 @@
       "key": "daemon_url",
       "type": "string",
       "label": "XTTS daemon URL (loopback only)",
-      "default": "http://127.0.0.1:3032/"
+      "default": "http://127.0.0.1:8120/"
     },
     {
       "key": "speaker",
       "type": "string",
       "label": "Studio speaker name",
       "default": "Viktor Menelaos"
+    },
+    {
+      "key": "language",
+      "type": "enum",
+      "label": "Speech language",
+      "options": [
+        { "value": "auto", "label": "Auto (Cyrillic -> ru, otherwise en)" },
+        { "value": "en", "label": "English" },
+        { "value": "es", "label": "Spanish" },
+        { "value": "fr", "label": "French" },
+        { "value": "de", "label": "German" },
+        { "value": "it", "label": "Italian" },
+        { "value": "pt", "label": "Portuguese" },
+        { "value": "pl", "label": "Polish" },
+        { "value": "tr", "label": "Turkish" },
+        { "value": "ru", "label": "Russian" },
+        { "value": "nl", "label": "Dutch" },
+        { "value": "cs", "label": "Czech" },
+        { "value": "ar", "label": "Arabic" },
+        { "value": "zh-cn", "label": "Chinese" },
+        { "value": "ja", "label": "Japanese" },
+        { "value": "hu", "label": "Hungarian" },
+        { "value": "ko", "label": "Korean" },
+        { "value": "hi", "label": "Hindi" }
+      ],
+      "default": "auto"
     }
   ],
   "post_install": {
-    "summary": "Install adds the engine to Settings -> TTS Engine. Select 'XTTS v2 (local studio voice)' and start your local XTTS v2 daemon on the configured loopback URL.",
+    "summary": "Install adds the engine to Settings -> TTS Engine. Start the XTTS v2 reference daemon on the configured loopback URL first (install, CORS and start commands are in the README).",
     "docs_url": "https://github.com/hermes-webui/hermes-webui-extensions/tree/main/extensions/xtts-tts#setup",
     "requires_local_app": true,
     "local_app_label": "XTTS v2 voice daemon"

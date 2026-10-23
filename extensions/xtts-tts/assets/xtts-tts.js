@@ -13,16 +13,25 @@
   // reserved). Core owns selection, the dropdown option, and playback; this
   // script only produces audio bytes for the text it is handed.
   //
-  // The daemon owns language and speaker: it splits long input and concatenates
-  // the result, so we POST the whole reply text and return the single WAV it
-  // answers with. We pick the language by script (Cyrillic → ru, else en), the
-  // same rule Hermes Agent's own tts_xtts.sh wrapper applies.
+  // The daemon owns splitting and concatenation of long input, so we POST the
+  // whole reply text and return the single WAV it answers with. Language comes
+  // from the extension setting, or by script when it is set to "auto"
+  // (Cyrillic → ru, otherwise en). Reference daemon (HTTP contract, CORS,
+  // install and start commands): https://github.com/gaidar0yegor/xtts-tts-daemon
 
   const EXT = 'xtts-tts';
   const ENGINE_ID = 'xtts';
-  const DEFAULT_DAEMON = 'http://127.0.0.1:3032/';
+  const DEFAULT_DAEMON = 'http://127.0.0.1:8120/';
   const DEFAULT_SPEAKER = 'Viktor Menelaos';
   const CYRILLIC_RE = /[\u0400-\u04FF]/;
+  // Generous: a long reply on a CPU-only daemon is slow, but a promise that
+  // never settles blocks voice mode from reopening the mic.
+  const REQUEST_TIMEOUT_MS = 120000;
+  // The 17 languages XTTS v2 was trained on.
+  const LANGUAGES = new Set([
+    'en', 'es', 'fr', 'de', 'it', 'pt', 'pl', 'tr', 'ru', 'nl',
+    'cs', 'ar', 'zh-cn', 'ja', 'hu', 'ko', 'hi',
+  ]);
 
   if (window.__hermesXttsTtsLoaded) return;
   window.__hermesXttsTtsLoaded = true;
@@ -59,12 +68,15 @@
 
   // Only ever talk to loopback. A non-loopback value is refused (fail closed)
   // so the saved setting can never redirect audio synthesis off-box.
+  // IPv6 loopback is deliberately NOT accepted: WebUI's enforced CSP allows
+  // 127.0.0.1 and localhost but not [::1], so such a URL would pass this check
+  // and then fail inside the browser.
   function daemonUrl() {
     const raw = String(getSetting('daemon_url', '') || '').trim() || DEFAULT_DAEMON;
     try {
       const url = new URL(raw);
       const host = url.hostname;
-      const isLoopback = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+      const isLoopback = host === '127.0.0.1' || host === 'localhost';
       if ((url.protocol === 'http:' || url.protocol === 'https:') && isLoopback) {
         return url.href.endsWith('/') ? url.href : url.href + '/';
       }
@@ -73,11 +85,29 @@
     return DEFAULT_DAEMON;
   }
 
+  // A daemon URL on the WebUI's own origin would POST the reply text to core's
+  // API with the session cookie and CSRF header. Refuse instead of falling back:
+  // the fallback is checked the same way, and silently retrying at the WebUI
+  // origin is the one outcome we must never allow.
+  function assertNotWebuiOrigin(href) {
+    let origin;
+    try { origin = new URL(href).origin; } catch (_) { return; }
+    const own = (typeof window.location === 'object' && window.location && window.location.origin) || '';
+    if (own && origin === own) {
+      throw new Error(
+        'XTTS daemon_url resolves to the WebUI origin (' + origin + '); '
+        + 'point it at the daemon port instead'
+      );
+    }
+  }
+
   function speaker() {
     return String(getSetting('speaker', '') || '').trim() || DEFAULT_SPEAKER;
   }
 
-  function detectLanguage(text) {
+  function language(text) {
+    const configured = String(getSetting('language', 'auto') || 'auto').trim().toLowerCase();
+    if (configured !== 'auto' && LANGUAGES.has(configured)) return configured;
     return CYRILLIC_RE.test(text) ? 'ru' : 'en';
   }
 
@@ -88,6 +118,21 @@
       && h[8] === 0x57 && h[9] === 0x41 && h[10] === 0x56 && h[11] === 0x45; // "WAVE"
   }
 
+  function unreachable(url, error) {
+    const detail = (error && error.message) ? ': ' + error.message : '';
+    return new Error(
+      'XTTS daemon unreachable at ' + url + detail
+      + ' — is the daemon running, and does it allow CORS from this page?'
+    );
+  }
+
+  function timedOut(url) {
+    return new Error(
+      'XTTS daemon at ' + url + ' did not answer within '
+      + Math.round(REQUEST_TIMEOUT_MS / 1000) + ' s (long replies on a CPU-only daemon are slow)'
+    );
+  }
+
   // synthesize(text, opts) -> Promise<ArrayBuffer> of WAV audio.
   // `opts` carries the user's saved { voice, rate, pitch }; XTTS ignores them —
   // the daemon owns the speaker and prosody — so we accept and drop them.
@@ -96,28 +141,58 @@
     const clean = String(text || '').replace(/\u0000/g, '').trim();
     if (!clean) throw new Error('empty text');
 
+    const url = daemonUrl();
+    assertNotWebuiOrigin(url);
+
     const body = JSON.stringify({
       text: clean,
-      language: detectLanguage(clean),
+      language: language(clean),
       speaker: speaker(),
     });
 
-    const resp = await fetch(daemonUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
+    // One deadline covers fetch AND reading the body: a daemon that accepts the
+    // connection and then stalls must not leave Listen pending forever.
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => { try { controller.abort(); } catch (_) {} }, REQUEST_TIMEOUT_MS) : null;
 
-    if (!resp.ok) {
-      let detail = '';
-      try { detail = (await resp.text()).slice(0, 200); } catch (_) {}
-      throw new Error('XTTS daemon HTTP ' + resp.status + (detail ? ': ' + detail : ''));
+    try {
+      let resp;
+      try {
+        resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          // Never send WebUI's cookies/CSRF token to the daemon.
+          credentials: 'omit',
+          // Keep the request on loopback even if the port answers 3xx.
+          redirect: 'error',
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+      } catch (error) {
+        if (controller && controller.signal.aborted) throw timedOut(url);
+        throw unreachable(url, error);
+      }
+
+      if (!resp.ok) {
+        let detail = '';
+        try { detail = (await resp.text()).slice(0, 200); } catch (_) {}
+        throw new Error('XTTS daemon HTTP ' + resp.status + (detail ? ': ' + detail : ''));
+      }
+
+      let buffer;
+      try {
+        buffer = await resp.arrayBuffer();
+      } catch (error) {
+        if (controller && controller.signal.aborted) throw timedOut(url);
+        throw new Error('XTTS daemon response could not be read: ' + (error && error.message));
+      }
+
+      // Never hand an error/empty body back as audio — core would play silence.
+      if (!isWav(buffer)) throw new Error('XTTS daemon returned a non-WAV body');
+      return buffer;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-
-    const buffer = await resp.arrayBuffer();
-    // Never hand an error/empty body back as audio — core would play silence.
-    if (!isWav(buffer)) throw new Error('XTTS daemon returned a non-WAV body');
-    return buffer;
   }
 
   function registerEngine() {
@@ -150,13 +225,15 @@
   }
 
   window.HermesXttsTtsExtension = {
-    version: '0.1.0',
+    version: '0.2.0',
     engineId: ENGINE_ID,
+    timeoutMs: REQUEST_TIMEOUT_MS,
     isRegistered: () => typeof window._hermesTtsIsRegistered === 'function'
       && window._hermesTtsIsRegistered(ENGINE_ID),
     isEnabled: enabled,
     daemonUrl,
     speaker,
+    language,
     synthesize,
   };
 })();
