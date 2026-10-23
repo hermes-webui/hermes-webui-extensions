@@ -19,6 +19,7 @@
     {"path": "scripts/test-theme-creator-configure.mjs", "runner": "node"},
     {"path": "scripts/test-typography-configure.mjs", "runner": "node"},
     {"path": "scripts/test-typography.mjs", "runner": "node"},
-    {"path": "scripts/test-user-avatar.mjs", "runner": "node"}
+    {"path": "scripts/test-user-avatar.mjs", "runner": "node"},
+    {"path": "scripts/test-xtts-tts.mjs", "runner": "node"}
   ]
 }
