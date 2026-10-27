@@ -1,0 +1,18 @@
+# hermes-graph sidecar — token-v1 loopback backend for the hermes-graph WebUI extension.
+# Builds a read-only graph of workspace files + Hermes memory/skills/sessions/cron/MCP names.
+# WebUI provisions the proxy token in the state dir; the scaffold resolves it.
+# No token — and no secret — in this unit. Index cache: $HERMES_WEBUI_STATE_DIR/hermes-graph/.
+# Install: cp to ~/.config/systemd/user/ then `systemctl --user enable --now hermes-graph-sidecar`
+[Unit]
+Description=hermes-graph sidecar (file + memory knowledge graph backend for the hermes-graph WebUI extension, token-v1)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.hermes/webui/extensions/hermes-graph/sidecar
+Environment=HERMES_WEBUI_STATE_DIR=%h/.hermes/webui
+ExecStart=/usr/bin/python3 -S -u sidecar.py
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
