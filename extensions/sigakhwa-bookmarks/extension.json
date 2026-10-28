@@ -1,0 +1,78 @@
+{
+  "id": "sigakhwa-bookmarks",
+  "name": "Sigakhwa Bookmarks & TOC",
+  "description": "Name and bookmark any message, jump back to it later (across conversations), and browse a table of contents of the current conversation built from headings, tables and Mermaid diagrams. Stored in the browser by default; an optional token-protected loopback sidecar shares bookmarks between devices (PC and phone).",
+  "version": "0.1.0",
+  "author": "johnDEFI",
+  "assets": {
+    "scripts": [
+      "assets/shared/hermes-viz-store.js",
+      "assets/shared/hermes-viz-nav.js",
+      "assets/sigakhwa-bookmarks.js"
+    ],
+    "stylesheets": [
+      "assets/sigakhwa-bookmarks.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle",
+    "loopback-sidecar"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "post_install": {
+    "summary": "Works immediately with browser-local storage. For PC/phone sync, start the bundled sidecar (see README), make sure WebUI password auth is on, then press Approve proxy consent in Settings -> Extensions -> Diagnostics -> Sidecars and reload.",
+    "requires_local_app": false,
+    "local_app_label": "sigakhwa-bookmarks sidecar (optional)"
+  },
+  "sidecar": {
+    "type": "loopback",
+    "origin": "http://127.0.0.1:17831",
+    "health_path": "/health",
+    "proxy_auth": "token-v1",
+    "runtime": {
+      "kind": "vendored",
+      "path": "sidecar"
+    }
+  },
+  "screenshots": [],
+  "permissions": {
+    "webui_api": {
+      "read": [
+        "session",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/health",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items/{id}",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/export"
+      ],
+      "write": [
+        "/api/profile/switch",
+        "/api/session/draft",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items/{id}",
+        "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/import"
+      ]
+    },
+    "webui_navigation": true,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "hermes-viz-store:bookmarks"
+      ],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": true,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false
+  }
+}
