@@ -1,0 +1,50 @@
+{
+  "id": "theme-toggle",
+  "name": "Theme Toggle",
+  "description": "Adds a sun/moon theme toggle button under the Settings cog in the icon rail (desktop) and sidebar nav (mobile). Persists via a theme-only POST to /api/settings (partial merge \u2014 the same pattern as the WebUI's boot path) so it never affects other appearance settings.",
+  "version": "2.2.0",
+  "author": "daverave999",
+  "assets": {
+    "scripts": [
+      "assets/theme-toggle.js"
+    ],
+    "stylesheets": [
+      "assets/theme-toggle.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [
+    "screenshots/rail-toggle.png"
+  ],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": ["/api/settings"]
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [],
+      "shared_webui_keys": []
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": false,
+    "registers_skin": false
+  }
+}

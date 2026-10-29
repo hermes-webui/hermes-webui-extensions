@@ -1,0 +1,39 @@
+/* ═══ Theme Toggle extension — Hermes WebUI (sidebar placement) ═══ */
+/*
+ * The injected buttons (.hermes-rtt) live in the desktop icon rail and the
+ * mobile sidebar nav, directly under the Settings cog. Base sizing/hover
+ * come from the WebUI's own .rail-btn / .nav-tab rules; we only control
+ * icon visibility and icon sizing here.
+ */
+
+/* Icon sizing (match the other rail icons) */
+.hermes-rtt svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  pointer-events: none;
+}
+
+/* Moon icon shown in light mode (click to go dark) */
+.hermes-rtt .icon-sun {
+  display: none;
+}
+
+.hermes-rtt .icon-moon {
+  display: block;
+}
+
+/* Sun icon shown in dark mode (click to go light) */
+html.dark .hermes-rtt .icon-sun {
+  display: block;
+}
+
+html.dark .hermes-rtt .icon-moon {
+  display: none;
+}
+
+/* Smooth transition on theme change */
+html.theme-toggle-transitioning,
+html.theme-toggle-transitioning * {
+  transition: background-color .3s ease, color .3s ease, border-color .3s ease !important;
+}

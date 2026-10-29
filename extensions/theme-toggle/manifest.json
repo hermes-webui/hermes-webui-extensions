@@ -1,0 +1,15 @@
+{
+  "extensions": [
+    {
+      "id": "theme-toggle",
+      "name": "Theme Toggle",
+      "description": "Sun/moon theme toggle under the Settings cog (icon rail / sidebar nav) for instant light/dark switching.",
+      "scripts": [
+        "assets/theme-toggle.js"
+      ],
+      "stylesheets": [
+        "assets/theme-toggle.css"
+      ]
+    }
+  ]
+}
