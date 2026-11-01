@@ -60,3 +60,6 @@ need it and maintainers agree on the shared contract.
   grouping, start/stop/restart, one-click image updates) via a loopback sidecar.
 - `selene`: Minimal light/dark theme for Hermes WebUI, with responsive
   desktop/mobile composition, rounded menus and reversible sidebar presentation.
+- `xtts-tts`: XTTS v2 TTS engine that speaks replies through a local loopback
+  daemon (`POST / {text,language,speaker}` → WAV); first `tts-engine` entry, and
+  the client half of [xtts-tts-daemon](https://github.com/gaidar0yegor/xtts-tts-daemon).
