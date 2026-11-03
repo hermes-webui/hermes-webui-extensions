@@ -1,13 +1,13 @@
 (() => {
   'use strict';
 
-  // ── Theme Toggle extension for Hermes WebUI (v2.2.0: clobber-safe persistence) ─
-  // Injects a sun/moon theme toggle button directly under the Settings cog —
-  // in the desktop icon rail and in the mobile sidebar nav. Clicking it flips
-  // between light and dark: it applies the core's own theme helpers and
-  // persists the choice with a theme-only POST to /api/settings.
+  // ── Theme Toggle extension for Hermes WebUI (v2.3.0) ──────────────────────
+  // Injects a sun/moon theme toggle button in the desktop icon rail, directly
+  // ABOVE the Settings cog (the cog is the rail's fixed bottom anchor), with
+  // the mobile sidebar copy created by core's own _syncNavActionMirrors()
+  // instead of a hand-built twin.
   //
-  // Persistence design (important — read before changing this):
+  // Persistence design (mirrors the WebUI's own /theme command):
   //   v2.1.0 called window._pickTheme(). That applies the theme, but it ends
   //   with the core's appearance autosave, which POSTs the FULL appearance
   //   payload built from the settings-pane DOM. Those checkbox controls are
@@ -15,21 +15,30 @@
   //   tab where it has never been opened they hold template defaults, so the
   //   autosave silently overwrote the user's real saved appearance settings
   //   on every theme toggle (the "settings keep reverting" bug).
-  //   This version never calls _pickTheme(). It replicates the safe parts of
-  //   it (the core's _normalizeAppearance / _applyTheme / _syncThemePicker
-  //   helpers) and persists with the same partial-merge pattern the WebUI's
-  //   own boot path uses: a POST to /api/settings carrying only {theme}. The
-  //   server merges only the keys present in the payload, so a theme click
-  //   can never touch any other setting. The Settings pane's own autosave
-  //   remains the writer for every non-theme appearance key.
-  //   This code itself does no storage reads/writes, no fetch/XHR, and
-  //   contains no URL literals.
+  //   v2.2.0 dropped _pickTheme() but persisted only via a {theme} POST.
+  //   Core's boot code prefers an explicit localStorage theme over the
+  //   server's, and boot writes that key on every load — so the stale key
+  //   won after a reload and the choice visibly reverted.
+  //   This version mirrors the /theme command exactly: write BOTH shared
+  //   storage keys (hermes-theme, hermes-skin), apply theme + skin, then a
+  //   partial-merge POST of {theme, skin} — the server merges only the keys
+  //   present, so a click can never touch any other setting, and the
+  //   full-pane autosave is never involved.
+  //
+  // Skin lock: while a scheme-forcing skin is active (registerHermesSkin
+  // with {scheme:'light'|'dark'}), the base theme is ignored, so the button
+  // is disabled with a tooltip naming the skin instead of appearing to do
+  // nothing. The observer watches data-skin as well as the class attribute.
+  //
+  // This code performs no fetch/XHR of its own and contains no URL literals;
+  // the one POST goes through the core's api() helper with redirect401:false
+  // so a 401 can never bounce the user to the login page.
 
   if (window.__hermesThemeToggleLoaded) return;
   window.__hermesThemeToggleLoaded = true;
 
-  // ── SVG icons (20×20 to match rail button icons) ─────────────────────────
-  const SUN_SVG = `<svg class="icon-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  // ── SVG icons (stroke-width 1.5, matching every core rail icon) ─────────
+  const SUN_SVG = `<svg class="icon-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="5"/>
     <line x1="12" y1="1" x2="12" y2="3"/>
     <line x1="12" y1="21" x2="12" y2="23"/>
@@ -41,7 +50,7 @@
     <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
   </svg>`;
 
-  const MOON_SVG = `<svg class="icon-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  const MOON_SVG = `<svg class="icon-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
   </svg>`;
 
@@ -52,149 +61,167 @@
     return document.documentElement.classList.contains('dark');
   }
 
-  // ── Theme-only persistence (partial merge — the core boot-path pattern) ─
-  async function persistTheme(theme) {
-    if (typeof window.api !== 'function') {
-      // A core without the api() helper is older than this entry expects;
-      // the visual flip still works for this page's lifetime and the
-      // core's own boot write persists the choice on the next load.
-      console.warn('theme-toggle: core api() unavailable; theme applied but not persisted this session');
-      return;
-    }
-    try {
-      // Same partial-merge POST the WebUI's boot path makes: only the keys
-      // present in the body are merged into the saved settings, so this
-      // call can never modify any other appearance key.
-      await window.api('/api/settings', {
-        method: 'POST',
-        body: JSON.stringify({ theme: theme }),
-      });
-    } catch (e) {
-      // Non-fatal: the theme is applied visually for this page's lifetime.
-    }
+  // ── Scheme-forcing skin lock ─────────────────────────────────────────────
+  // registerHermesSkin({scheme}) skins force their scheme and make the base
+  // theme invisible; the toggle is inert while one is active.
+  function forcedSkin() {
+    if (typeof window._activeSkinScheme !== 'function') return null;
+    let scheme = '';
+    try { scheme = window._activeSkinScheme(); } catch (e) { return null; }
+    if (scheme !== 'light' && scheme !== 'dark') return null;
+    let name = 'active';
+    try { name = localStorage.getItem('hermes-skin') || 'active'; } catch (e) {}
+    return { scheme: scheme, name: name };
   }
 
-  // ── Toggle theme ─────────────────────────────────────────────────────────
+  // ── Toggle: the /theme command idiom (clobber-safe, reload-safe) ────────
   function toggleTheme() {
-    // Brief global transition for a smooth color swap.
-    document.documentElement.classList.add('theme-toggle-transitioning');
-    setTimeout(() => {
-      document.documentElement.classList.remove('theme-toggle-transitioning');
-    }, 350);
-
+    if (forcedSkin()) return; // locked: the base theme is not in effect
     const next = isDarkMode() ? 'light' : 'dark';
 
-    // Deliberately NOT _pickTheme(): its trailing full-pane autosave can
-    // clobber other saved appearance settings (see the header note).
-    if (typeof window._applyTheme !== 'function') {
+    if (typeof window._applyTheme !== 'function' ||
+        typeof window._normalizeAppearance !== 'function') {
       // No theme system in this core: stay inert rather than duplicating
       // core theme behavior — this entry requires the API.
       console.warn('theme-toggle: core theme helpers unavailable; button is inert');
       return;
     }
 
-    let theme = next;
+    let appearance;
     try {
-      // Normalize through the core validator (valid theme set, legacy-name
-      // mapping). The skin reference is read-only, used for validation only;
-      // this extension never writes a skin.
-      if (typeof window._normalizeAppearance === 'function') {
-        const sSel = document.getElementById('settingsSkin');
-        const skinRef = (sSel && sSel.value) || 'default';
-        theme = window._normalizeAppearance(next, skinRef).theme;
-      }
-    } catch (e) { /* fall through with `next` */ }
-
-    try {
-      window._applyTheme(theme);
-      if (typeof window._syncThemePicker === 'function') {
-        window._syncThemePicker(theme);
-      }
-      // Keep the pane's hidden input in sync when it exists in the DOM, so
-      // any later pane-originated save (Settings tab opened in this tab)
-      // reads the current value instead of a stale one.
-      const tSel = document.getElementById('settingsTheme');
-      if (tSel) tSel.value = theme;
+      appearance = window._normalizeAppearance(next, localStorage.getItem('hermes-skin'));
     } catch (e) {
-      console.warn('theme-toggle: core theme application failed', e);
+      appearance = { theme: next, skin: 'default' };
     }
 
-    persistTheme(theme);
+    try {
+      // Same order as the /theme command: persist first, then apply.
+      localStorage.setItem('hermes-theme', appearance.theme);
+      localStorage.setItem('hermes-skin', appearance.skin);
+      window._applyTheme(appearance.theme);
+      if (typeof window._applySkin === 'function') window._applySkin(appearance.skin);
+    } catch (e) {
+      console.warn('theme-toggle: core theme application failed', e);
+      return;
+    }
+
+    // Partial-merge POST — the same body the /theme command sends. The
+    // server merges only the keys present, so no other setting is touched.
+    // redirect401:false keeps a 401 from bouncing the user to the login page.
+    if (typeof window.api === 'function') {
+      try {
+        window.api('/api/settings', {
+          method: 'POST',
+          redirect401: false,
+          body: JSON.stringify({ theme: appearance.theme, skin: appearance.skin })
+        }).catch(() => {});
+      } catch (e) {
+        // Non-fatal: the theme is applied and persisted locally already.
+      }
+    } else {
+      console.warn('theme-toggle: core api() unavailable; theme applied but not synced to the server this session');
+    }
+
+    // Keep the Settings pane controls consistent with what we just did.
+    try {
+      const tSel = document.getElementById('settingsTheme');
+      if (tSel) tSel.value = appearance.theme;
+      const sSel = document.getElementById('settingsSkin');
+      if (sSel) sSel.value = appearance.skin;
+      if (typeof window._syncThemePicker === 'function') window._syncThemePicker(appearance.theme);
+      if (typeof window._syncSkinPicker === 'function') window._syncSkinPicker(appearance.skin);
+    } catch (e) {}
   }
 
-  // ── Button factory ───────────────────────────────────────────────────────
-  function buildButton(id) {
-    const btn = document.createElement('button');
-    btn.id = id;
-    btn.type = 'button';
-    btn.innerHTML = SUN_SVG + MOON_SVG;
-    btn.addEventListener('click', toggleTheme);
-    return btn;
+  // ── Labels (core idiom: one wording, data-tooltip + aria-label, no title) ─
+  function syncButton(btn) {
+    const forced = forcedSkin();
+    if (forced) {
+      btn.disabled = true;
+      btn.setAttribute('aria-disabled', 'true');
+      const locked = 'Theme locked by the "' + forced.name + '" skin';
+      btn.setAttribute('data-tooltip', locked);
+      btn.setAttribute('aria-label', locked);
+    } else {
+      btn.disabled = false;
+      btn.removeAttribute('aria-disabled');
+      const label = 'Switch to ' + (isDarkMode() ? 'light' : 'dark') + ' theme';
+      btn.setAttribute('data-tooltip', label);
+      btn.setAttribute('aria-label', label);
+    }
+    // Core always pairs data-tooltip with removal of the native title:
+    // a native title next to the custom tooltip would show two tooltips.
+    btn.removeAttribute('title');
   }
 
-  function syncMeta(btn) {
-    const to = isDarkMode() ? 'light' : 'dark';
-    btn.title = 'Switch to ' + to + ' mode';
-    btn.setAttribute('aria-label', 'Switch to ' + to + ' theme');
+  function syncAll() {
+    document.querySelectorAll('.hermes-rtt').forEach(syncButton);
+    // Refresh core's mobile mirrors so the sidebar copy matches the rail
+    // source (labels change with the theme; the lock can engage at any time).
+    if (typeof window._syncNavActionMirrors === 'function') {
+      try { window._syncNavActionMirrors(); } catch (e) {}
+    }
   }
 
-  // ── Injection ────────────────────────────────────────────────────────────
-  // Desktop: the icon rail (.rail) is a vertical flex column; the Settings
-  // button sits last (below the spacer). Insert the toggle right after it —
-  // the bottom of the rail, under the settings cog.
-  // Mobile: .sidebar > .sidebar-nav mirrors the same set of buttons; insert
-  // after the mobile settings button.
-  // The buttons carry no data-panel, so the WebUI's tab order / tab
-  // visibility logic (which only touches .nav-tab[data-panel]) leaves them
-  // alone.
+  // ── Injection (core rail idiom: before the Settings cog) ────────────────
+  // Settings is the rail's fixed bottom anchor and the last item in core's
+  // tab order, so the toggle belongs immediately above it. The button is a
+  // mirror-eligible rail action: .nav-tab with an id and no data-panel means
+  // core's _syncNavActionMirrors() clones it into the mobile sidebar nav and
+  // keeps click-forwarding and visibility in sync — no hand-built twin.
   function inject() {
     const rail = document.querySelector('.rail');
     const railSettings = rail && rail.querySelector('.rail-btn[data-panel="settings"]');
-    if (railSettings && !document.getElementById('hermes-rtt-rail')) {
-      const btn = buildButton('hermes-rtt-rail');
-      btn.className = 'rail-btn has-tooltip hermes-rtt';
-      btn.setAttribute('data-tooltip', 'Theme');
-      syncMeta(btn);
-      railSettings.insertAdjacentElement('afterend', btn);
-    }
-
-    const nav = document.querySelector('.sidebar > .sidebar-nav');
-    const navSettings = nav && nav.querySelector('.nav-tab[data-panel="settings"]');
-    if (navSettings && !document.getElementById('hermes-rtt-mobile')) {
-      const btn = buildButton('hermes-rtt-mobile');
-      btn.className = 'nav-tab has-tooltip has-tooltip--bottom hermes-rtt';
-      btn.setAttribute('data-tooltip', 'Theme');
-      btn.setAttribute('data-label', 'Theme');
-      syncMeta(btn);
-      navSettings.insertAdjacentElement('afterend', btn);
-    }
+    if (!railSettings || document.getElementById('hermes-rtt-rail')) return;
+    const btn = document.createElement('button');
+    btn.id = 'hermes-rtt-rail';
+    btn.type = 'button';
+    btn.className = 'rail-btn nav-tab has-tooltip hermes-rtt';
+    btn.innerHTML = SUN_SVG + MOON_SVG;
+    btn.addEventListener('click', toggleTheme);
+    railSettings.parentNode.insertBefore(btn, railSettings);
   }
 
-  // ── Keep tooltips/aria in sync when the theme changes from any source ────
+  // ── Keep labels and the skin lock in sync with any theme/skin source ─────
   function observeThemeChanges() {
     let lastDark = isDarkMode();
+    let lastForced = !!forcedSkin();
     const observer = new MutationObserver(() => {
       const nowDark = isDarkMode();
-      if (nowDark !== lastDark) {
+      const nowForced = !!forcedSkin();
+      if (nowDark !== lastDark || nowForced !== lastForced) {
         lastDark = nowDark;
-        document.querySelectorAll('.hermes-rtt').forEach(syncMeta);
+        lastForced = nowForced;
+        syncAll();
       }
     });
+    // data-skin lives on <html> alongside the class: engaging or releasing a
+    // scheme-forcing skin must re-evaluate the lock, even if the resolved
+    // theme does not change in the same tick.
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['class']
+      attributeFilter: ['class', 'data-skin']
     });
   }
 
-  // ── Init (retry briefly if the rail/sidebar aren't in the DOM yet) ──────
+  // ── Init (retry briefly while the shell renders) ─────────────────────────
+  function ready() {
+    const railBtn = document.getElementById('hermes-rtt-rail');
+    if (!railBtn) return false;
+    if (typeof window._syncNavActionMirrors !== 'function') return true; // pre-mirror core
+    if (!document.querySelector('.sidebar-nav')) return true;           // no mobile nav yet
+    return !!document.querySelector('[data-nav-action-mirror="hermes-rtt-rail"]');
+  }
+
   function init(attempt) {
     attempt = attempt || 0;
     inject();
-    if (!document.getElementById('hermes-rtt-rail') && attempt < 20) {
-      setTimeout(() => init(attempt + 1), 150);
+    if (ready()) {
+      syncAll();
+      observeThemeChanges();
       return;
     }
-    observeThemeChanges();
+    if (attempt < 20) setTimeout(() => init(attempt + 1), 150);
   }
 
   if (document.readyState === 'loading') {

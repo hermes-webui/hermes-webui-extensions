@@ -3,7 +3,7 @@
     {
       "id": "theme-toggle",
       "name": "Theme Toggle",
-      "description": "Sun/moon theme toggle under the Settings cog (icon rail / sidebar nav) for instant light/dark switching.",
+      "description": "Sun/moon theme toggle above the Settings cog (icon rail / mobile mirror) for instant light/dark switching; persists like the /theme command and locks under scheme-forcing skins.",
       "scripts": [
         "assets/theme-toggle.js"
       ],

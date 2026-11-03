@@ -1,9 +1,14 @@
-/* ═══ Theme Toggle extension — Hermes WebUI (sidebar placement) ═══ */
+/* ═══ Theme Toggle extension — Hermes WebUI (v2.3.0) ═══ */
 /*
- * The injected buttons (.hermes-rtt) live in the desktop icon rail and the
- * mobile sidebar nav, directly under the Settings cog. Base sizing/hover
- * come from the WebUI's own .rail-btn / .nav-tab rules; we only control
- * icon visibility and icon sizing here.
+ * Icon visibility and sizing only. Placement, hover and tooltip styling
+ * come from the WebUI's own .rail-btn / .nav-tab / .has-tooltip rules, and
+ * the mobile sidebar copy is created by core's _syncNavActionMirrors(), so
+ * the same classes (and these rules) apply to both buttons.
+ *
+ * There is deliberately no theme-fade transition rule: core's own theme
+ * switch is instant, and a global `transition: … !important` rule forces a
+ * style recalculation over every element on the page (~300 ms of synchronous
+ * work per click on a long transcript). The switch here is instant too.
  */
 
 /* Icon sizing (match the other rail icons) */
@@ -32,8 +37,9 @@ html.dark .hermes-rtt .icon-moon {
   display: none;
 }
 
-/* Smooth transition on theme change */
-html.theme-toggle-transitioning,
-html.theme-toggle-transitioning * {
-  transition: background-color .3s ease, color .3s ease, border-color .3s ease !important;
+/* Locked under a scheme-forcing skin: the base theme is not in effect,
+ * so the toggle is disabled and explains itself via its tooltip. */
+.hermes-rtt:disabled {
+  opacity: .45;
+  cursor: not-allowed;
 }
