@@ -58,5 +58,9 @@ need it and maintainers agree on the shared contract.
 - `sysinfo`: Insights add-ons under System health — an on-demand/scheduled
   internet speed test and a full Docker card (live container stats, compose
   grouping, start/stop/restart, one-click image updates) via a loopback sidecar.
+- `theme-toggle`: sun/moon quick-toggle button under the Settings cog in the
+  icon rail (desktop) and sidebar nav (mobile); applies the core theme
+  helpers and persists via a theme-only `/api/settings` POST (partial
+  merge) so no other appearance setting is affected.
 - `selene`: Minimal light/dark theme for Hermes WebUI, with responsive
   desktop/mobile composition, rounded menus and reversible sidebar presentation.

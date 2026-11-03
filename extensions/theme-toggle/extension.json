@@ -1,0 +1,61 @@
+{
+  "id": "theme-toggle",
+  "name": "Theme Toggle",
+  "description": "Adds a sun/moon theme toggle button above the Settings cog in the icon rail (desktop), mirrored into the mobile sidebar nav by core's own mirror system. Persists like the /theme command (both shared storage keys + a partial {theme, skin} POST to /api/settings with redirect401:false), and locks itself while a scheme-forcing skin is active.",
+  "version": "2.3.0",
+  "author": "daverave999",
+  "assets": {
+    "scripts": [
+      "assets/theme-toggle.js"
+    ],
+    "stylesheets": [
+      "assets/theme-toggle.css"
+    ]
+  },
+  "capabilities": [
+    "manifest-bundle"
+  ],
+  "lifecycle": {
+    "webui_restart_required": false,
+    "sidecar_start_required": false,
+    "native_host_start_required": false,
+    "native_host_autostart": "none"
+  },
+  "screenshots": [
+    "screenshots/rail-dark.png",
+    "screenshots/rail-light.png",
+    "screenshots/mobile-drawer.png",
+    "screenshots/skin-locked.png"
+  ],
+  "permissions": {
+    "webui_api": {
+      "read": [],
+      "write": [
+        "/api/settings"
+      ]
+    },
+    "webui_navigation": false,
+    "dom": {
+      "owned": true,
+      "mutates_core_views": true
+    },
+    "storage": {
+      "owned": [
+        "hermes-theme",
+        "hermes-skin"
+      ],
+      "shared_webui_keys": [
+        "hermes-theme",
+        "hermes-skin"
+      ]
+    },
+    "loopback_sidecar": false,
+    "native_host": false,
+    "filesystem": {
+      "arbitrary": false,
+      "serves_bundled_assets": true
+    },
+    "network_external": true,
+    "registers_skin": false
+  }
+}
