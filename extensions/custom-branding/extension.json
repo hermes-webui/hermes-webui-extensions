@@ -1,8 +1,8 @@
 {
   "id": "custom-branding",
   "name": "Custom Branding",
-  "description": "White-label the Hermes WebUI chrome with your own logo and favicon. Click the titlebar logo to upload a custom logo (swaps the titlebar + empty-state marks) and a custom favicon (swaps the browser tab icon). Images are downscaled and stored locally, and re-applied as the UI re-renders.",
-  "version": "0.1.0",
+  "description": "Configure one public instance name and image for all devices with the shared identity API, or keep personal browser-local logos on older WebUI versions.",
+  "version": "0.2.0",
   "author": "nesquena-hermes",
   "assets": {
     "scripts": [
@@ -24,8 +24,13 @@
   "screenshots": [],
   "permissions": {
     "webui_api": {
-      "read": [],
-      "write": []
+      "read": [
+        "/api/instance-branding"
+      ],
+      "write": [
+        "/api/instance-branding",
+        "/api/instance-branding/image"
+      ]
     },
     "webui_navigation": false,
     "dom": {

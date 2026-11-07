@@ -125,3 +125,21 @@
 @media (prefers-reduced-motion: reduce) {
   .hwx-branding-btn { transition: none; }
 }
+
+.hwx-branding-picker {
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 16px));
+  min-width: 0;
+  max-width: none;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+}
+.hwx-branding-picker p { margin: 4px 0; font-size: 12px; }
+.hwx-branding-picker label { display: block; font-size: 13px; }
+.hwx-branding-picker input[type=text] {
+  width: 100%; box-sizing: border-box; padding: 7px;
+  background: var(--code-bg, #222); color: var(--text, #eee);
+  border: 1px solid var(--border, #666); border-radius: 6px;
+}
+.hwx-branding-picker input[type=file] { max-width: 100%; }
+.hwx-branding-btn:disabled { opacity: .55; cursor: default; }

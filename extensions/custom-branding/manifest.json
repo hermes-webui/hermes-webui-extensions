@@ -9,7 +9,8 @@
       ],
       "stylesheets": [
         "assets/custom-branding.css"
-      ]
+      ],
+      "instance_branding_api": 1
     }
   ]
 }
