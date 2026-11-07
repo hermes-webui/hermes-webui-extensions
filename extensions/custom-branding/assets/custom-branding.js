@@ -1,27 +1,8 @@
 (() => {
   'use strict';
 
-  // ── Custom Branding extension for Hermes WebUI ───────────────────────────
-  // White-label the Hermes chrome with your own logo + favicon. Click the
-  // titlebar logo to open a small picker (upload / clear a logo, upload / clear
-  // a favicon). Uploaded images are processed entirely in the browser
-  // (FileReader -> <canvas> downscale -> data-URL) and stored in localStorage;
-  // nothing is uploaded anywhere.
-  //
-  // On boot and on every DOM re-render it swaps:
-  //   - the app titlebar logo (the inline <svg> inside .app-titlebar-icon)
-  //   - the empty-state hero logo (the inline <svg> inside .empty-logo)
-  //   - the favicon <link> nodes in <head> (rel="icon" / "shortcut icon" /
-  //     "apple-touch-icon")
-  // with your stored images, and restores the originals when you clear them.
-  //
-  // Rebuilt as a client-side extension from closed core PR
-  // nesquena/hermes-webui#3307 (author: @gavinssr, "Add custom logo and favicon
-  // uploads"). #3307 shipped a server-side upload endpoint + config.yaml
-  // persistence; extensions cannot add core endpoints, so this is a pure
-  // client-side rebuild using localStorage data-URLs.
-  //
-  // Pure DOM-injection, client-side only — no core changes, no backend.
+  // Based on the client-side rebuild of gavinssr's core PR #3307.
+  // Core owns shared metadata/icons; this extension owns the editor and DOM logos.
 
   const EXT = 'custom-branding';
   if (window.__hermesCustomBrandingLoaded) return;
@@ -42,6 +23,77 @@
   ];
   // Core favicon links we neutralize while a custom favicon is active.
   const FAVICON_SELECTOR = 'link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]';
+
+  let shared = window.__HERMES_INSTANCE_BRANDING__ || null;
+  let management = null;
+  let etag = null;
+  let busy = false;
+  let configureResolve = null;
+  let readEpoch = 0;
+  let compatibility = 'Checking shared branding support…';
+  const sharedActive = () => shared?.api_version === 1 && shared.effective?.active === true;
+  // The v1 core shell supplies an app-root <base>, including session/prefix routes.
+  const endpoint = (suffix = '') => new URL('api/instance-branding' + suffix, document.baseURI);
+  function sharedLogo() {
+    const value = shared?.effective?.icon_512;
+    if (!sharedActive() || typeof value !== 'string') return '';
+    const url = new URL(value, document.baseURI);
+    return url.origin === location.origin ? url.href : '';
+  }
+  async function readShared() {
+    const epoch = ++readEpoch;
+    etag = null;
+    management = null;
+    try {
+      const response = await fetch(endpoint(), {cache: 'no-store', credentials: 'same-origin'});
+      if (!response.ok) throw new Error('Shared API unavailable (' + response.status + ').');
+      const value = await response.json();
+      if (value.api_version !== 1 || !value.effective || !value.config) throw new Error('Shared API v1 required.');
+      if (epoch !== readEpoch) return;
+      management = value;
+      etag = response.headers.get('ETag');
+      shared = value;
+      compatibility = value.provider_available ? 'Shared identity is stored on this server.' : 'Compatible shared provider unavailable.';
+    } catch (error) {
+      if (epoch !== readEpoch) return;
+      compatibility = error.message + ' Personal settings remain on this browser.';
+    }
+    applyAll();
+  }
+  async function writeShared(patch, image = false) {
+    if (busy || !management?.can_manage || !etag) return;
+    if (image && (!management.can_upload || !management.provider_available)) return;
+    const match = etag;
+    etag = null; // A transport failure leaves the outcome unknown; require a fresh read.
+    busy = true;
+    rebuildPicker();
+    setStatus('Saving…');
+    try {
+      const headers = {'Content-Type': image ? 'image/png' : 'application/json', 'If-Match': match};
+      const token = window.__HERMES_CONFIG__?.csrfToken;
+      if (token) headers['X-Hermes-CSRF-Token'] = token;
+      const response = await fetch(endpoint(image ? '/image' : ''), {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store', headers,
+        body: image ? patch : JSON.stringify(patch)
+      });
+      const value = await response.json();
+      if (!response.ok) {
+        // Refresh capabilities/ETag, never replay the user's write automatically.
+        await readShared();
+        throw new Error(response.status === 412 ? 'Changed elsewhere. Review current settings and save again.' : (value.error || 'Save refused (' + response.status + ').'));
+      }
+      if (value.api_version !== 1 || !value.effective) throw new Error('Invalid server response. Reopen Configure before retrying.');
+      management = shared = value;
+      etag = response.headers.get('ETag');
+      window.__HERMES_INSTANCE_BRANDING__ = {api_version: 1, effective: value.effective};
+      applyAll();
+      location.reload();
+    } catch (error) {
+      busy = false;
+      rebuildPicker();
+      setStatus(error.message);
+    } finally { busy = false; }
+  }
 
   let observer = null;
   let picker = null;
@@ -105,7 +157,7 @@
     const nativeSvg = container.querySelector(':scope > svg');
     let img = container.querySelector(':scope > img.hwx-branding-logo-img');
 
-    if (dataUrl && isDataImage(dataUrl)) {
+    if (dataUrl && (isDataImage(dataUrl) || dataUrl === sharedLogo())) {
       // Compare against the live <img> src rather than stashing the full ≤512KB
       // data-URL in a DOM dataset attribute (cheaper, and no giant attribute write
       // on every rAF-coalesced re-render pass).
@@ -129,7 +181,7 @@
   }
 
   function applyLogos() {
-    const dataUrl = getLogo();
+    const dataUrl = sharedActive() ? sharedLogo() : getLogo();
     LOGO_CONTAINERS.forEach(({ sel, size }) => {
       document.querySelectorAll(sel).forEach((container) => applyLogoToContainer(container, size, dataUrl));
     });
@@ -148,7 +200,7 @@
   function applyFavicon() {
     const head = document.head || document.getElementsByTagName('head')[0];
     if (!head) return;
-    const dataUrl = getFavicon();
+    const dataUrl = sharedActive() ? '' : getFavicon();
     let injected = head.querySelector('link[data-hwx-branding-favicon="1"]');
 
     if (dataUrl && isDataImage(dataUrl)) {
@@ -222,6 +274,7 @@
   // ── picker popover ─────────────────────────────────────────────────────────
   function closePicker() {
     if (picker) { picker.remove(); picker = null; }
+    if (configureResolve) { const finish = configureResolve; configureResolve = null; finish(); }
     document.removeEventListener('pointerdown', outside, true);
     document.removeEventListener('keydown', esc, true);
     // restore focus to the trigger the picker was opened from (a11y)
@@ -306,6 +359,70 @@
     return section;
   }
 
+  function sharedSection() {
+    const section = document.createElement('section');
+    section.className = 'hwx-branding-section';
+    const heading = document.createElement('strong');
+    heading.textContent = 'Shared instance';
+    section.appendChild(heading);
+    const info = document.createElement('p');
+    info.textContent = compatibility + ' Name and image are public. Images affect all devices.';
+    section.appendChild(info);
+    if (!management) return section;
+    const config = management.config;
+    const disabled = busy || !management.can_manage || !etag;
+    function button(text, action, unavailable = false) {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'hwx-branding-btn'; btn.textContent = text;
+      btn.disabled = disabled || unavailable;
+      btn.addEventListener('click', action);
+      section.appendChild(btn);
+      return btn;
+    }
+    const nameLabel = document.createElement('label');
+    nameLabel.textContent = 'Instance name';
+    const name = document.createElement('input');
+    name.type = 'text'; name.maxLength = 80; name.value = config.instance_name || '';
+    name.disabled = disabled || !management.provider_available || !management.name_supported;
+    nameLabel.appendChild(name); section.appendChild(nameLabel);
+    const adoptLabel = document.createElement('label');
+    const adopt = document.createElement('input');
+    adopt.type = 'checkbox'; adopt.checked = config.manages_instance_name === true;
+    adopt.disabled = name.disabled;
+    adoptLabel.append(adopt, document.createTextNode(' Let branding manage this name (disable/reset hides or clears it)'));
+    section.appendChild(adoptLabel);
+    button('Save name and ownership', () => writeShared({instance_name: name.value, manages_instance_name: adopt.checked}), name.disabled);
+    const uploadLabel = document.createElement('label');
+    uploadLabel.textContent = 'Shared image: square static PNG, 512–2048 px, up to 2 MiB. Upload does not enable sharing.';
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/png';
+    input.disabled = disabled || !management.can_upload || !management.provider_available;
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.type !== 'image/png' || file.size > 2 * 1024 * 1024) {
+        setStatus('Choose a PNG up to 2 MiB.'); input.value = ''; return;
+      }
+      if (window.confirm('Upload this image as public instance identity for all devices?')) writeShared(file, true);
+    });
+    uploadLabel.appendChild(input); section.appendChild(uploadLabel);
+    if (management.can_manage && management.provider_available && !management.can_upload) {
+      const note = document.createElement('p');
+      note.textContent = 'Image import unavailable. Install the optional image dependency in the WebUI environment; existing images and names remain available.';
+      section.appendChild(note);
+    }
+    button(config.enabled ? 'Disable sharing' : 'Enable sharing', () => writeShared({enabled: !config.enabled}), !config.enabled && !management.provider_available);
+    button('Restore Hermes / reset shared identity', () => {
+      if (window.confirm('Reset shared images and the branding-owned name? Personal browser images are retained.')) writeShared({action: 'reset'});
+    });
+    if (!management.can_manage) {
+      const reason = document.createElement('p');
+      reason.textContent = 'Management requires WebUI authentication and an unrestricted owner session.';
+      section.appendChild(reason);
+    }
+    return section;
+  }
+
   function buildPickerBody() {
     const frag = document.createDocumentFragment();
 
@@ -313,9 +430,20 @@
     title.className = 'hwx-branding-title';
     title.textContent = 'Custom Branding';
     frag.appendChild(title);
+    const close = document.createElement('button');
+    close.type = 'button'; close.className = 'hwx-branding-btn'; close.textContent = 'Close';
+    close.addEventListener('click', closePicker); frag.appendChild(close);
 
-    frag.appendChild(makeSection('Logo', getLogo(), 'logo', LOGO_MAX_DIM, LOGO_MAX_BYTES));
-    frag.appendChild(makeSection('Favicon', getFavicon(), 'favicon', FAVICON_MAX_DIM, FAVICON_MAX_BYTES));
+    frag.appendChild(sharedSection());
+    const personal = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = sharedActive() ? 'Personal images (paused while sharing is active)' : 'Personal images (this browser only)';
+    personal.appendChild(summary);
+    if (!sharedActive()) {
+      personal.appendChild(makeSection('Logo', getLogo(), 'logo', LOGO_MAX_DIM, LOGO_MAX_BYTES));
+      personal.appendChild(makeSection('Favicon', getFavicon(), 'favicon', FAVICON_MAX_DIM, FAVICON_MAX_BYTES));
+    }
+    frag.appendChild(personal);
 
     const status = document.createElement('div');
     status.className = 'hwx-branding-status';
@@ -336,13 +464,16 @@
     // dropping keyboard focus to <body>. Restore it to the first control so a
     // keyboard user stays inside the dialog. Centralized here so every call-site
     // (upload + remove) is covered.
-    const firstBtn = picker.querySelector('button');
+    picker.querySelectorAll('button, input').forEach((node) => { if (busy) node.disabled = true; });
+    const firstBtn = picker.querySelector('button:not(:disabled)');
     if (firstBtn) { try { firstBtn.focus(); } catch (_) {} }
   }
 
   function openPicker(anchor) {
     closePicker();
     lastAnchor = anchor || null;
+    management = null; etag = null;
+    compatibility = 'Checking shared branding support…';
     picker = document.createElement('div');
     picker.className = 'hwx-branding-picker';
     picker.setAttribute('role', 'dialog');
@@ -354,6 +485,7 @@
     picker.appendChild(buildPickerBody());
     document.body.appendChild(picker);
     position(anchor);
+    readShared().then(() => { rebuildPicker(); position(anchor); });
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', esc, true);
     // move focus into the dialog on open (first focusable, else the dialog)
@@ -367,7 +499,8 @@
   }
 
   function position(anchor) {
-    if (!picker || !anchor) return;
+    if (!picker) return;
+    if (!anchor) { picker.style.left = Math.max(8, (window.innerWidth - (picker.offsetWidth || 360)) / 2) + 'px'; picker.style.top = '8px'; return; }
     const r = anchor.getBoundingClientRect();
     const w = picker.offsetWidth || 240;
     let left = r.left;
@@ -390,13 +523,13 @@
     // never opens (core does the same for its own titlebar buttons).
     container.style.setProperty('-webkit-app-region', 'no-drag');
     container.style.setProperty('app-region', 'no-drag');
-    container.title = 'Click to set a custom logo / favicon';
+    container.title = 'Configure Custom Branding';
     // a11y: the core mark is aria-hidden with no keyboard role. Make our edit
     // affordance reachable by keyboard + screen readers once we own the click.
     container.removeAttribute('aria-hidden');
     if (!container.hasAttribute('role')) container.setAttribute('role', 'button');
     if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '0');
-    container.setAttribute('aria-label', 'Set a custom logo or favicon');
+    container.setAttribute('aria-label', 'Configure Custom Branding');
     const open = (ev) => { ev.preventDefault(); ev.stopPropagation(); openPicker(container); };
     container.addEventListener('click', open);
     container.addEventListener('keydown', (ev) => {
@@ -427,7 +560,7 @@
       startObserver();
       applyAll();
       window.HermesCustomBrandingExtension = {
-        version: '0.1.0',
+        version: '0.2.0',
         getLogo: getLogo,
         getFavicon: getFavicon,
         // setLogo/setFavicon gate the value internally (isDataImage) and return
@@ -436,8 +569,17 @@
         setFavicon: (dataUrl) => setFavicon(dataUrl),
         clearLogo: () => setLogo(''),
         clearFavicon: () => setFavicon(''),
-        refresh: applyAll
+        refresh: applyAll,
+        open: () => openPicker(null)
       };
+      try {
+        const handle = window.hermesExt?.register?.(EXT);
+        handle?.settings?.registerConfigure?.(() => new Promise((resolve) => {
+          openPicker(null);
+          configureResolve = resolve;
+        }));
+      } catch (_) { /* Legacy core keeps the titlebar picker. */ }
+      readShared();
       return true;
     }
     if (attempt < 80) { setTimeout(() => install(attempt + 1), 150); return false; }

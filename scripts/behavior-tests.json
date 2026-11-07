@@ -7,6 +7,7 @@
     {"path": "scripts/test-btop-core.mjs", "runner": "node-test"},
     {"path": "scripts/test-btop-ui.mjs", "runner": "node-test"},
     {"path": "scripts/test-chat-tiling.mjs", "runner": "node"},
+    {"path": "scripts/test-custom-branding.mjs", "runner": "node"},
     {"path": "scripts/test-extension-validator.mjs", "runner": "node"},
     {"path": "scripts/test-flightdeck-core.mjs", "runner": "node-test"},
     {"path": "scripts/test-flightdeck-ui.mjs", "runner": "node-test"},
