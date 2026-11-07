@@ -14,7 +14,7 @@ and `api_version: 1`. Earlier releases including `exp-v0.52.653` do not provide
 that API. Do not infer compatibility from that version number.
 
 The integration reference is core commit
-`7454620be8576b3025b0ee09745dd53696ad5382`, including the `instance_name`
+`036339c5f7085254f783c17fbf1bbfcbd9540da6`, including the `instance_name`
 prerequisite from [#8307](https://github.com/nesquena/hermes-webui/pull/8307).
 This is an integration branch, not a claim of upstream release availability.
 Core's `docs/instance-branding.md` defines the server contract.
