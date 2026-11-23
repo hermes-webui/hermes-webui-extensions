@@ -2,7 +2,7 @@
   "id": "theme-toggle",
   "name": "Theme Toggle",
   "description": "Adds a sun/moon theme toggle button above the Settings cog in the icon rail (desktop), mirrored into the mobile sidebar nav by core's own mirror system. Persists like the /theme command (both shared storage keys + a partial {theme, skin} POST to /api/settings with redirect401:false), and locks itself while a scheme-forcing skin is active.",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "author": "daverave999",
   "assets": {
     "scripts": [

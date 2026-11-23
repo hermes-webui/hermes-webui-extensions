@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  // ── Theme Toggle extension for Hermes WebUI (v2.3.0) ──────────────────────
+  // ── Theme Toggle extension for Hermes WebUI (v2.3.1) ──────────────────────
   // Injects a sun/moon theme toggle button in the desktop icon rail, directly
   // ABOVE the Settings cog (the cog is the rail's fixed bottom anchor), with
   // the mobile sidebar copy created by core's own _syncNavActionMirrors()
@@ -69,14 +69,32 @@
     let scheme = '';
     try { scheme = window._activeSkinScheme(); } catch (e) { return null; }
     if (scheme !== 'light' && scheme !== 'dark') return null;
-    let name = 'active';
-    try { name = localStorage.getItem('hermes-skin') || 'active'; } catch (e) {}
+    // Name the skin that is actually active on this page (html[data-skin]),
+    // not the shared storage value another tab may have changed.
+    const key = document.documentElement.dataset.skin || 'default';
+    let name = key;
+    try {
+      const entry = typeof window._findSkinEntry === 'function' ? window._findSkinEntry(key) : null;
+      if (entry && (entry.label || entry.name)) name = String(entry.label || entry.name);
+    } catch (e) {}
     return { scheme: scheme, name: name };
   }
 
   // ── Toggle: the /theme command idiom (clobber-safe, reload-safe) ────────
+  function lockMessage(forced) {
+    return 'Theme locked by the "' + forced.name + '" skin. Change the skin in Settings to use this toggle.';
+  }
+
   function toggleTheme() {
-    if (forcedSkin()) return; // locked: the base theme is not in effect
+    const forced = forcedSkin();
+    if (forced) {
+      // Locked: the base theme is not in effect. Explain instead of doing
+      // nothing (a tap on a phone shows no tooltip).
+      if (typeof window.showToast === 'function') {
+        try { window.showToast(lockMessage(forced)); } catch (e) {}
+      }
+      return;
+    }
     const next = isDarkMode() ? 'light' : 'dark';
 
     if (typeof window._applyTheme !== 'function' ||
@@ -136,14 +154,16 @@
   // ── Labels (core idiom: one wording, data-tooltip + aria-label, no title) ─
   function syncButton(btn) {
     const forced = forcedSkin();
+    // aria-disabled, not the native `disabled` attribute: a natively disabled
+    // button leaves the tab order and never shows its tooltip, so the lock
+    // could not explain itself. toggleTheme() refuses the click instead.
     if (forced) {
-      btn.disabled = true;
       btn.setAttribute('aria-disabled', 'true');
-      const locked = 'Theme locked by the "' + forced.name + '" skin';
-      btn.setAttribute('data-tooltip', locked);
-      btn.setAttribute('aria-label', locked);
+      // Core's tooltip is one nowrap line: keep it short; the full sentence
+      // goes to screen readers and to the click/tap toast.
+      btn.setAttribute('data-tooltip', 'Theme locked by the "' + forced.name + '" skin');
+      btn.setAttribute('aria-label', lockMessage(forced));
     } else {
-      btn.disabled = false;
       btn.removeAttribute('aria-disabled');
       const label = 'Switch to ' + (isDarkMode() ? 'light' : 'dark') + ' theme';
       btn.setAttribute('data-tooltip', label);
@@ -186,12 +206,15 @@
   function observeThemeChanges() {
     let lastDark = isDarkMode();
     let lastForced = !!forcedSkin();
+    let lastSkin = document.documentElement.dataset.skin || 'default';
     const observer = new MutationObserver(() => {
       const nowDark = isDarkMode();
       const nowForced = !!forcedSkin();
-      if (nowDark !== lastDark || nowForced !== lastForced) {
+      const nowSkin = document.documentElement.dataset.skin || 'default';
+      if (nowDark !== lastDark || nowForced !== lastForced || nowSkin !== lastSkin) {
         lastDark = nowDark;
         lastForced = nowForced;
+        lastSkin = nowSkin;
         syncAll();
       }
     });
@@ -216,12 +239,16 @@
   function init(attempt) {
     attempt = attempt || 0;
     inject();
-    if (ready()) {
+    // Label the button as soon as it exists, not only once the mirror is up.
+    document.querySelectorAll('.hermes-rtt').forEach(syncButton);
+    // After the last retry, keep the labels and the lock live even if the
+    // mobile mirror never appeared.
+    if (ready() || attempt >= 20) {
       syncAll();
       observeThemeChanges();
       return;
     }
-    if (attempt < 20) setTimeout(() => init(attempt + 1), 150);
+    setTimeout(() => init(attempt + 1), 150);
   }
 
   if (document.readyState === 'loading') {

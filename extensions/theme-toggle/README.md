@@ -28,9 +28,11 @@ Settings.
   theme, so it also behaves sensibly when "system" mode is selected.
 - **Skin lock**: while a scheme-forcing skin is active (a skin registered
   with `registerHermesSkin({scheme})`, e.g. an e-ink skin forcing light),
-  the base theme is not in effect — so the button disables itself with a
-  tooltip naming the locking skin instead of clicking into the void. The
-  lock is re-evaluated whenever the theme *or* the active skin changes.
+  the base theme is not in effect — so the button dims itself
+  (`aria-disabled`, still focusable) with a tooltip naming the locking skin,
+  and a click or tap shows a short toast saying how to unlock it, instead of
+  clicking into the void. The lock is re-evaluated whenever the theme *or*
+  the active skin changes.
 - Tooltip and aria-label use one action wording ("Switch to light theme" /
   "Switch to dark theme"), updated automatically when the theme changes
   from any source (the toggle itself, the Settings picker, or a `/theme`
@@ -66,6 +68,12 @@ persistence stores agree, so the choice survives reloads.
 
 ## Version History
 
+- **2.3.1** — maintainer fixes from review: the mobile drawer button showed
+  both icons in light theme (Core's mobile `.nav-tab svg` rule won); the lock
+  now uses `aria-disabled` so its tooltip shows on hover and focus, explains
+  itself with a toast on click/tap, names the skin by its label and follows a
+  switch between two scheme-forcing skins; the button is labelled as soon as
+  it is inserted.
 - **2.3.0** — review round: reload-safe persistence via the `/theme`
   command idiom (both shared storage keys + `{theme, skin}` partial POST);
   global fade-transition rule removed (instant switch, like core);
@@ -125,8 +133,9 @@ stays in the WebUI's own settings store, untouched by the extension.
 - `window._applyTheme(theme)` / `window._applySkin(skin)` — the core's
   built-in theme/skin appliers (the same functions the Settings →
   Appearance pickers use).
-- `window._activeSkinScheme()` — read-only check for a scheme-forcing skin,
-  driving the disabled state.
+- `window._activeSkinScheme()` / `window._findSkinEntry()` — read-only checks
+  for a scheme-forcing skin and its display label, driving the lock state.
+- `window.showToast()` — the lock's click/tap explanation.
 - `window._syncThemePicker` / `window._syncSkinPicker` — keep the Settings
   pane pickers consistent after a click; `#settingsTheme` / `#settingsSkin`
   hidden inputs are value-synced for the same reason.
@@ -195,7 +204,7 @@ None. `loopback_sidecar: false`, `native_host: false`.
 - Only toggles between the two built-in themes. Selecting a custom skin is
   done in Settings → Appearance (or via a skin extension); this button
   deliberately does not enumerate skins.
-- While a scheme-forcing skin is active, the button is disabled by design
+- While a scheme-forcing skin is active, the button is locked by design
   (the skin decides light/dark); switch the skin off in Settings to
   re-enable the toggle.
 - The mobile sidebar copy relies on core's `_syncNavActionMirrors()`; a
