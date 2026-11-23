@@ -15,7 +15,7 @@ const tests = [];
 const test = (name, fn) => tests.push({name, fn});
 const button = (w, text) => [...w.document.querySelectorAll('.hwx-branding-picker button')].find(b=>b.textContent===text || b.getAttribute('aria-label')===text);
 const nameInput = w => w.document.querySelector('.hwx-branding-picker input[type=text]');
-async function harness({bootstrap={api_version:1,effective}, value=state, status=200}={}) {
+async function harness({bootstrap={api_version:1,effective}, value=state, status=200, configureAccepted=true}={}) {
   const errors=[], requests=[];
   const vc = new VirtualConsole();
   vc.on('jsdomError', e=> {if (!e.message.includes('Not implemented: navigation')) errors.push(e.message);});
@@ -26,7 +26,7 @@ async function harness({bootstrap={api_version:1,effective}, value=state, status
   if (bootstrap!==null) w.__HERMES_INSTANCE_BRANDING__=copy(bootstrap);
   w.__HERMES_CONFIG__={csrfToken:'test-only'};
   let configure;
-  w.hermesExt={register:()=>({settings:{registerConfigure:fn=>{configure=fn;return ()=>true;}}})};
+  w.hermesExt={register:()=>({settings:{registerConfigure:fn=>{if(!configureAccepted)return null;configure=fn;return ()=>true;}}})};
   w.confirm=()=>true;
   let reply=async()=>({status,value});
   w.fetch=async(url,options={})=>{
@@ -156,6 +156,10 @@ test('untouched defaults follow a fresh read; typed drafts survive it',()=>use({
   await open();button(w,'Close').click();setReply(async()=>({status:200,value:{...state,config:{...state.config,instance_name:'Fresh name'}}}));
   await open();assert.equal(nameInput(w).value,'Fresh name');
   nameInput(w).value='Typed';nameInput(w).dispatchEvent(new w.Event('input'));button(w,'Close').click();await open();assert.equal(nameInput(w).value,'Typed');
+}));
+test('failed native registration preserves the legacy personal picker',()=>use({bootstrap:null,status:404,configureAccepted:false},async({w})=>{
+  const logo=w.document.querySelector('.empty-logo');assert.equal(logo.getAttribute('role'),'button');logo.click();await tick();
+  assert.ok(button(w,'Remove'));assert.equal(w.document.querySelector('details'),null);
 }));
 let failures=0;
 for(const {name,fn} of tests){try{await fn();console.log('PASS '+name);}catch(error){failures++;console.error('FAIL '+name+'\n'+error.stack);}}

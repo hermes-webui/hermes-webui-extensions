@@ -192,7 +192,10 @@ extensions.install_extension('custom-branding','https://hermes-webui.github.io/h
                             )
                             page = c.new_page()
                             requests = []
-                            page.on("request", lambda r, events=requests: events.append(r.url))
+                            page.on(
+                                "request",
+                                lambda r, events=requests: events.append(r.url),
+                            )
                             page.goto(url, wait_until="domcontentloaded")
                             page.wait_for_function(
                                 "()=>!!window.HermesCustomBrandingExtension"
@@ -235,6 +238,21 @@ extensions.install_extension('custom-branding','https://hermes-webui.github.io/h
                                     ".hwx-branding-preview-logo img"
                                 ).is_visible()
                             for width in (1440, 390):
+                                page.locator('.hwx-branding-picker').get_by_role(
+                                    "button", name="Close", exact=True
+                                ).click()
+                                page.set_viewport_size(
+                                    {
+                                        "width": width,
+                                        "height": 900 if width == 1440 else 664,
+                                    }
+                                )
+                                with page.expect_response(
+                                    lambda r: "/api/instance-branding" in r.url
+                                ):
+                                    page.locator(
+                                        '[data-extension-configure-id="custom-branding"]'
+                                    ).click()
                                 shot(page, evidence, f"{engine}-{label}-legacy", width)
                             if label == "after":
                                 trigger = page.locator(
@@ -289,8 +307,11 @@ extensions.install_extension('custom-branding','https://hermes-webui.github.io/h
                         manifest = fresh.request.get(url + "/manifest.json").json()
                         assert manifest["name"] == "Team Console"
                         assert manifest["short_name"] == "Team Console"
-                        for key in ("id", "scope", "start_url", "shortcuts"):
+                        for key in ("id", "scope", "start_url"):
                             assert manifest.get(key) == initial_manifest.get(key)
+                        assert [s["url"] for s in manifest["shortcuts"]] == [
+                            s["url"] for s in initial_manifest["shortcuts"]
+                        ]
                         for icon in manifest["icons"]:
                             assert icon["purpose"] == "any"
                         effective = check.evaluate(

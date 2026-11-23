@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "engines": [
+    {
+      "name": "chromium",
+      "version": "159.0.8154.6"
+    },
+    {
+      "name": "firefox",
+      "version": "159.0"
+    }
+  ],
+  "checks": [
+    "chromium: shipped core real Configure, personal upload preview, no load probe, Escape/focus",
+    "chromium: real image/name/enable Save, fresh shared shell/manifest, real 412 draft/refresh, bounds/touch, provider toggle",
+    "chromium: real non-manager shared projection without form/brand triggers",
+    "chromium: manifest identity/asset MIME/personal priority, disable/reset",
+    "firefox: shipped core real Configure, personal upload preview, no load probe, Escape/focus",
+    "firefox: real image/name/enable Save, fresh shared shell/manifest, real 412 draft/refresh, bounds/touch, provider toggle",
+    "firefox: real non-manager shared projection without form/brand triggers",
+    "firefox: manifest identity/asset MIME/personal priority, disable/reset"
+  ],
+  "cache": "Fresh contexts, service workers blocked, browser HTTP cache disabled by request routing",
+  "artifact_sha256": "3122b9a2d6a279c5fac4c593e6962dcc7ae8078c3efb51e260850aff9969ee00",
+  "core_sha": "3fa1467f5548560d450cae404abecdd9f195e368",
+  "legacy_core_sha": "72a93a2388dda2b6c91938784f09e5fb2dd9493c",
+  "extension_runtime_sha": "99d1ca888c25960ec105a2385141cd833047b216"
+}
