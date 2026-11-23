@@ -1,0 +1,36 @@
+/* ═══ Theme Toggle extension — Hermes WebUI (v2.3.1) ═══ */
+/*
+ * Icon visibility and sizing only. Placement, hover and tooltip styling
+ * come from the WebUI's own .rail-btn / .nav-tab / .has-tooltip rules, and
+ * the mobile sidebar copy is created by core's _syncNavActionMirrors(), so
+ * the same classes (and these rules) apply to both buttons.
+ *
+ * There is deliberately no theme-fade transition rule: core's own theme
+ * switch is instant, and a global `transition: … !important` rule forces a
+ * style recalculation over every element on the page (~300 ms of synchronous
+ * work per click on a long transcript). The switch here is instant too.
+ */
+
+/* Icon sizing (match the other rail icons) */
+.hermes-rtt svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  pointer-events: none;
+}
+
+/* One icon at a time: moon in light mode (click to go dark), sun in dark
+ * mode (click to go light). Only the hidden icon gets a rule, and its
+ * html-prefixed selector outranks Core's mobile
+ * `.sidebar-nav .nav-tab svg{display:block}`, which would otherwise show
+ * both icons in the mirrored drawer button. */
+html:not(.dark) .hermes-rtt .icon-sun { display: none; }
+html.dark .hermes-rtt .icon-moon { display: none; }
+
+/* Locked under a scheme-forcing skin: the base theme is not in effect.
+ * aria-disabled keeps the button focusable and its tooltip visible; the
+ * dimming sits on the icon, because opacity on the button itself creates a
+ * stacking context that hides Core's ::after tooltip under the sidebar. */
+.hermes-rtt[aria-disabled="true"] { cursor: not-allowed; }
+.hermes-rtt[aria-disabled="true"] svg { opacity: .45; }
+.hermes-rtt[aria-disabled="true"]:hover { background: none; color: var(--muted); }
