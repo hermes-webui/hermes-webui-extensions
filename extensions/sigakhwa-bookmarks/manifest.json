@@ -1,0 +1,58 @@
+{
+  "extensions": [
+    {
+      "id": "sigakhwa-bookmarks",
+      "name": "Sigakhwa Bookmarks & TOC",
+      "description": "Name and bookmark any message, jump back to it later (across conversations), and browse a table of contents of the current conversation built from headings, tables and Mermaid diagrams. Stored in the browser by default; an optional token-protected loopback sidecar shares bookmarks between devices (PC and phone).",
+      "scripts": [
+        "assets/shared/hermes-viz-store.js",
+        "assets/shared/hermes-viz-nav.js",
+        "assets/sigakhwa-bookmarks.js"
+      ],
+      "stylesheets": [
+        "assets/sigakhwa-bookmarks.css"
+      ],
+      "permissions": {
+        "webui_api": {
+          "read": [
+            "session",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/health",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items/{id}",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/export"
+          ],
+          "write": [
+            "/api/profile/switch",
+            "/api/session/draft",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/items/{id}",
+            "/api/extensions/sigakhwa-bookmarks/sidecar/v1/bookmarks/import"
+          ]
+        },
+        "webui_navigation": true,
+        "dom": {
+          "owned": true,
+          "mutates_core_views": true
+        },
+        "storage": {
+          "owned": [
+            "hermes-viz-store:bookmarks"
+          ],
+          "shared_webui_keys": []
+        },
+        "loopback_sidecar": true,
+        "native_host": false,
+        "filesystem": {
+          "arbitrary": false,
+          "serves_bundled_assets": true
+        },
+        "network_external": false
+      },
+      "sidecar": {
+        "type": "loopback",
+        "origin": "http://127.0.0.1:17831",
+        "health_path": "/health",
+        "proxy_auth": "token-v1"
+      }
+    }
+  ]
+}

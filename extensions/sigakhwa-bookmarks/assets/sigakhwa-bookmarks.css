@@ -1,0 +1,136 @@
+/* sigakhwa-bookmarks — panel, toolbar button, dialog. Uses core theme variables so skins/dark mode apply. */
+
+/* toolbar button: shares core's top-right slot in .messages-shell (#jumpToSessionStartBtn is top:16px right:20px;
+   the script shifts us left of it while it is visible) */
+#svbToggleBtn.svb-toggle {
+  position: absolute; top: 16px; right: 20px; z-index: 12;
+  height: 32px; min-width: 32px; padding: 0 8px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  background: var(--code-bg, var(--surface, #fff)); color: var(--muted, #666);
+  border: 1px solid var(--border2, #ccc); cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .18); font-size: 12px; font-weight: 600; line-height: 1;
+  transition: color .12s, border-color .12s, background .12s;
+}
+#svbToggleBtn.svb-toggle:hover, #svbToggleBtn.svb-toggle[aria-expanded="true"] {
+  color: var(--accent-text, var(--text, #111)); border-color: var(--accent-bg-strong, var(--border, #999)); background: var(--accent-bg, var(--hover-bg, #eee));
+}
+#svbToggleBtn.svb-toggle--has { color: var(--accent-text, var(--text, #111)); }
+.svb-toggle-glyph { display: inline-flex; }
+.svb-toggle-glyph svg { display: block; }
+.svb-toggle-badge {
+  display: inline-block; min-width: 16px; padding: 0 4px; border-radius: 999px; font-size: 10px; line-height: 16px; text-align: center;
+  background: var(--accent-bg-strong, #3889fd); color: var(--accent-text); border: 1px solid var(--accent);
+}
+.svb-toggle-badge[hidden] { display: none; }
+
+/* panel */
+.svb-panel {
+  position: fixed; right: max(var(--svb-panel-right, 20px), calc(20px + var(--outline-workspace-offset, 0px))); top: var(--svb-panel-top, 96px); width: 360px; max-width: calc(100vw - 32px - var(--outline-workspace-offset, 0px));
+  max-height: min(72vh, 680px, calc(100dvh - var(--svb-panel-top, 96px) - 16px)); z-index: 9997;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface, #fff); color: var(--text, #111);
+  border: 1px solid var(--border2, #ccc); border-radius: 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, .24);
+  font-size: 13px;
+}
+.svb-panel[hidden] { display: none; }
+.svb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 8px; border-bottom: 1px solid var(--border2, #ccc); }
+.svb-head-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.svb-title { font-weight: 700; font-size: 13px; letter-spacing: .02em; }
+.svb-sync-badge {
+  font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 999px; white-space: nowrap;
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface)); color: var(--text); border: 1px solid var(--warning);
+}
+.svb-sync-badge--on { color: var(--success); border-color: var(--success); }
+.svb-sync-badge--partial { color: var(--text); border-color: var(--warning); }
+.svb-close { background: none; border: 0; color: var(--muted, #666); font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.svb-close:hover { color: var(--text, #111); }
+.svb-tabs { display: flex; border-bottom: 1px solid var(--border2, #ccc); flex-shrink: 0; }
+.svb-tab {
+  flex: 1; padding: 8px 10px; background: none; border: 0; border-bottom: 2px solid transparent;
+  color: var(--muted, #666); font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.svb-tab--active { color: var(--accent-text, var(--text, #111)); border-bottom-color: var(--accent-bg-strong, #3889fd); }
+.svb-body { overflow-y: auto; flex: 1; min-height: 60px; -webkit-overflow-scrolling: touch; }
+.svb-foot { border-top: 1px solid var(--border2, #ccc); padding: 8px 12px; flex-shrink: 0; }
+.svb-empty { padding: 18px 12px; color: var(--muted, #666); text-align: center; margin: 0; line-height: 1.5; }
+.svb-group-profile { padding: 8px 12px 2px; font-size: 11px; font-weight: 700; color: var(--muted, #666); text-transform: uppercase; letter-spacing: .04em; }
+.svb-group-session { display: flex; align-items: center; gap: 6px; padding: 6px 12px 2px; font-size: 12px; font-weight: 600; color: var(--text, #111); }
+.svb-group-session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svb-chip { font-size: 10px; line-height: 16px; padding: 0 6px; border-radius: 999px; background: var(--accent-bg, #e8f0fe); color: var(--accent-text, #1a56db); white-space: nowrap; }
+.svb-chip--local { background: color-mix(in srgb, var(--warning) 14%, var(--surface)); color: var(--text); margin-left: 6px; }
+.svb-error { color: var(--error); }
+.svb-entry-row { display: flex; align-items: stretch; border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, .06)); }
+.svb-entry {
+  display: flex; align-items: baseline; gap: 6px; flex: 1; min-width: 0; width: 100%;
+  padding: 7px 12px; background: none; border: 0; cursor: pointer; text-align: left; color: var(--text, #111); font-size: 13px; line-height: 1.4;
+}
+.svb-entry:hover { background: var(--accent-bg, var(--hover-bg, #f2f2f2)); }
+.svb-entry-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svb-entry-idx { font-size: 11px; color: var(--muted, #666); flex-shrink: 0; }
+.svb-role { font-size: 10px; font-weight: 700; line-height: 16px; padding: 0 5px; border-radius: 4px; flex-shrink: 0; background: var(--code-bg, #eee); color: var(--muted, #666); }
+.svb-role--user { background: rgba(56, 137, 253, .14); color: var(--accent-text, #1a56db); }
+.svb-mini { background: none; border: 0; color: var(--muted, #666); cursor: pointer; padding: 0 8px; font-size: 14px; }
+.svb-mini:hover { color: var(--text, #111); background: var(--hover-bg, #f2f2f2); }
+.svb-mini--danger:hover { color: var(--error, #d33); }
+.svb-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.svb-hint { font-size: 11px; line-height: 1.5; color: var(--muted, #666); }
+.svb-file[hidden] { display: none; }
+
+/* TOC entries */
+.svb-toc-entry { border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, .06)); }
+.svb-toc-tag { font-size: 10px; font-weight: 700; color: var(--muted, #666); flex-shrink: 0; min-width: 34px; }
+.svb-toc-heading .svb-toc-tag { color: var(--accent-text, #1a56db); }
+.svb-toc-level-2 { padding-left: 24px; }
+.svb-toc-level-3 { padding-left: 36px; }
+.svb-toc-table .svb-entry-name, .svb-toc-diagram .svb-entry-name { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; }
+.svb-toc-frame .svb-entry-name { font-style: italic; }
+
+/* buttons */
+.svb-btn {
+  padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border2, #ccc); background: var(--surface, #fff); color: var(--text, #111);
+  font-size: 13px; cursor: pointer;
+}
+.svb-btn:hover { background: var(--hover-bg, #f2f2f2); }
+.svb-btn--primary { background: var(--accent-bg-strong, #3889fd); border-color: var(--accent); color: var(--accent-text); }
+.svb-btn--primary:hover { filter: brightness(1.08); }
+.svb-btn--danger { color: var(--error, #d33); border-color: var(--error, #d33); }
+.svb-btn--small { padding: 4px 9px; font-size: 12px; }
+.svb-btn[disabled] { opacity: .6; cursor: default; }
+
+/* dialog */
+.svb-dialog-backdrop { position: fixed; inset: 0; z-index: 10000; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.svb-dialog {
+  width: 420px; max-width: 100%; background: var(--surface, #fff); color: var(--text, #111);
+  border: 1px solid var(--border2, #ccc); border-radius: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, .3); padding: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.svb-dialog-title { margin: 0; font-size: 15px; }
+.svb-dialog-meta { font-size: 11px; color: var(--muted, #666); }
+.svb-dialog-preview { font-size: 12px; color: var(--muted, #666); background: var(--code-bg, #f6f6f6); border-radius: 8px; padding: 8px 10px; max-height: 72px; overflow: hidden; line-height: 1.45; word-break: break-word; }
+.svb-dialog-input {
+  width: 100%; box-sizing: border-box; padding: 9px 10px; font-size: 14px; border-radius: 8px;
+  border: 1px solid var(--border2, #ccc); background: var(--input-bg, var(--surface, #fff)); color: var(--text, #111);
+}
+.svb-dialog-error { min-height: 1em; font-size: 12px; color: var(--error, #d33); }
+.svb-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* jump flash (core's .outline-jump-flash is added too; this one works without the outline stylesheet) */
+@keyframes hermes-viz-flash { 0% { background: var(--accent-bg-strong, rgba(56, 137, 253, .35)); } 100% { background: transparent; } }
+.hermes-viz-jump-flash { animation: hermes-viz-flash 1.2s ease-out forwards; }
+
+/* phone: bottom sheet, full width, bigger touch targets */
+@media (max-width: 480px) {
+  .svb-panel {
+    left: 0; right: 0; top: auto; bottom: 0; width: auto; max-width: none;
+    max-height: 75vh; border-radius: 14px 14px 0 0; border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .svb-entry { padding: 10px 12px; font-size: 14px; }
+  .svb-mini { padding: 0 12px; font-size: 16px; }
+  .svb-tab { padding: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #svbToggleBtn.svb-toggle { transition: none; }
+  .hermes-viz-jump-flash, .outline-jump-flash { animation: none; }
+}
