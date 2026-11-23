@@ -8,13 +8,13 @@ profiles, or rewrites conversation titles.
 
 ## Install and compatibility
 
-Version 0.2.0 requires manifest bundles. Shared mode additionally requires
+Version 0.2.1 requires manifest bundles. Shared mode additionally requires
 **Shared installation identity API v1**, detected with `GET api/instance-branding`
 and `api_version: 1`. Earlier releases including `exp-v0.52.653` do not provide
 that API. Do not infer compatibility from that version number.
 
 The integration reference is core commit
-`036339c5f7085254f783c17fbf1bbfcbd9540da6`, including the `instance_name`
+`3fa1467f5548560d450cae404abecdd9f195e368`, including the `instance_name`
 prerequisite from [#8307](https://github.com/nesquena/hermes-webui/pull/8307).
 This is an integration branch, not a claim of upstream release availability.
 Core's `docs/instance-branding.md` defines the server contract.
@@ -44,39 +44,58 @@ new image upload is disabled.
 
 ## Configure
 
-Open **Settings → Extensions → Installed → Custom Branding → Configure**, or
-click the titlebar/empty-state logo. Close or Escape settles the Configure hook.
+Open **Settings → Extensions → Installed → Custom Branding → Configure**.
+On legacy cores without Configure, the logo picker remains available. With
+Configure registered, the empty-state mark is no longer an editor shortcut;
+non-managers never get brand-mark shortcuts to shared management.
 
-1. Enter the instance name. Choose whether branding owns that name, then save.
-   An adopted name is hidden on disable and cleared on reset; an independent
-   native name survives those operations.
-2. Select one **static square PNG, 512–2048 px, up to 2 MiB**. Confirm that the
-   image becomes public. Core validates and normalizes it into all required
-   sizes. Upload alone does not enable sharing.
-3. Enable sharing. Every new access receives the server identity. Successful
-   writes consume the canonical response and reload the page; returning tabs
-   use core's visibility/pageshow revision check without polling.
+On shipped cores without API v1, Logo and Favicon are immediately accessible.
+There is no shared section and no API probe at page load. Configure checks for
+support when opened. On a compatible core, temporary read errors offer Retry
+without hiding personal controls or discarding the last valid shared identity.
 
-Each write uses native CSRF and the preceding response's exact ETag/If-Match.
-A conflict refreshes the displayed state and asks you to review and save again;
-it never silently retries. API errors are displayed and preserve server state.
+1. Enter the shared instance name and choose whether it is removed when sharing
+   is turned off or reset. An independent native name survives those operations.
+2. Use **Upload…** to prepare a static square PNG, 512–2048 px, max 2 MB.
+   The preview is local until Save; no automatic import or upload occurs.
+3. Set **Enable sharing**, then **Save**. Enabling requires confirmation that
+   the name/image become public. Upload by itself does not enable sharing.
+
+One Save sends the prepared image first, then the name/ownership/enabled patch,
+using the canonical ETag from each response. These are two independent HTTP
+mutations, not an atomic transaction. If only the image succeeds, the dialog
+reports that partial result and keeps the remaining draft. It never replays a
+mutation automatically. A 412 or an unknown outcome requires **Refresh shared
+settings** before another explicit Save; refreshing preserves the typed draft.
+Outside click and Escape also retain the draft until the page is closed/reloaded.
+
+After the complete Save (or reset/explicit disable), the page reloads **once**.
+Core renders the complete shell identity, including its title owners, PWA/Apple
+links and notification metadata; it currently has no single in-place identity
+application hook. This avoids a parallel shell implementation in the extension.
+Navigation is declared in permissions. Save other unfinished work first.
+Returning tabs use core's existing visibility/pageshow confirmation, without polling.
+
 The v1 shell supplies an app-root `document.baseURI`, including session routes
-and stripped proxy prefixes; API and image URLs resolve against that base.
+and stripped proxy prefixes. Management and image data are validated separately
+from the public bootstrap before becoming visible state. Shared logos accept
+only canonical `branding/<64 lowercase hex>/icon-512.png` paths inside that
+same-origin app root. Invalid responses preserve the last valid state.
 
 ## Personal images and fallback
 
-On older core, personal mode remains available. Expand **Personal images** to
-upload/remove a logo (256px) or favicon (64px); PNG/JPEG/WebP are rasterized in
-the browser and stored under the original keys:
+On older core, upload/remove Logo and Favicon directly. PNG/JPEG/WebP are
+rasterized in the browser (logo 256px, favicon 64px) and stored under the
+original keys:
 
 - `hermes-ext-custom-branding-logo`
 - `hermes-ext-custom-branding-favicon`
 
-Shared identity takes priority while active, including when the API probe
-fails but the initial HTML already declares sharing active. Local favicon and
-Apple swaps are suppressed; local images are retained without automatic upload
-or migration. When sharing is inactive, personal images resume. Remove both
-personal images as well if you want entirely native Hermes visuals.
+Shared identity takes priority while active, including when the management
+read fails but valid initial HTML already declares sharing active. Local
+favicon and Apple swaps are suppressed. Personal images are retained without
+upload or migration; they resume when sharing is inactive. Remove both personal
+images as well if you want entirely native Hermes visuals.
 
 The legacy `window.HermesCustomBrandingExtension` methods remain available:
 `getLogo`, `getFavicon`, `setLogo`, `setFavicon`, `clearLogo`, `clearFavicon`,
@@ -155,15 +174,18 @@ keep those environments separate or resolve that test-only dependency explicitly
 
 ```sh
 python tests/compatibility/custom_branding_smoke.py \
-  --core-dir /path/to/core \
-  --artifact dist/artifacts/custom-branding-0.2.0.zip \
+  --core-dir /path/to/api-v1-core \
+  --legacy-core-dir /path/to/current-core-without-v1 \
+  --artifact dist/artifacts/custom-branding-0.2.1.zip \
   --evidence-dir /path/to/disposable-evidence
 ```
 
+Pass `--before-artifact /path/to/previous.zip` for comparable baseline captures.
 The smoke checks runtime handshake, native Configure, upload/name/enable,
 separate Chromium/Firefox storage, metadata/manifest/DOM, personal priority,
-desktop/narrow captures, provider disable/reactivation, missing-v1 downgrade
-fallback, disable and reset. This is desktop headless engine
+desktop/narrow captures through Settings, no shipped-core load probe, real
+412/draft recovery, non-manager controls, provider disable/reactivation,
+disable and reset. This is desktop headless engine
 coverage and narrow viewport emulation; **not Android/iOS or installed-PWA
 launcher validation**. Real proxy/OIDC integration and physical launcher
 refresh remain deployment checks. DOM class renames need compatibility review.

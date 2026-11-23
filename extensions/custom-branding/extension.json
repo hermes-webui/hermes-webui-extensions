@@ -2,7 +2,7 @@
   "id": "custom-branding",
   "name": "Custom Branding",
   "description": "Configure one public instance name and image for all devices with the shared identity API, or keep personal browser-local logos on older WebUI versions.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "nesquena-hermes",
   "assets": {
     "scripts": [
@@ -32,7 +32,7 @@
         "/api/instance-branding/image"
       ]
     },
-    "webui_navigation": false,
+    "webui_navigation": true,
     "dom": {
       "owned": true,
       "mutates_core_views": true

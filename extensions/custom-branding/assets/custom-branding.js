@@ -24,75 +24,135 @@
   // Core favicon links we neutralize while a custom favicon is active.
   const FAVICON_SELECTOR = 'link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]';
 
-  let shared = window.__HERMES_INSTANCE_BRANDING__ || null;
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const nullableString = value => value === null || typeof value === 'string';
+  // v1 guarantees an app-root base. Accept only the exact public derivative paths.
+  function assetURL(value) {
+    if (typeof value !== 'string' || !/^branding\/[a-f0-9]{64}\/icon-512\.png$/.test(value)) return '';
+    try {
+      const base = new URL(document.baseURI);
+      const url = new URL(value, base);
+      return base.origin === location.origin && url.origin === location.origin &&
+        base.pathname.endsWith('/') && url.pathname.startsWith(base.pathname) ? url.href : '';
+    } catch (_) { return ''; }
+  }
+  function validPublic(value) {
+    if (!object(value) || value.api_version !== 1 || !object(value.effective)) return false;
+    const e = value.effective;
+    return typeof e.active === 'boolean' && nullableString(e.name) && typeof e.revision === 'string' &&
+      (e.icon_512 === null || !!assetURL(e.icon_512));
+  }
+  function validManagement(value) {
+    return validPublic(value) && object(value.config) &&
+      ['can_manage', 'can_upload', 'provider_available', 'name_supported'].every(k => typeof value[k] === 'boolean') &&
+      typeof value.config.enabled === 'boolean' && typeof value.config.manages_instance_name === 'boolean' &&
+      nullableString(value.config.instance_name);
+  }
+  const hasBootstrap = window.__HERMES_INSTANCE_BRANDING__ !== undefined;
+  let shared = validPublic(window.__HERMES_INSTANCE_BRANDING__) ? window.__HERMES_INSTANCE_BRANDING__ : null;
   let management = null;
   let etag = null;
   let busy = false;
   let configureResolve = null;
+  let configureRegistered = false;
   let readEpoch = 0;
-  let compatibility = 'Checking shared branding support…';
-  const sharedActive = () => shared?.api_version === 1 && shared.effective?.active === true;
-  // The v1 core shell supplies an app-root <base>, including session/prefix routes.
+  let readError = false;
+  let saveMessage = '';
+  let draft = null;
+  let draftDirty = false;
+  let previewURL = '';
+  const sharedActive = () => shared?.effective.active === true;
   const endpoint = (suffix = '') => new URL('api/instance-branding' + suffix, document.baseURI);
-  function sharedLogo() {
-    const value = shared?.effective?.icon_512;
-    if (!sharedActive() || typeof value !== 'string') return '';
-    const url = new URL(value, document.baseURI);
-    return url.origin === location.origin ? url.href : '';
+  const sharedLogo = () => sharedActive() ? assetURL(shared.effective.icon_512) : '';
+  function ensureDraft() {
+    if ((!draft || !draftDirty) && management) draft = {name: management.config.instance_name || '',
+      adopt: management.config.manages_instance_name, enabled: management.config.enabled, file: null};
   }
   async function readShared() {
+    if (busy) return;
     const epoch = ++readEpoch;
     etag = null;
-    management = null;
     try {
       const response = await fetch(endpoint(), {cache: 'no-store', credentials: 'same-origin'});
-      if (!response.ok) throw new Error('Shared API unavailable (' + response.status + ').');
+      if (epoch !== readEpoch) return;
+      if (response.status === 404 && !hasBootstrap && !management) { readError = false; return; }
+      if (!response.ok) throw new Error('unavailable');
       const value = await response.json();
-      if (value.api_version !== 1 || !value.effective || !value.config) throw new Error('Shared API v1 required.');
       if (epoch !== readEpoch) return;
+      if (!validManagement(value)) throw new Error('invalid');
       management = value;
+      shared = {api_version: 1, effective: value.effective};
       etag = response.headers.get('ETag');
-      shared = value;
-      compatibility = value.provider_available ? 'Shared identity is stored on this server.' : 'Compatible shared provider unavailable.';
-    } catch (error) {
+      readError = false;
+      ensureDraft();
+      if (saveMessage) saveMessage = 'Current shared settings refreshed. Your draft is kept; review it before saving.';
+    } catch (_) {
       if (epoch !== readEpoch) return;
-      compatibility = error.message + ' Personal settings remain on this browser.';
+      readError = true;
+    } finally {
+      if (epoch === readEpoch) { applyAll(); rebuildPicker(); }
     }
+  }
+  async function postShared(patch, image = false) {
+    const match = etag;
+    etag = null; // Unknown outcomes must be read explicitly, never replayed.
+    const headers = {'Content-Type': image ? 'image/png' : 'application/json', 'If-Match': match};
+    const token = window.__HERMES_CONFIG__?.csrfToken;
+    if (token) headers['X-Hermes-CSRF-Token'] = token;
+    const response = await fetch(endpoint(image ? '/image' : ''), {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store', headers,
+      body: image ? patch : JSON.stringify(patch)
+    });
+    if (!response.ok) throw new Error(response.status === 412 ?
+      'Changed elsewhere. Refresh shared settings, review your draft, then save again.' :
+      'Save could not be confirmed. Refresh shared settings before trying again.');
+    const value = await response.json();
+    if (!validManagement(value)) throw new Error('invalid');
+    management = value;
+    shared = {api_version: 1, effective: value.effective};
+    window.__HERMES_INSTANCE_BRANDING__ = shared;
+    etag = response.headers.get('ETag');
     applyAll();
   }
-  async function writeShared(patch, image = false) {
+  async function writeShared(reset = false) {
     if (busy || !management?.can_manage || !etag) return;
-    if (image && (!management.can_upload || !management.provider_available)) return;
-    const match = etag;
-    etag = null; // A transport failure leaves the outcome unknown; require a fresh read.
+    ensureDraft();
+    const pending = {...draft};
+    if (!reset && pending.file && (!management.can_upload || !management.provider_available)) return;
+    if (!reset && pending.enabled && !management.config.enabled &&
+        !window.confirm('Enable shared branding? The name and image will be public for all devices.')) return;
+    if (reset && !window.confirm('Reset shared images and the branding-owned name? Personal browser images are retained.')) return;
+    ++readEpoch;
     busy = true;
+    saveMessage = 'Saving…';
     rebuildPicker();
-    setStatus('Saving…');
+    let imageSaved = false;
     try {
-      const headers = {'Content-Type': image ? 'image/png' : 'application/json', 'If-Match': match};
-      const token = window.__HERMES_CONFIG__?.csrfToken;
-      if (token) headers['X-Hermes-CSRF-Token'] = token;
-      const response = await fetch(endpoint(image ? '/image' : ''), {
-        method: 'POST', credentials: 'same-origin', cache: 'no-store', headers,
-        body: image ? patch : JSON.stringify(patch)
-      });
-      const value = await response.json();
-      if (!response.ok) {
-        // Refresh capabilities/ETag, never replay the user's write automatically.
-        await readShared();
-        throw new Error(response.status === 412 ? 'Changed elsewhere. Review current settings and save again.' : (value.error || 'Save refused (' + response.status + ').'));
+      if (!reset && pending.file) {
+        await postShared(pending.file, true);
+        imageSaved = true;
+        draft.file = null;
+        clearPreview();
+        if (!etag || !management.can_manage) throw new Error('read required');
       }
-      if (value.api_version !== 1 || !value.effective) throw new Error('Invalid server response. Reopen Configure before retrying.');
-      management = shared = value;
-      etag = response.headers.get('ETag');
-      window.__HERMES_INSTANCE_BRANDING__ = {api_version: 1, effective: value.effective};
-      applyAll();
+      await postShared(reset ? {action: 'reset'} : {
+        instance_name: pending.name, manages_instance_name: pending.adopt, enabled: pending.enabled
+      });
+      draft = null;
+      clearPreview();
+      // Core owns the complete initial shell (title owners, manifest/Apple links,
+      // notification metadata). Refresh once after the whole Save, not per HTTP step.
       location.reload();
     } catch (error) {
-      busy = false;
-      rebuildPicker();
-      setStatus(error.message);
-    } finally { busy = false; }
+      etag = null;
+      saveMessage = (imageSaved ? 'Image saved; the remaining changes could not be confirmed. ' : '') +
+        (error.message.startsWith('Changed elsewhere') ? error.message :
+          'Save could not be confirmed. Refresh shared settings before trying again.');
+    } finally { busy = false; rebuildPicker(); }
+  }
+  function clearPreview() {
+    if (previewURL) URL.revokeObjectURL(previewURL);
+    previewURL = '';
   }
 
   let observer = null;
@@ -275,6 +335,7 @@
   function closePicker() {
     if (picker) { picker.remove(); picker = null; }
     if (configureResolve) { const finish = configureResolve; configureResolve = null; finish(); }
+    window.removeEventListener('resize', reposition);
     document.removeEventListener('pointerdown', outside, true);
     document.removeEventListener('keydown', esc, true);
     // restore focus to the trigger the picker was opened from (a11y)
@@ -282,7 +343,7 @@
     lastAnchor = null;
   }
   function outside(ev) { if (picker && !picker.contains(ev.target)) closePicker(); }
-  function esc(ev) { if (ev.key === 'Escape') closePicker(); }
+  function esc(ev) { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closePicker(); } }
 
   function makeSection(labelText, currentValue, kind, maxDim, maxBytes) {
     const section = document.createElement('div');
@@ -363,134 +424,146 @@
     const section = document.createElement('section');
     section.className = 'hwx-branding-section';
     const heading = document.createElement('strong');
-    heading.textContent = 'Shared instance';
-    section.appendChild(heading);
-    const info = document.createElement('p');
-    info.textContent = compatibility + ' Name and image are public. Images affect all devices.';
-    section.appendChild(info);
-    if (!management) return section;
-    const config = management.config;
-    const disabled = busy || !management.can_manage || !etag;
+    heading.textContent = 'Shared instance'; section.appendChild(heading);
+    const info = document.createElement('p'); section.appendChild(info);
+    if (!management.can_manage) {
+      info.textContent = 'Turn on WebUI password protection and sign in as owner to change shared branding.';
+      return section;
+    }
+    ensureDraft();
+    info.textContent = management.provider_available ? 'The shared name and image are public. Upload happens only when you save.' :
+      "Shared branding isn't active on this server.";
+    const disabled = busy || !etag;
+    const providerMissing = !management.provider_available;
     function button(text, action, unavailable = false) {
       const btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'hwx-branding-btn'; btn.textContent = text;
-      btn.disabled = disabled || unavailable;
-      btn.addEventListener('click', action);
-      section.appendChild(btn);
-      return btn;
+      btn.disabled = busy || unavailable;
+      btn.addEventListener('click', action); section.appendChild(btn); return btn;
     }
-    const nameLabel = document.createElement('label');
-    nameLabel.textContent = 'Instance name';
+    const nameLabel = document.createElement('label'); nameLabel.textContent = 'Instance name';
     const name = document.createElement('input');
-    name.type = 'text'; name.maxLength = 80; name.value = config.instance_name || '';
-    name.disabled = disabled || !management.provider_available || !management.name_supported;
+    name.id = 'hwxSharedName'; name.type = 'text'; name.maxLength = 80; name.value = draft.name;
+    name.disabled = disabled || providerMissing || !management.name_supported;
+    name.addEventListener('input', () => { draft.name = name.value; draftDirty = true; });
     nameLabel.appendChild(name); section.appendChild(nameLabel);
     const adoptLabel = document.createElement('label');
-    const adopt = document.createElement('input');
-    adopt.type = 'checkbox'; adopt.checked = config.manages_instance_name === true;
+    const adopt = document.createElement('input'); adopt.type = 'checkbox'; adopt.checked = draft.adopt;
     adopt.disabled = name.disabled;
-    adoptLabel.append(adopt, document.createTextNode(' Let branding manage this name (disable/reset hides or clears it)'));
+    adopt.addEventListener('change', () => { draft.adopt = adopt.checked; draftDirty = true; });
+    adoptLabel.append(adopt, document.createTextNode(' Remove this name when sharing is turned off or reset'));
     section.appendChild(adoptLabel);
-    button('Save name and ownership', () => writeShared({instance_name: name.value, manages_instance_name: adopt.checked}), name.disabled);
-    const uploadLabel = document.createElement('label');
-    uploadLabel.textContent = 'Shared image: square static PNG, 512–2048 px, up to 2 MiB. Upload does not enable sharing.';
+    const preview = document.createElement('div'); preview.className = 'hwx-branding-preview-row';
+    const current = previewURL || sharedLogo();
+    if (current) {
+      const img = document.createElement('img'); img.className = 'hwx-branding-preview-logo';
+      img.src = current; img.alt = draft.file ? 'Prepared shared image' : 'Current shared image'; preview.appendChild(img);
+    }
+    const imageState = document.createElement('span');
+    imageState.textContent = draft.file ? 'Image ready to save' : management.config.image_revision ? 'Image set' : 'None';
+    preview.appendChild(imageState); section.appendChild(preview);
     const input = document.createElement('input');
-    input.type = 'file'; input.accept = 'image/png';
-    input.disabled = disabled || !management.can_upload || !management.provider_available;
+    input.type = 'file'; input.accept = 'image/png'; input.hidden = true;
+    input.dataset.sharedImage = '1';
+    input.disabled = disabled || providerMissing || !management.can_upload;
     input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      if (file.type !== 'image/png' || file.size > 2 * 1024 * 1024) {
-        setStatus('Choose a PNG up to 2 MiB.'); input.value = ''; return;
-      }
-      if (window.confirm('Upload this image as public instance identity for all devices?')) writeShared(file, true);
+      const file = input.files?.[0]; if (!file) return;
+      if (file.type !== 'image/png' || file.size > 2 * 1024 * 1024) { setStatus('Choose a PNG up to 2 MB.'); input.value = ''; return; }
+      clearPreview();
+      draft.file = file; draftDirty = true;
+      if (typeof URL.createObjectURL === 'function') previewURL = URL.createObjectURL(file);
+      rebuildPicker();
     });
-    uploadLabel.appendChild(input); section.appendChild(uploadLabel);
-    if (management.can_manage && management.provider_available && !management.can_upload) {
+    button('Upload…', () => input.click(), input.disabled);
+    section.appendChild(input);
+    const limits = document.createElement('p'); limits.textContent = 'Square PNG, 512–2048 px, max 2 MB'; section.appendChild(limits);
+    if (!management.can_upload && management.provider_available) {
       const note = document.createElement('p');
       note.textContent = 'Image import unavailable. Install the optional image dependency in the WebUI environment; existing images and names remain available.';
       section.appendChild(note);
     }
-    button(config.enabled ? 'Disable sharing' : 'Enable sharing', () => writeShared({enabled: !config.enabled}), !config.enabled && !management.provider_available);
-    button('Restore Hermes / reset shared identity', () => {
-      if (window.confirm('Reset shared images and the branding-owned name? Personal browser images are retained.')) writeShared({action: 'reset'});
-    });
-    if (!management.can_manage) {
-      const reason = document.createElement('p');
-      reason.textContent = 'Management requires WebUI authentication and an unrestricted owner session.';
-      section.appendChild(reason);
-    }
+    const enableLabel = document.createElement('label');
+    const enable = document.createElement('input'); enable.type = 'checkbox'; enable.checked = draft.enabled;
+    enable.dataset.sharedEnabled = '1'; enable.disabled = disabled || (providerMissing && !management.config.enabled);
+    enable.addEventListener('change', () => { draft.enabled = enable.checked; draftDirty = true; });
+    enableLabel.append(enable, document.createTextNode(' Enable sharing')); section.appendChild(enableLabel);
+    const reloadNote = document.createElement('p');
+    reloadNote.textContent = 'Saving reloads this page. Save other unfinished work first.'; section.appendChild(reloadNote);
+    button('Save', () => writeShared(), disabled || providerMissing || (!!draft.file && !management.can_upload));
+    const status = document.createElement('div'); status.className = 'hwx-branding-save-status';
+    status.setAttribute('role', 'status'); status.textContent = saveMessage;
+    status.classList.toggle('hwx-branding-save-status--error', !busy && !etag); section.appendChild(status);
+    if (!etag) button('Refresh shared settings', readShared);
+    if (providerMissing && management.config.enabled) button('Disable sharing', () => {
+      draft.enabled = false; draftDirty = true; writeSharedDisabled();
+    }, disabled);
+    button('Reset shared branding…', () => writeShared(true), disabled).classList.add('hwx-branding-btn--clear');
     return section;
   }
-
+  async function writeSharedDisabled() {
+    if (busy || !etag || !management?.can_manage) return;
+    busy = true; ++readEpoch; rebuildPicker();
+    try { await postShared({enabled: false}); location.reload(); }
+    catch (_) { etag = null; saveMessage = 'Save could not be confirmed. Refresh shared settings before trying again.'; }
+    finally { busy = false; rebuildPicker(); }
+  }
   function buildPickerBody() {
     const frag = document.createDocumentFragment();
-
-    const title = document.createElement('div');
-    title.className = 'hwx-branding-title';
-    title.textContent = 'Custom Branding';
-    frag.appendChild(title);
+    const title = document.createElement('div'); title.className = 'hwx-branding-title';
+    const label = document.createElement('span'); label.textContent = 'Custom Branding'; title.appendChild(label);
     const close = document.createElement('button');
-    close.type = 'button'; close.className = 'hwx-branding-btn'; close.textContent = 'Close';
-    close.addEventListener('click', closePicker); frag.appendChild(close);
-
-    frag.appendChild(sharedSection());
-    const personal = document.createElement('details');
-    const summary = document.createElement('summary');
-    summary.textContent = sharedActive() ? 'Personal images (paused while sharing is active)' : 'Personal images (this browser only)';
-    personal.appendChild(summary);
-    if (!sharedActive()) {
-      personal.appendChild(makeSection('Logo', getLogo(), 'logo', LOGO_MAX_DIM, LOGO_MAX_BYTES));
-      personal.appendChild(makeSection('Favicon', getFavicon(), 'favicon', FAVICON_MAX_DIM, FAVICON_MAX_BYTES));
+    close.type = 'button'; close.className = 'hwx-branding-btn hwx-branding-close'; close.textContent = '×';
+    close.setAttribute('aria-label', 'Close'); close.addEventListener('click', closePicker);
+    title.appendChild(close); frag.appendChild(title);
+    if (management) frag.appendChild(sharedSection());
+    if (readError) {
+      const retry = document.createElement('div');
+      const note = document.createElement('p'); note.setAttribute('role', 'status');
+      note.textContent = "Shared branding isn't available right now."; retry.appendChild(note);
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'hwx-branding-btn';
+      btn.textContent = 'Retry'; btn.disabled = busy; btn.addEventListener('click', readShared); retry.appendChild(btn);
+      frag.appendChild(retry);
     }
-    frag.appendChild(personal);
-
-    const status = document.createElement('div');
-    status.className = 'hwx-branding-status';
-    status.id = 'hwxBrandingStatus';
-    // role="status" (implicit aria-live="polite") so the "Couldn't save — storage
-    // full." message is announced to screen-reader users, not just shown visually.
-    status.setAttribute('role', 'status');
-    frag.appendChild(status);
-
+    if (sharedActive()) {
+      const personal = document.createElement('details');
+      const summary = document.createElement('summary'); summary.textContent = 'Personal images (paused while sharing is active)';
+      personal.appendChild(summary);
+      const note = document.createElement('p'); note.textContent = 'Your personal images are kept on this browser.'; personal.appendChild(note);
+      personal.open = personalOpen;
+      personal.addEventListener('toggle', () => { personalOpen = personal.open; position(lastAnchor); });
+      frag.appendChild(personal);
+    } else {
+      frag.appendChild(makeSection('Logo', getLogo(), 'logo', LOGO_MAX_DIM, LOGO_MAX_BYTES));
+      frag.appendChild(makeSection('Favicon', getFavicon(), 'favicon', FAVICON_MAX_DIM, FAVICON_MAX_BYTES));
+    }
+    const status = document.createElement('div'); status.className = 'hwx-branding-status';
+    status.id = 'hwxBrandingStatus'; status.setAttribute('role', 'status'); frag.appendChild(status);
     return frag;
   }
-
+  let personalOpen = false;
+  function focusPicker() {
+    const target = picker?.querySelector('input[type=text]:not(:disabled), .hwx-branding-section button:not(:disabled)') || picker?.querySelector('button');
+    try { target?.focus(); } catch (_) {}
+  }
   function rebuildPicker() {
     if (!picker) return;
-    picker.textContent = '';
-    picker.appendChild(buildPickerBody());
-    // Any rebuild destroys the control the user just activated (Upload/Remove),
-    // dropping keyboard focus to <body>. Restore it to the first control so a
-    // keyboard user stays inside the dialog. Centralized here so every call-site
-    // (upload + remove) is covered.
-    picker.querySelectorAll('button, input').forEach((node) => { if (busy) node.disabled = true; });
-    const firstBtn = picker.querySelector('button:not(:disabled)');
-    if (firstBtn) { try { firstBtn.focus(); } catch (_) {} }
+    const focused = picker.contains(document.activeElement);
+    picker.textContent = ''; picker.appendChild(buildPickerBody());
+    position(lastAnchor);
+    if (focused) focusPicker();
   }
-
   function openPicker(anchor) {
     closePicker();
     lastAnchor = anchor || null;
-    management = null; etag = null;
-    compatibility = 'Checking shared branding support…';
-    picker = document.createElement('div');
-    picker.className = 'hwx-branding-picker';
-    picker.setAttribute('role', 'dialog');
-    // Light-dismiss popover (outside-click / Esc closes it); we don't trap Tab,
-    // so don't claim aria-modal — that would tell a screen reader focus is
-    // trapped when it isn't.
-    picker.setAttribute('aria-label', 'Custom Branding');
-    picker.setAttribute('tabindex', '-1');
-    picker.appendChild(buildPickerBody());
-    document.body.appendChild(picker);
-    position(anchor);
-    readShared().then(() => { rebuildPicker(); position(anchor); });
+    picker = document.createElement('div'); picker.className = 'hwx-branding-picker';
+    picker.setAttribute('role', 'dialog'); picker.setAttribute('aria-label', 'Custom Branding');
+    // Light dismiss; no aria-modal claim because Tab can leave the picker.
+    picker.setAttribute('tabindex', '-1'); picker.appendChild(buildPickerBody());
+    document.body.appendChild(picker); position(anchor); focusPicker();
+    readShared();
+    window.addEventListener('resize', reposition);
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', esc, true);
-    // move focus into the dialog on open (first focusable, else the dialog)
-    const focusTarget = picker.querySelector('button, input, [tabindex]') || picker;
-    try { focusTarget.focus(); } catch (_) {}
   }
 
   function setStatus(msg) {
@@ -498,6 +571,7 @@
     if (s) s.textContent = msg || '';
   }
 
+  function reposition() { position(lastAnchor); }
   function position(anchor) {
     if (!picker) return;
     if (!anchor) { picker.style.left = Math.max(8, (window.innerWidth - (picker.offsetWidth || 360)) / 2) + 'px'; picker.style.top = '8px'; return; }
@@ -510,11 +584,27 @@
     let top = r.bottom + 6;
     const h = picker.offsetHeight || 0;
     if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
-    picker.style.top = top + 'px';
+    picker.style.top = Math.min(top, Math.max(8, window.innerHeight - h - 8)) + 'px';
   }
 
+  const wired = new WeakMap();
   function wireClick(container) {
-    if (!container || container.dataset.hwxBrandingWired) return;
+    if (!container) return;
+    const allowed = management?.can_manage !== false && (!sharedActive() || management?.can_manage === true) &&
+      !(configureRegistered && container.matches('.empty-logo'));
+    const old = wired.get(container);
+    if (!allowed) {
+      if (old) {
+        container.removeEventListener('click', old.open); container.removeEventListener('keydown', old.key);
+        for (const [key, value] of Object.entries(old.attrs)) {
+          if (value === null) container.removeAttribute(key); else container.setAttribute(key, value);
+        }
+        delete container.dataset.hwxBrandingWired; wired.delete(container);
+      }
+      return;
+    }
+    if (old) return;
+    const attrs = Object.fromEntries(['style', 'title', 'aria-hidden', 'role', 'tabindex', 'aria-label'].map(k => [k, container.getAttribute(k)]));
     container.dataset.hwxBrandingWired = '1';
     container.style.cursor = 'pointer';
     // The titlebar is a PWA drag region (core .app-titlebar sets
@@ -532,9 +622,9 @@
     container.setAttribute('aria-label', 'Configure Custom Branding');
     const open = (ev) => { ev.preventDefault(); ev.stopPropagation(); openPicker(container); };
     container.addEventListener('click', open);
-    container.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') open(ev);
-    });
+    const key = (ev) => { if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') open(ev); };
+    container.addEventListener('keydown', key);
+    wired.set(container, {open, key, attrs});
   }
 
   // ── observe re-renders ─────────────────────────────────────────────────────
@@ -558,9 +648,8 @@
     const haveLogo = document.querySelector('.app-titlebar-icon') || document.querySelector('.empty-logo');
     if (haveLogo || document.getElementById('messages')) {
       startObserver();
-      applyAll();
       window.HermesCustomBrandingExtension = {
-        version: '0.2.0',
+        version: '0.2.1',
         getLogo: getLogo,
         getFavicon: getFavicon,
         // setLogo/setFavicon gate the value internally (isDataImage) and return
@@ -574,12 +663,16 @@
       };
       try {
         const handle = window.hermesExt?.register?.(EXT);
-        handle?.settings?.registerConfigure?.(() => new Promise((resolve) => {
-          openPicker(null);
-          configureResolve = resolve;
-        }));
+        if (typeof handle?.settings?.registerConfigure === 'function') {
+          const unregister = handle.settings.registerConfigure(() => new Promise((resolve) => {
+            openPicker(document.activeElement);
+            configureResolve = resolve;
+          }));
+          configureRegistered = typeof unregister === 'function';
+        }
       } catch (_) { /* Legacy core keeps the titlebar picker. */ }
-      readShared();
+      applyAll();
+      if (hasBootstrap) readShared();
       return true;
     }
     if (attempt < 80) { setTimeout(() => install(attempt + 1), 150); return false; }
